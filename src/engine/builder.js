@@ -136,7 +136,7 @@ function mergeMemberByYear(work, years, vals, id) {
 //             mean chronology when the member joined (0 for the anchor and for
 //             seeded members, which sit at their native position).
 // ---------------------------------------------------------------------------
-function createBuilder({ undated, chron, detrend = {} } = {}) {
+function createBuilder({ undated, chron, detrend = {}, chronDated = true } = {}) {
   if (!undated && !chron) throw new Error('createBuilder: need undated and/or chron.');
 
   // Per-series disposition: id -> { status, note }.
@@ -172,6 +172,11 @@ function createBuilder({ undated, chron, detrend = {} } = {}) {
   // pinned series is later removed so stale dating can't mislead.
   let _datum = null;
   let datumInvalidated = false;
+
+  // A loaded chronology is calendar-dated: its axis IS calendar years, so seed a
+  // datum with a zero offset (positions already equal years) and source
+  // 'chronology'. The user can override this by pinning a known ring (setDatum).
+  if (chron && chronDated) _datum = { source: 'chronology', offset: 0 };
 
   const hasMember = id => members.some(m => m.id === id);
 

@@ -38,7 +38,7 @@
           <li><b>Load &amp; options</b> — load undated series (and optionally a dated chronology), or use the example data.</li>
           <li>Choose a <b>detrending</b> method and lead/lag limits.</li>
           <li>Pick <b>Pairwise</b> or <b>Chronology</b> mode and <b>Run analysis</b>.</li>
-          <li>Filter the <b>results table</b>, view <b>plots</b>, <b>align</b>, then <b>download</b> or generate a <b>report</b>.</li>
+          <li>Filter the <b>results table</b>, view <b>plots</b>, <b>build a chronology</b>, then <b>download</b> or generate a <b>report</b>.</li>
         </ol>
       </div>
       <div class="card">
@@ -96,7 +96,7 @@
               <option value="2">Chronology analysis mode</option>
             </select>
           </div>
-          <div>
+          <div id="targetField">
             <label for="target_select">Target series</label>
             <select id="target_select"><option value="">(load data first)</option></select>
           </div>
@@ -233,6 +233,11 @@
           <p class="hint">Skipped / flagged series left out of the chronology. Edit the note or return one to the pool.</p>
           <div class="tablewrap" id="setAsideList" style="max-height:200px"></div>
 
+          <div class="plot-controls" style="margin-top:12px">
+            <div><label class="inline"><input type="checkbox" id="b_verbose"> Verbose</label></div>
+            <div><label for="b_probs">Problem window</label><input type="number" id="b_probs" value="30"></div>
+            <div><label for="b_eps">EPS/Rbar window</label><input type="number" id="b_eps" value="30"></div>
+          </div>
           <div style="margin-top:12px">
             <button class="btn secondary" id="buildExportCsv">Export CSV</button>
             <button class="btn secondary" id="buildExportRwl">Export RWL</button>

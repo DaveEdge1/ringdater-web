@@ -159,13 +159,41 @@ ok('restore returns series to the pool',
   B.statusOf(skipId) === 'pool' && B.state().poolIds.indexOf(skipId) >= 0);
 
 // 12. builderReport HTML contains members + a stats line -----------------------
-const repHtml = AC.builderReport(B.summary(), { date: '2026-08-04' });
+// Pass the LIVE builder so the report recomputes prob-check + Rbar/EPS at
+// generate time from the current chronology frame (not a fixed snapshot).
+const repHtml = AC.builderReport(B, { date: '2026-08-04' });
 ok('builderReport is HTML', /^<!DOCTYPE html>/i.test(repHtml) && repHtml.indexOf('</html>') > 0);
 ok('report lists a member id', repHtml.indexOf(datumId) >= 0);
 ok('report has a stats line (Rbar/EPS/Sample depth)',
   repHtml.indexOf('Rbar') >= 0 && repHtml.indexOf('EPS') >= 0 && repHtml.indexOf('Sample depth') >= 0);
 ok('report has the dating statement', repHtml.indexOf('Dated:') >= 0 && repHtml.indexOf('1600') >= 0);
 ok('report has the set-aside status', repHtml.indexOf('review') >= 0);
+
+// 12a. the report OPTIONS genuinely drive generation --------------------------
+// Different EPS/Rbar window -> different HTML (options are effective, recomputed).
+const repW10 = AC.builderReport(B, { date: '2026-08-04', rbarWindow: 10, verbose: true });
+const repW40 = AC.builderReport(B, { date: '2026-08-04', rbarWindow: 40, verbose: true });
+ok('different rbarWindow -> different report output', repW10 !== repW40,
+  repW10.length + ' vs ' + repW40.length + ' chars');
+
+// verbose adds the full per-window Rbar/EPS table (longer, contains the table).
+const repQuiet = AC.builderReport(B, { date: '2026-08-04', verbose: false, rbarWindow: 20 });
+const repVerbose = AC.builderReport(B, { date: '2026-08-04', verbose: true, rbarWindow: 20 });
+ok('verbose report is longer than compact', repVerbose.length > repQuiet.length,
+  repQuiet.length + ' -> ' + repVerbose.length);
+ok('verbose report contains the full per-window table', repVerbose.indexOf('Mid year') >= 0);
+ok('compact report omits the full per-window table', repQuiet.indexOf('Mid year') < 0);
+
+// prob-check + Rbar/EPS sections are always present.
+ok('report has a Problem check section', repVerbose.indexOf('Problem check') >= 0);
+ok('report has an Rbar / EPS section', repVerbose.indexOf('Rbar / EPS') >= 0);
+
+// oversized windows are GUARDED: a friendly note, never a throw.
+let repThrew = false, repHuge = '';
+try { repHuge = AC.builderReport(B, { date: '2026-08-04', probWind: 100000, rbarWindow: 100000, verbose: true }); }
+catch (e) { repThrew = true; }
+ok('oversized windows do not throw', !repThrew);
+ok('oversized windows render an unavailable note', /unavailable/i.test(repHuge));
 
 // 13. session round-trip: serialize -> JSON -> restore, members+datum equal ----
 const ser = AC.serializeSession({

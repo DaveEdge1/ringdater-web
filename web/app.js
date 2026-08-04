@@ -57,6 +57,15 @@
   $('detrending_select').value = '3';
   fillSelect($('p_colscale'), AC.COLOR_SCALES, function (m) { return m.value; }, function (m) { return m.label; });
 
+  // Target series is the reference the pairwise run aligns to; chronology mode
+  // always uses the mean chronology, so hide the control there.
+  function syncModeUI() {
+    var chronoMode = Number($('mode_select').value) === 2;
+    $('targetField').style.display = chronoMode ? 'none' : '';
+  }
+  $('mode_select').addEventListener('change', syncModeUI);
+  syncModeUI();
+
   // ---- read UI option objects ----------------------------------------------
   function detrendUI() {
     return {
@@ -399,6 +408,9 @@
     // dating status line (+ warning if a datum series was removed)
     if (st.datumInvalidated) {
       setMsg('dateStatus', 'Dating was cleared — the dated series was removed from the chronology. Re-apply a date below.', 'err');
+    } else if (dated && sum.datum && sum.datum.source === 'chronology') {
+      setMsg('dateStatus', 'Dated from the loaded chronology — spans ' + sum.span.firstYear + '–' + sum.span.lastYear +
+        ' (calendar years). Pin a known ring below to re-date.', 'ok');
     } else if (dated && sum.datum) {
       setMsg('dateStatus', 'Dated: ' + sum.datum.seriesId + ' ' + sum.datum.edge + ' ring = ' + sum.datum.year +
         ' → chronology spans ' + sum.span.firstYear + '–' + sum.span.lastYear + '.', 'ok');
@@ -429,7 +441,7 @@
     // dating series picker (members only)
     var memberIds = st.members.map(function (m) { return m.id; });
     fillSelect($('dateSeriesSel'), memberIds, function (n) { return n; }, function (n) { return n; });
-    if (sum.datum) $('dateSeriesSel').value = sum.datum.seriesId;
+    if (sum.datum && sum.datum.seriesId) $('dateSeriesSel').value = sum.datum.seriesId;
 
     // set-aside table (id, status badge, editable note, Return to pool)
     renderSetAside(st.setAside);
@@ -594,7 +606,12 @@
   function openBuilderReport() {
     if (!state.builder) { setMsg('buildMsg', 'Start the builder first.', 'err'); return false; }
     try {
-      var html = AC.builderReport(state.builder.summary(), { date: new Date() });
+      var html = AC.builderReport(state.builder, {
+        date: new Date(),
+        verbose: $('b_verbose').checked,
+        probWind: Number($('b_probs').value),
+        rbarWindow: Number($('b_eps').value)
+      });
       return openReport(html, 'buildMsg');
     } catch (err) { setMsg('buildMsg', 'Report error: ' + err.message, 'err'); return false; }
   }
@@ -713,7 +730,12 @@
     // When a builder is active, report the BUILT chronology; otherwise the batch run.
     if (state.builder && state.builder.state().members.length) {
       try {
-        var bhtml = AC.builderReport(state.builder.summary(), { date: new Date() });
+        var bhtml = AC.builderReport(state.builder, {
+          date: new Date(),
+          verbose: $('rep_verbose').checked,
+          probWind: Number($('rep_probs').value),
+          rbarWindow: Number($('rep_eps').value)
+        });
         openReport(bhtml, 'reportMsg');
       } catch (err) { setMsg('reportMsg', 'Error: ' + err.message, 'err'); }
       return;

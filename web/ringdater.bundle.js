@@ -5287,7 +5287,7 @@ function mergeMemberByYear(work, years, vals, id) {
 //             mean chronology when the member joined (0 for the anchor and for
 //             seeded members, which sit at their native position).
 // ---------------------------------------------------------------------------
-function createBuilder({ undated, chron, detrend = {} } = {}) {
+function createBuilder({ undated, chron, detrend = {}, chronDated = true } = {}) {
   if (!undated && !chron) throw new Error('createBuilder: need undated and/or chron.');
 
   // Per-series disposition: id -> { status, note }.
@@ -5323,6 +5323,11 @@ function createBuilder({ undated, chron, detrend = {} } = {}) {
   // pinned series is later removed so stale dating can't mislead.
   let _datum = null;
   let datumInvalidated = false;
+
+  // A loaded chronology is calendar-dated: its axis IS calendar years, so seed a
+  // datum with a zero offset (positions already equal years) and source
+  // 'chronology'. The user can override this by pinning a known ring (setDatum).
+  if (chron && chronDated) _datum = { source: 'chronology', offset: 0 };
 
   const hasMember = id => members.some(m => m.id === id);
 
@@ -6471,6 +6476,19 @@ function probSummary(pc) {
   return `<table><thead><tr><th>Flagged sample</th><th>Interval</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
+// rBarEps() rows -> a running Rbar / EPS table (mid.year, n.trees, n, rbar.tot,
+// eps). Null (diagnostic threw / not supplied) degrades to a friendly note.
+function rbarTable(re) {
+  if (re == null) return '<p class="muted">EPS / Rbar table unavailable (try a smaller window).</p>';
+  if (!re.length) return '<p class="muted">No complete windows for the chosen window length.</p>';
+  const num = v => (v == null || (typeof v === 'number' && Number.isNaN(v))) ? '' : esc(v);
+  const rows = re.map(w =>
+    `<tr><td>${num(w.midYear)}</td><td>${num(w.nTrees)}</td><td>${num(w.n)}</td>` +
+    `<td>${num(w.rbarTot)}</td><td>${num(w.eps)}</td></tr>`).join('');
+  return `<table><thead><tr><th>mid.year</th><th>n.trees</th><th>n</th>` +
+    `<th>rbar.tot</th><th>EPS</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
 const CSS = `
 :root{color-scheme:light dark}
 body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
@@ -6530,6 +6548,7 @@ function renderReport(state = {}, opts = {}) {
 
   parts.push(`<h3>Chronology and EPS plots</h3>`);
   parts.push(`<p class="kv"><b>EPS and Rbar window:</b> ${esc(settings.rbarWindow)} years with 50% overlap</p>`);
+  if ('rBarEps' in state) parts.push(rbarTable(state.rBarEps));
   if (state.plots && state.plots.chron) parts.push(toSVG(state.plots.chron));
 
   parts.push(`<h3>Distribution of aligned samples</h3>`);
@@ -6554,7 +6573,7 @@ function fmtBool(v) {
   return v;
 }
 
-module.exports = { renderReport, detMethod, frameTable, probSummary };
+module.exports = { renderReport, detMethod, frameTable, probSummary, rbarTable };
 
   });
   define("m46", {"../analysis/comb.js":"m10","../detrend/normalise.js":"m12","../stats/chron.js":"m40","../analysis/leadLag.js":"m16","../analysis/heatmap.js":"m18","../viz/linePlot.js":"m43","../viz/heatmapPlot.js":"m47","../viz/leadLagBar.js":"m44"}, function(module, exports, require){

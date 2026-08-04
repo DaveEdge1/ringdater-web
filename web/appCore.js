@@ -323,10 +323,58 @@
     if (v == null || (typeof v === 'number' && isNaN(v))) return '—';
     return typeof v === 'number' ? String(Math.round(v * 1e4) / 1e4) : String(v);
   }
-  function builderReport(summary, opts) {
+  function isNAn(v) { return v == null || (typeof v === 'number' && isNaN(v)); }
+
+  // prob_check() result -> HTML: the flagged samples + intervals, or the
+  // "no problems"/error message.
+  function renderProbSection(pc, e) {
+    if (!pc) return '<p class="hint">Problem check was not run.</p>';
+    if (pc.message) return '<p>' + e(pc.message) + '</p>';
+    if (!pc.samples || !pc.samples.length) {
+      return '<p>Problem checker could not detect problems with any sample.</p>';
+    }
+    var rows = pc.samples.map(function (s, i) {
+      return '<tr><td class="l">' + e(s) + '</td><td class="l">' + e((pc.intervals && pc.intervals[i]) || '') + '</td></tr>';
+    }).join('');
+    return '<table><thead><tr><th>Flagged sample</th><th>Interval</th></tr></thead><tbody>' + rows + '</tbody></table>';
+  }
+
+  // rBarEps() rows -> HTML: always a compact peak summary; when `verbose`, also
+  // the full per-window Rbar/EPS table.
+  function renderRbarSection(re, verbose, e) {
+    if (!re || !re.length) return '<p class="hint">Rbar/EPS unavailable (no complete windows for this window length).</p>';
+    var peakR = -Infinity, peakE = -Infinity, depth = 0;
+    re.forEach(function (w) {
+      if (!isNAn(w.rbarTot) && w.rbarTot > peakR) peakR = w.rbarTot;
+      if (!isNAn(w.eps) && w.eps > peakE) peakE = w.eps;
+      if (!isNAn(w.nTrees) && w.nTrees > depth) depth = w.nTrees;
+    });
+    var summaryTbl = '<table><tbody>' +
+      '<tr><td class="l">Peak Rbar</td><td>' + statNum(peakR === -Infinity ? null : peakR) + '</td></tr>' +
+      '<tr><td class="l">Peak EPS</td><td>' + statNum(peakE === -Infinity ? null : peakE) + '</td></tr>' +
+      '<tr><td class="l">Peak sample depth</td><td>' + statNum(depth) + '</td></tr>' +
+      '</tbody></table>';
+    if (!verbose) return summaryTbl;
+    var rows = re.map(function (w) {
+      return '<tr><td class="l">' + e(w.midYear) + '</td><td>' + e(w.nTrees) + '</td><td>' + e(w.n) +
+        '</td><td>' + statNum(w.rbarTot) + '</td><td>' + statNum(w.eps) + '</td></tr>';
+    }).join('');
+    return summaryTbl +
+      '<table><thead><tr><th>Mid year</th><th>Trees</th><th>n</th><th>Rbar</th><th>EPS</th></tr></thead><tbody>' +
+      rows + '</tbody></table>';
+  }
+
+  // opts = { date, verbose, probWind, rbarWindow }. `builder` is the live builder
+  // (preferred) so the report can recompute prob-check + Rbar/EPS at GENERATE time
+  // from the current chronology frame, honouring the option windows. summary() is
+  // still used for the member / dating / set-aside content.
+  function builderReport(builder, opts) {
     opts = opts || {};
     var dt = isoDate(opts.date);
-    var s = summary || {};
+    var verbose = !!opts.verbose;
+    var probWind = opts.probWind != null ? Number(opts.probWind) : 30;
+    var rbarWindow = opts.rbarWindow != null ? Number(opts.rbarWindow) : 30;
+    var s = (builder && typeof builder.summary === 'function') ? builder.summary() : (builder || {});
     var members = s.members || [];
     var setAside = s.setAside || [];
     var dated = !!s.dated;
@@ -337,7 +385,10 @@
 
     // dating statement + span line
     var dateStmt, spanLine;
-    if (dated && datum) {
+    if (dated && datum && datum.source === 'chronology') {
+      dateStmt = 'Dated from the loaded chronology (calendar years).';
+      spanLine = 'Chronology spans <b>' + e(span.firstYear) + '</b>–<b>' + e(span.lastYear) + '</b> (calendar years).';
+    } else if (dated && datum) {
       dateStmt = 'Dated: <b>' + e(datum.seriesId) + '</b> ' + e(datum.edge) + ' ring = <b>' + e(datum.year) + '</b>.';
       spanLine = 'Chronology spans <b>' + e(span.firstYear) + '</b>–<b>' + e(span.lastYear) + '</b> (calendar years).';
     } else {
@@ -370,6 +421,40 @@
       '<tr><td class="l">EPS</td><td>' + statNum(stats.eps) + '</td></tr>' +
       '<tr><td class="l">Sample depth</td><td>' + statNum(stats.sampleDepth) + '</td></tr>';
 
+    // Recompute diagnostics at generate time from the current chronology frame.
+    // Both RD.probCheck / RD.rBarEps THROW on short/thin chronologies, so each is
+    // wrapped and degraded to a friendly note rather than failing the report.
+    var chrono = null;
+    if (builder && typeof builder.chronology === 'function') {
+      try { chrono = builder.isDated() ? builder.datedChronology() : builder.chronology(); }
+      catch (err) { chrono = null; }
+    }
+    var haveChron = !!(chrono && chrono.cols && chrono.cols.length >= 2 && members.length >= 2);
+
+    var probHtml;
+    if (!haveChron) {
+      probHtml = '<p class="hint">Problem check unavailable (need at least two aligned series).</p>';
+    } else {
+      try { probHtml = renderProbSection(RD.probCheck(chrono, { wind: probWind }), e); }
+      catch (err) { probHtml = '<p class="hint">Problem check unavailable (try a smaller window).</p>'; }
+    }
+
+    var rbarHtml;
+    if (!haveChron) {
+      rbarHtml = '<p class="hint">Rbar/EPS unavailable (need at least two aligned series).</p>';
+    } else {
+      try { rbarHtml = renderRbarSection(RD.rBarEps(chrono, { window: rbarWindow }), verbose, e); }
+      catch (err) { rbarHtml = '<p class="hint">Rbar/EPS unavailable (try a smaller window).</p>'; }
+    }
+
+    var diagSections =
+      '<h2>Problem check</h2>' +
+      '<p class="hint">Segment correlations against the mean chronology (' + e(probWind) + '-year window, 50% overlap).</p>' +
+      probHtml +
+      '<h2>Rbar / EPS (' + e(rbarWindow) + '-year window)</h2>' +
+      '<p class="hint">' + (verbose ? 'Full per-window table.' : 'Compact summary — enable Verbose for the full per-window table.') + '</p>' +
+      rbarHtml;
+
     return '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">' +
       '<title>RingdateR — built chronology report</title><style>' +
       'body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#1f2933;margin:0;padding:28px;line-height:1.5;background:#f4f6f8}' +
@@ -389,6 +474,7 @@
       '<table><thead>' + memHead + '</thead><tbody>' + memRows + '</tbody></table>' +
       saSection +
       '<h2>Chronology statistics</h2><table><tbody>' + statsRows + '</tbody></table>' +
+      diagSections +
       '</div></body></html>';
   }
 
@@ -415,7 +501,9 @@
       out.builder = {
         members: (st.members || []).map(function (m) { return { id: m.id, lag: m.lag, note: m.note || '' }; }),
         setAside: (st.setAside || []).map(function (x) { return { id: x.id, status: x.status, note: x.note || '' }; }),
-        datum: d ? { seriesId: d.seriesId, edge: d.edge, year: d.year } : null
+        // Only persist an explicit ring-pin datum; a 'chronology' datum is
+        // re-established automatically when the session reloads the chronology.
+        datum: (d && d.seriesId) ? { seriesId: d.seriesId, edge: d.edge, year: d.year } : null
       };
     }
     return out;
@@ -447,7 +535,7 @@
         else builder.skip(x.id, x.note || '');
       });
     }
-    if (B && B.datum) builder.setDatum({ seriesId: B.datum.seriesId, edge: B.datum.edge, year: B.datum.year });
+    if (B && B.datum && B.datum.seriesId) builder.setDatum({ seriesId: B.datum.seriesId, edge: B.datum.edge, year: B.datum.year });
     return { undated: undated, chron: chron, detrend: detrend, builder: builder };
   }
 
@@ -458,12 +546,29 @@
   function report(result, opts) {
     opts = opts || {};
     var chrono = !!opts.chrono;
+    var settings = opts.settings || {};
+    var probWind = settings.probs != null ? Number(settings.probs) : 30;
+    var rbarWindow = settings.rbarWindow != null ? Number(settings.rbarWindow) : 30;
+
+    // Recompute the diagnostics at GENERATE time from result.aligned so the
+    // Report-tab windows take effect WITHOUT re-running the analysis. Both
+    // RD.probCheck / RD.rBarEps throw on short/thin chronologies — guard each.
+    var probCheck = result.probCheck || null;
+    var rBarEps = null;
+    if (result.aligned) {
+      try { probCheck = RD.probCheck(result.aligned, { wind: probWind }); }
+      catch (err) { probCheck = { message: 'Problem check unavailable (try a smaller window).', samples: [], intervals: [] }; }
+      try { rBarEps = RD.rBarEps(result.aligned, { window: rbarWindow }); }
+      catch (err) { rBarEps = null; }
+    }
+
     var state = {
       files: opts.files || {},
       detrend: result.detrendOpts || {},
-      settings: opts.settings || {},
+      settings: settings,
       correlReplace: opts.correlReplace || null,
-      probCheck: result.probCheck || null,
+      probCheck: probCheck,
+      rBarEps: rBarEps,
       plots: opts.plots || null
     };
     return RD.renderReport(state, { chrono: chrono, date: opts.date });
