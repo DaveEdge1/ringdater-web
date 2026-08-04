@@ -1,0 +1,37 @@
+cff-version: 1.2.0
+title: RingdateR Web
+message: >-
+  If you use this software, please cite the original RingdateR
+  publication (Reynolds, Edge & Black, 2021) given under
+  "preferred-citation".
+type: software
+authors:
+  - given-names: David J.
+    family-names: Reynolds
+  - given-names: David C.
+    family-names: Edge
+  - given-names: Bryan A.
+    family-names: Black
+abstract: >-
+  A dependency-free JavaScript / browser port of RingdateR, a tool for the
+  statistical and visual crossdating of annually-resolved growth series
+  (tree rings and mollusc, fish and coral increments).
+repository-code: 'https://github.com/DaveEdge1/ringdater-web'
+url: 'https://daveedge1.github.io/ringdater-web/'
+license: MIT
+version: 0.1.0
+preferred-citation:
+  type: article
+  title: 'RingdateR: A Statistical and Graphical Tool for Crossdating'
+  authors:
+    - given-names: David J.
+      family-names: Reynolds
+    - given-names: David C.
+      family-names: Edge
+    - given-names: Bryan A.
+      family-names: Black
+  journal: Dendrochronologia
+  year: 2021
+  volume: 65
+  start: 125797
+  doi: 10.1016/j.dendro.2020.125797

@@ -93,10 +93,21 @@ Pushing to `main` builds the bundle and publishes `web/` to **GitHub Pages** via
 [`.github/workflows/pages.yml`](.github/workflows/pages.yml). Enable it once under
 **Settings → Pages → Build and deployment → Source: GitHub Actions**.
 
+## Citation
+
+If you use RingdateR (this web port or the R package) for scientific work, please
+cite the original publication:
+
+> Reynolds, D.J., Edge, D.C. and Black, B.A., 2021. RingdateR: A Statistical and
+> Graphical Tool for Crossdating. *Dendrochronologia*, 65, 125797.
+> https://doi.org/10.1016/j.dendro.2020.125797
+
+A machine-readable citation is provided in [`CITATION.cff`](CITATION.cff) (GitHub
+renders a "Cite this repository" button from it).
+
 ## Credits & license
 
 A port of **RingdateR** (David Reynolds, David Edge, Bryan Black —
 https://github.com/ringdater/ringdater_pkg), which builds on **dplR** (OpenDendro).
-Please cite the original RingdateR package for scientific use.
 
 Released under the [MIT License](LICENSE); the original RingdateR is likewise MIT-licensed.
