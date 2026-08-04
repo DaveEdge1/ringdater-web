@@ -87,9 +87,14 @@
         var d = toData(svg, e.clientX, e.clientY);
         if (!d.inside) return;
         e.preventDefault();
-        var f = e.deltaY < 0 ? 0.85 : 1 / 0.85;   // scroll up = zoom in
-        xd = [d.x - (d.x - xd[0]) * f, d.x + (xd[1] - d.x) * f];
-        yd = [d.y - (d.y - yd[0]) * f, d.y + (yd[1] - d.y) * f];
+        // Independent axes: plain wheel zooms X (time) only — so zooming into a
+        // period keeps the full width range in view; Shift zooms Y (width) only;
+        // Ctrl/Cmd zooms both. (Shift+wheel may arrive as deltaX in some browsers.)
+        var delta = e.deltaY !== 0 ? e.deltaY : e.deltaX;
+        var f = delta < 0 ? 0.85 : 1 / 0.85;      // scroll up = zoom in
+        var both = e.ctrlKey || e.metaKey;
+        if (both || !e.shiftKey) xd = [d.x - (d.x - xd[0]) * f, d.x + (xd[1] - d.x) * f];
+        if (both || e.shiftKey) yd = [d.y - (d.y - yd[0]) * f, d.y + (yd[1] - d.y) * f];
         draw();
       }, { passive: false });
 

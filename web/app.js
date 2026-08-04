@@ -300,7 +300,7 @@
     var area = $('plotArea');
     area.innerHTML = '';
     var vs = pair[0] + ' vs ' + pair[1];
-    var zoomHint = ' Scroll to zoom, drag to pan, double-click to reset.';
+    var zoomHint = ' Scroll = zoom time (x); Shift+scroll = zoom width (y); Ctrl+scroll = both; drag = pan; double-click = reset.';
 
     // The line plot (first plot / crossdate overlay) is interactive: data-domain
     // zoom + pan with crisp, regenerating axes. Other plots stay static.
