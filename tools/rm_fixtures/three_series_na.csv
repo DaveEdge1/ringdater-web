@@ -1,0 +1,8 @@
+sample_ID,x1,y1,x2,y2,series,label_text,abs_distance
+oak sample,0,0,1,1,series_1,2,2
+oak sample,0,0,1,1,series_1,4,
+oak sample,0,0,1,1,series_1,1,1
+oak sample,0,0,1,1,series_1,3,3
+oak sample,0,0,1,1,series_2,1,1.5
+oak sample,0,0,1,1,series_2,2,2.5
+oak sample,0,0,1,1,series_3,1,0.9

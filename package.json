@@ -1,0 +1,12 @@
+{
+  "name": "ringdater-js",
+  "version": "0.1.0",
+  "description": "JS port of the numeric core of dplR/ringdater (crossdating), validated against R.",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "test": "for t in test/*_test.js test/run.js; do echo \"# $t\"; node \"$t\" || exit 1; done",
+    "build:bundle": "node tools/bundle.js"
+  },
+  "license": "MIT"
+}

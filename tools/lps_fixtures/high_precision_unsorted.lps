@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<lineprofileengine>
+  <lines count="1">
+    <profile>
+      <edges>
+        <edge>
+          <distances>
+            <channel>
+              <manual count="4">
+          <distance value="3.14159265358979"/>
+          <distance value="2.71828182845905"/>
+          <distance value="1.4142135623731"/>
+          <distance value="9.86960440108936"/>
+              </manual>
+            </channel>
+          </distances>
+        </edge>
+      </edges>
+    </profile>
+  </lines>
+</lineprofileengine>

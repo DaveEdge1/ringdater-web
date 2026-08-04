@@ -1,0 +1,7 @@
+sample_ID,x1,y1,x2,y2,series,label_text,abs_distance
+Y,0,0,1,1,series_1,1,4
+Y,0,0,1,1,series_1,2,5
+Y,0,0,1,1,series_1,3,6
+Y,0,0,1,1,series_2,1,4.4
+Y,0,0,1,1,series_2,2,5.4
+Y,0,0,1,1,series_2,3,6.4

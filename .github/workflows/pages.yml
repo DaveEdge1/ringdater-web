@@ -1,0 +1,51 @@
+name: Deploy web app to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Permissions the GitHub Pages deploy needs.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Only one Pages deploy at a time; newer pushes cancel older in-flight runs.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # The browser bundle is a build artifact of src/ (zero npm dependencies —
+      # a tiny in-repo bundler). Rebuild it so the deployed site is always in
+      # sync with src/, regardless of what was committed.
+      - name: Build browser bundle
+        run: node tools/bundle.js
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      # Publish only the static web/ directory (the app + its self-contained bundle).
+      - name: Upload site artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

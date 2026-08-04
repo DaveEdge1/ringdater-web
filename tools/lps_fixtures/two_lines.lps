@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<lineprofileengine>
+  <lines count="2">
+    <profile>
+      <edges>
+        <edge>
+          <distances>
+            <channel>
+              <manual count="3">
+          <distance value="10.5"/>
+          <distance value="30"/>
+          <distance value="20.25"/>
+              </manual>
+            </channel>
+          </distances>
+        </edge>
+      </edges>
+    </profile>
+    <profile>
+      <edges>
+        <edge>
+          <distances>
+            <channel>
+              <manual count="4">
+          <distance value="5"/>
+          <distance value="15"/>
+          <distance value="40"/>
+          <distance value="25"/>
+              </manual>
+            </channel>
+          </distances>
+        </edge>
+      </edges>
+    </profile>
+  </lines>
+</lineprofileengine>

@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RingdateR</title>
+<link rel="stylesheet" href="./app.css">
+</head>
+<body>
+<header class="app">
+  <h1>RingdateR</h1><span class="ver">web V0.1.0</span>
+  <span class="status" id="statusBar">No data loaded</span>
+</header>
+
+<div class="layout">
+  <nav class="tabs" id="tabnav">
+    <div class="grp">Workflow</div>
+    <button data-tab="start" class="active">Starting page</button>
+    <button data-tab="load">Load &amp; options</button>
+    <button data-tab="detrend" disabled>Detrending</button>
+    <button data-tab="results" disabled>Results table</button>
+    <button data-tab="plots" disabled>Plots</button>
+    <button data-tab="build" disabled>Build chronology</button>
+    <div class="grp">Output</div>
+    <button data-tab="downloads" disabled>Downloads</button>
+    <button data-tab="report" disabled>Report</button>
+  </nav>
+
+  <main>
+    <!-- ===== STARTING PAGE ===== -->
+    <section class="tabpage active" id="tab-start">
+      <div class="card start-hero">
+        <h2>Welcome to RingdateR (web)</h2>
+        <p>A browser port of the RingdateR crossdating tool — detrend tree-ring series, crossdate them
+           pairwise or against a chronology, inspect the results, and export data, plots and a run report.
+           Everything runs locally in your browser; no data leaves your machine.</p>
+        <ol>
+          <li><b>Load &amp; options</b> — load undated series (and optionally a dated chronology), or use the example data.</li>
+          <li>Choose a <b>detrending</b> method and lead/lag limits.</li>
+          <li>Pick <b>Pairwise</b> or <b>Chronology</b> mode and <b>Run analysis</b>.</li>
+          <li>Filter the <b>results table</b>, view <b>plots</b>, <b>align</b>, then <b>download</b> or generate a <b>report</b>.</li>
+        </ol>
+      </div>
+      <div class="card">
+        <h2>Quick start</h2>
+        <p class="hint">Jump straight in with the bundled example dataset (13 undated series).</p>
+        <button class="btn" id="exampleBtn">Load example data</button>
+        <span class="msg" id="startMsg"></span>
+      </div>
+    </section>
+
+    <!-- ===== LOAD & OPTIONS ===== -->
+    <section class="tabpage" id="tab-load">
+      <div class="grid2">
+        <div class="card">
+          <h2>Step 1 · Analysis options</h2>
+          <label for="detrending_select">Detrending method</label>
+          <select id="detrending_select"></select>
+          <label for="splinewindow">Spline window (years, method 3 only)</label>
+          <input type="number" id="splinewindow" value="32" min="5" max="200" step="1">
+          <label class="inline"><input type="checkbox" id="ARmod"> Apply AR1 pre-whitening</label>
+          <label class="inline"><input type="checkbox" id="logT"> Apply log transform</label>
+          <h3>Lead / lag</h3>
+          <label class="inline"><input type="checkbox" id="total_overlap" checked> Auto lag limits (all possible leads/lags)</label>
+          <label for="neg_lag">Lower lag limit (years)</label>
+          <input type="number" id="neg_lag" value="-20" step="1">
+          <label for="pos_lag">Upper lag limit (years)</label>
+          <input type="number" id="pos_lag" value="20" step="1">
+          <label for="cor_win">Correlation window (years)</label>
+          <input type="number" id="cor_win" value="21" min="5" step="1">
+        </div>
+
+        <div class="card">
+          <h2>Step 2 · Load undated series</h2>
+          <p class="hint">Formats: .csv, .txt, .rwl, .pos, .lps, Ring-Measurer. First column = years/increment.</p>
+          <div class="warn" id="xlsxWarn" style="display:none"></div>
+          <label for="file1">Undated data (one or more files)</label>
+          <input type="file" id="file1" multiple accept=".csv,.txt,.rwl,.pos,.lps">
+          <div id="undatedInfo"></div>
+
+          <h2 style="margin-top:18px">Load a dated chronology (optional)</h2>
+          <p class="hint">Needed for Chronology mode. Formats: .rwl, .csv, .txt.</p>
+          <label for="file2">Chronology data</label>
+          <input type="file" id="file2" accept=".csv,.txt,.rwl">
+          <div id="chronInfo"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Step 3 · Choose analysis pathway &amp; run</h2>
+        <div class="plot-controls">
+          <div>
+            <label for="mode_select">Analysis mode</label>
+            <select id="mode_select">
+              <option value="1">Pairwise analysis mode</option>
+              <option value="2">Chronology analysis mode</option>
+            </select>
+          </div>
+          <div>
+            <label for="target_select">Target series</label>
+            <select id="target_select"><option value="">(load data first)</option></select>
+          </div>
+          <div>
+            <button class="btn" id="runBtn" disabled>Run analysis</button>
+            <button class="btn ghost" id="clearBtn">Clear</button>
+          </div>
+        </div>
+        <span class="msg" id="runMsg"></span>
+      </div>
+    </section>
+
+    <!-- ===== DETRENDING ===== -->
+    <section class="tabpage" id="tab-detrend">
+      <div class="card">
+        <h2>Detrending diagnostic</h2>
+        <p class="hint">Raw series + fitted detrending curve, the detrended series, and raw vs detrended autocorrelation.</p>
+        <div class="plot-controls">
+          <div>
+            <label for="detrendSeriesSel">Series</label>
+            <select id="detrendSeriesSel"></select>
+          </div>
+        </div>
+        <div class="plotwrap" id="detrendPlot"></div>
+      </div>
+    </section>
+
+    <!-- ===== RESULTS TABLE ===== -->
+    <section class="tabpage" id="tab-results">
+      <div class="card">
+        <h2>Crossdating results <span id="resModeBadge"></span></h2>
+        <p class="hint">The 17-column interseries results table (best 3 lag matches per pair). Click a row to select a pair for the plots.</p>
+        <div class="plot-controls">
+          <div><label for="f_target">Target series</label><select id="f_target"></select></div>
+          <div><label for="f_r">Min R</label><input type="number" id="f_r" value="0.5" step="0.05" min="0" max="1"></div>
+          <div><label for="f_p">Max p</label><input type="number" id="f_p" value="0.05" step="0.01" min="0" max="1"></div>
+          <div><label for="f_overlap">Min overlap</label><input type="number" id="f_overlap" value="30" step="1" min="1"></div>
+          <div><label class="inline"><input type="checkbox" id="f_apply"> Apply filter</label></div>
+        </div>
+        <div class="msg" id="resMsg"></div>
+        <div class="tablewrap"><table class="res" id="resTable"><thead></thead><tbody></tbody></table></div>
+      </div>
+    </section>
+
+    <!-- ===== PLOTS ===== -->
+    <section class="tabpage" id="tab-plots">
+      <div class="card">
+        <h2>Plots</h2>
+        <div class="plot-controls">
+          <div><label for="p_series1">Series 1</label><select id="p_series1"></select></div>
+          <div><label for="p_series2">Series 2</label><select id="p_series2"></select></div>
+          <div><label for="p_lag">Line-plot lag</label><input type="number" id="p_lag" value="0" step="1"></div>
+          <div><label for="p_colscale">Colour scale</label><select id="p_colscale"></select></div>
+          <div><label for="p_which">Show</label>
+            <select id="p_which">
+              <option value="combined">Combined (line + bar + heatmap)</option>
+              <option value="line">Line plot</option>
+              <option value="heatmap">Running-correlation heatmap</option>
+              <option value="leadLagBar">Lead-lag bar</option>
+              <option value="allSeries">All aligned series</option>
+            </select>
+          </div>
+        </div>
+        <div class="msg" id="plotMsg"></div>
+        <div class="plotwrap" id="plotArea"></div>
+      </div>
+    </section>
+
+    <!-- ===== ALIGN & CHRONOLOGY ===== -->
+
+    <!-- ===== BUILD CHRONOLOGY ===== -->
+    <section class="tabpage" id="tab-build">
+      <div class="card">
+        <h2>Build chronology <span id="buildBadge"></span></h2>
+        <p class="hint">Grow a chronology iteratively — crossdate one candidate series at a time against the current
+           mean chronology, review the alignment plots, then approve the suggested lag (or your own override).
+           Uses the current detrend settings and, if a chronology was loaded, seeds from its members.</p>
+        <div class="plot-controls">
+          <div><button class="btn" id="buildStartBtn">Start / restart builder</button></div>
+          <div id="anchorWrap" style="display:none">
+            <label for="anchorSel">Anchor series (no chronology loaded)</label>
+            <select id="anchorSel"></select>
+          </div>
+          <div id="anchorBtnWrap" style="display:none"><button class="btn secondary" id="setAnchorBtn">Set anchor</button></div>
+          <div>
+            <label>Session</label>
+            <button class="btn ghost" id="sessionSaveBtn">Save session</button>
+            <label class="btn ghost filelabel" for="sessionLoadInput">Load session</label>
+            <input type="file" id="sessionLoadInput" accept=".json" style="display:none">
+          </div>
+        </div>
+        <div class="warn" id="resumeWrap" style="display:none">
+          A previous unsaved session was found in this browser.
+          <button class="btn secondary" id="resumeBtn">Resume previous session</button>
+          <button class="btn ghost" id="resumeDismiss">Dismiss</button>
+        </div>
+        <span class="msg" id="buildMsg"></span>
+        <span class="msg" id="sessionMsg"></span>
+      </div>
+
+      <div class="grid2" id="buildPanels" style="display:none">
+        <!-- Current chronology -->
+        <div class="card">
+          <h2>Chronology</h2>
+          <p class="hint" id="buildSummary"></p>
+
+          <h3>Date the chronology</h3>
+          <p class="hint">Pin a known ring on a member series to give the whole chronology calendar years.</p>
+          <div class="plot-controls">
+            <div><label for="dateSeriesSel">Member series</label><select id="dateSeriesSel"></select></div>
+            <div><label for="dateEdgeSel">Ring</label>
+              <select id="dateEdgeSel"><option value="first">First ring</option><option value="last">Last ring</option></select>
+            </div>
+            <div><label for="dateYear">Calendar year</label><input type="number" id="dateYear" step="1" value="2000"></div>
+            <div><button class="btn secondary" id="applyDateBtn">Apply date</button></div>
+          </div>
+          <div class="msg" id="dateStatus"></div>
+
+          <h3>Auto-build</h3>
+          <p class="hint">Repeatedly crossdate the pool and add every series that passes. Fully editable afterwards.</p>
+          <div class="plot-controls">
+            <div><label for="ab_r">Min R</label><input type="number" id="ab_r" value="0.5" step="0.05" min="0" max="1"></div>
+            <div><label for="ab_p">Max p</label><input type="number" id="ab_p" value="0.05" step="0.01" min="0" max="1"></div>
+            <div><label for="ab_overlap">Min overlap</label><input type="number" id="ab_overlap" value="30" step="1" min="1"></div>
+            <div><button class="btn secondary" id="autoBuildBtn">Auto-build</button></div>
+          </div>
+          <div class="msg" id="autoBuildMsg"></div>
+
+          <h3>Members</h3>
+          <div class="tablewrap" id="memberList" style="max-height:220px"></div>
+          <div class="plotwrap" id="buildChronPlot" style="margin-top:10px"></div>
+
+          <h3>Set aside</h3>
+          <p class="hint">Skipped / flagged series left out of the chronology. Edit the note or return one to the pool.</p>
+          <div class="tablewrap" id="setAsideList" style="max-height:200px"></div>
+
+          <div style="margin-top:12px">
+            <button class="btn secondary" id="buildExportCsv">Export CSV</button>
+            <button class="btn secondary" id="buildExportRwl">Export RWL</button>
+            <button class="btn" id="buildReportBtn">Generate report</button>
+          </div>
+        </div>
+
+        <!-- Add a series -->
+        <div class="card">
+          <h2>Add a series</h2>
+          <div class="plot-controls">
+            <div><label for="candSel">Candidate (pool)</label><select id="candSel"></select></div>
+            <div><button class="btn secondary" id="crossdateBtn">Crossdate</button></div>
+          </div>
+          <div class="tablewrap" id="suggTable" style="max-height:180px"></div>
+          <label for="candNote">Note (optional — attached on skip / needs-review)</label>
+          <textarea id="candNote" rows="2" placeholder="e.g. ambiguous match, low overlap…"></textarea>
+          <div class="plot-controls" style="margin-top:10px">
+            <div><label for="candLag">Lag (years)</label><input type="number" id="candLag" step="1" value="0"></div>
+            <div><button class="btn" id="approveBtn" disabled>Approve</button></div>
+            <div><button class="btn ghost" id="skipBtn">Skip</button></div>
+            <div><button class="btn ghost" id="needsReviewBtn">Needs review</button></div>
+          </div>
+          <span class="msg" id="candMsg"></span>
+          <div class="plotwrap" id="reviewLine" style="margin-top:8px"></div>
+          <div class="plotwrap" id="reviewHeat" style="margin-top:8px"></div>
+          <div class="plotwrap" id="reviewBar" style="margin-top:8px"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== DOWNLOADS ===== -->
+    <section class="tabpage" id="tab-downloads">
+      <div class="card">
+        <h2>Downloads</h2>
+        <p class="hint">Every exportable artifact from the current run. Click to download (real browser blob download).</p>
+        <ul class="dl-list" id="dlList"></ul>
+      </div>
+    </section>
+
+    <!-- ===== REPORT ===== -->
+    <section class="tabpage" id="tab-report">
+      <div class="card">
+        <h2>Run report</h2>
+        <p class="hint">A self-contained HTML output log (detrending settings, correlations, prob-check). Opens in a new tab.</p>
+        <div class="plot-controls">
+          <div><label class="inline"><input type="checkbox" id="rep_verbose"> Verbose</label></div>
+          <div><label for="rep_probs">Problem window</label><input type="number" id="rep_probs" value="30"></div>
+          <div><label for="rep_eps">EPS/Rbar window</label><input type="number" id="rep_eps" value="30"></div>
+          <div><button class="btn" id="reportBtn">Generate report</button></div>
+        </div>
+        <span class="msg" id="reportMsg"></span>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script src="./ringdater.bundle.js"></script>
+<script src="./exampleData.js"></script>
+<script src="./appCore.js"></script>
+<script src="./plotZoom.js"></script>
+<script src="./app.js"></script>
+</body>
+</html>

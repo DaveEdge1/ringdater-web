@@ -1,0 +1,4 @@
+sample_ID,x1,y1,x2,y2,series,label_text,abs_distance
+C tree,0,0,1,1,series_1,1,9
+C tree,0,0,1,1,series_1,2,10
+C tree,0,0,1,1,series_2,1,9.9
