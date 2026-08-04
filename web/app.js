@@ -452,8 +452,8 @@
 
     // candidate pool picker (skipped / review series are not in poolIds)
     fillSelect($('candSel'), st.poolIds, function (n) { return n; }, function (n) { return n; });
-    if (!st.poolIds.length) { setMsg('candMsg', 'Pool is empty — no more candidates to add.', 'ok'); $('crossdateBtn').disabled = true; }
-    else { $('crossdateBtn').disabled = false; }
+    if (!st.poolIds.length) { setMsg('candMsg', 'Pool is empty — no more candidates to add.', 'ok'); clearReviewUI(); }
+    else { runCrossdate(); }   // auto-crossdate the selected candidate (no button)
 
     scheduleAutosave();
   }
@@ -496,8 +496,8 @@
       setMsg('candMsg', 'Crossdated ' + id + ' — best lag ' + rv.bestLag + '. Review the plots, adjust the lag, then Approve.', 'ok');
     } catch (err) { clearReviewUI(); setMsg('candMsg', 'Error: ' + err.message, 'err'); }
   }
-  $('crossdateBtn').addEventListener('click', runCrossdate);
-  $('candSel').addEventListener('change', function () { clearReviewUI(); setMsg('candMsg', ''); });
+  // Auto-crossdate whenever the selected candidate changes (no Crossdate button).
+  $('candSel').addEventListener('change', runCrossdate);
 
   function paintSuggestions(suggestions) {
     if (!suggestions || !suggestions.length) { $('suggTable').innerHTML = '<p class="msg err">No lag suggestions (insufficient overlap).</p>'; return; }
