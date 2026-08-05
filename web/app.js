@@ -2,6 +2,11 @@
  * app.js — thin DOM wiring for the RingdateR web frontend. All non-trivial logic
  * lives in appCore.js (window.AppCore); this file only reads inputs, calls
  * AppCore, and paints the DOM. Keep it dumb.
+ *
+ * Structure: a view router (Home / Explore / Build) + named actions collected on
+ * an internal Actions object, published as window.AppUI so the guided tour
+ * (tour.js) — and the console — can drive the app through the same code paths
+ * as the buttons.
  * ==========================================================================*/
 (function () {
   'use strict';
@@ -18,30 +23,30 @@
     result: null,          // last workflow result
     filteredTable: null,   // current (possibly re-filtered) crossDatRes Frame
     selectedPair: null,    // [s1, s2]
-    builder: null,         // RD.createBuilder instance (Build chronology tab)
+    builder: null,         // RD.createBuilder instance (Build view)
     review: null           // cached crossdate review ({suggestions, cn, masterLeadLag, ...})
   };
 
-  // ---- tab navigation ------------------------------------------------------
-  function enableTabs(on) {
-    var order = ['detrend', 'results', 'plots', 'build', 'downloads', 'report'];
-    order.forEach(function (t) {
-      var b = document.querySelector('nav.tabs button[data-tab="' + t + '"]');
-      if (b) b.disabled = !on;
-    });
+  var Actions = {};        // named UI actions; published as window.AppUI below
+
+  // ---- view router ---------------------------------------------------------
+  var currentView = 'home';
+  function syncNav() {
+    var bb = document.querySelector('nav.tabs button[data-view="build"]');
+    if (bb) bb.disabled = !(state.undated || hasAutosave());
   }
-  function showTab(name) {
+  function showView(name) {
     document.querySelectorAll('.tabpage').forEach(function (p) { p.classList.remove('active'); });
     document.querySelectorAll('nav.tabs button').forEach(function (b) { b.classList.remove('active'); });
-    var page = $('tab-' + name); if (page) page.classList.add('active');
-    var btn = document.querySelector('nav.tabs button[data-tab="' + name + '"]'); if (btn) btn.classList.add('active');
-    if (name === 'detrend') renderDetrend();
-    if (name === 'plots') renderPlots();
+    var page = $('view-' + name); if (page) page.classList.add('active');
+    var btn = document.querySelector('nav.tabs button[data-view="' + name + '"]'); if (btn) btn.classList.add('active');
+    currentView = name;
+    closeExport();
     if (name === 'build') renderBuild();
-    if (name === 'downloads') renderDownloads();
   }
+  Actions.showView = showView;
   document.querySelectorAll('nav.tabs button').forEach(function (b) {
-    b.addEventListener('click', function () { if (!b.disabled) showTab(b.getAttribute('data-tab')); });
+    b.addEventListener('click', function () { if (!b.disabled) showView(b.getAttribute('data-view')); });
   });
 
   // ---- populate static option dropdowns ------------------------------------
@@ -53,7 +58,7 @@
       el.appendChild(o);
     });
   }
-  fillSelect($('detrending_select'), AC.DETREND_METHODS, function (m) { return m.value; }, function (m) { return m.value + ' — ' + m.label; });
+  fillSelect($('detrending_select'), AC.DETREND_METHODS, function (m) { return m.value; }, function (m) { return m.label; });
   $('detrending_select').value = '3';
   fillSelect($('p_colscale'), AC.COLOR_SCALES, function (m) { return m.value; }, function (m) { return m.label; });
 
@@ -62,6 +67,8 @@
   function syncModeUI() {
     var chronoMode = Number($('mode_select').value) === 2;
     $('targetField').style.display = chronoMode ? 'none' : '';
+    // Contextual chronology loader: only in chronology mode with none loaded.
+    $('modeChronPrompt').style.display = (chronoMode && !state.chron) ? '' : 'none';
   }
   $('mode_select').addEventListener('change', syncModeUI);
   syncModeUI();
@@ -105,46 +112,88 @@
     } else { w.style.display = 'none'; w.innerHTML = ''; }
   }
 
-  $('file1').addEventListener('change', function (e) {
-    readFilesAsText(e.target.files, function (descriptors, xlsx) {
+  // Home is the loader; the Explore rail shows a compact summary of what's
+  // loaded. Both repaint from the same state, and the requirement chips update.
+  function renderDataInfo() {
+    var un = state.undated ? AC.seriesNames(state.undated) : [];
+    // rail: compact status lines
+    $('undatedInfo').innerHTML = state.undated
+      ? '<p class="msg ok">' + un.length + ' undated series loaded.</p>'
+      : '<p class="hint">No undated series loaded.</p>';
+    $('chronInfo').innerHTML = state.chron
+      ? '<p class="msg ok">Chronology: ' + AC.seriesNames(state.chron).length + ' members.</p>'
+      : '<p class="hint">No chronology loaded.</p>';
+  }
+  function loadUndatedFiles(fileList, msgId) {
+    readFilesAsText(fileList, function (descriptors, xlsx) {
       xlsxWarn(xlsx);
-      if (!descriptors.length) { $('undatedInfo').innerHTML = ''; return; }
+      if (xlsx.length && msgId) setMsg(msgId, '.xlsx files skipped — see the warning above.', 'err');
+      if (!descriptors.length) { renderDataInfo(); return; }
       try {
         state.undated = AC.loadUndated(descriptors);
         state.undatedName = descriptors.map(function (d) { return d.name; }).join(', ');
-        $('undatedInfo').innerHTML = '<p class="msg ok">Loaded ' + esc(state.undatedName) + ' — ' +
-          AC.seriesNames(state.undated).length + ' series, ' + state.undated.cols[0].length + ' rows.</p>' +
-          seriesBadges(AC.seriesNames(state.undated));
+        renderDataInfo();
         onDataChanged();
-      } catch (err) { $('undatedInfo').innerHTML = '<p class="msg err">' + esc(err.message) + '</p>'; }
+        if (msgId) setMsg(msgId, 'Loaded ' + AC.seriesNames(state.undated).length + ' undated series.', 'ok');
+      } catch (err) {
+        if (msgId) setMsg(msgId, err.message, 'err');
+        $('undatedInfo').innerHTML = '<p class="msg err">' + esc(err.message) + '</p>';
+      }
     });
-  });
-  $('file2').addEventListener('change', function (e) {
-    readFilesAsText(e.target.files, function (descriptors, xlsx) {
+  }
+  function loadChronFile(fileList, msgId, cb) {
+    readFilesAsText(fileList, function (descriptors, xlsx) {
       xlsxWarn(xlsx);
-      if (!descriptors.length) { $('chronInfo').innerHTML = ''; return; }
+      if (!descriptors.length) { renderDataInfo(); return; }
       try {
         state.chron = AC.loadChron(descriptors[0]);
         state.chronName = descriptors[0].name;
-        $('chronInfo').innerHTML = '<p class="msg ok">Loaded ' + esc(state.chronName) + ' — ' +
-          AC.seriesNames(state.chron).length + ' members.</p>';
-      } catch (err) { $('chronInfo').innerHTML = '<p class="msg err">' + esc(err.message) + '</p>'; }
+        // A loaded chronology is almost always there to be crossdated against —
+        // default the Explore analysis mode to chronology mode.
+        $('mode_select').value = '2';
+        renderDataInfo();
+        onDataChanged();
+        if (msgId) setMsg(msgId, 'Loaded chronology ' + state.chronName + '.', 'ok');
+        if (cb) cb(true);
+      } catch (err) {
+        if (msgId) setMsg(msgId, err.message, 'err');
+        $('chronInfo').innerHTML = '<p class="msg err">' + esc(err.message) + '</p>';
+        if (cb) cb(false);
+      }
     });
+  }
+  // Data is loaded through the per-task setup step (below); the rail's
+  // contextual chronology loader is the one exception (chronology mode with
+  // none loaded).
+  $('setupUndatedInput').addEventListener('change', function (e) { loadUndatedFiles(e.target.files, 'startMsg'); });
+  $('setupChronInput').addEventListener('change', function (e) { loadChronFile(e.target.files, 'startMsg'); });
+  $('modeChronInput').addEventListener('change', function (e) {
+    loadChronFile(e.target.files, 'runMsg', function () { e.target.value = ''; });
   });
-  function seriesBadges(names) { return names.map(function (n) { return '<span class="badge">' + esc(n) + '</span>'; }).join(' '); }
+  $('railManageBtn').addEventListener('click', function () { openTaskSetup('explore'); });
+  $('exploreLoadBtn').addEventListener('click', function () { openTaskSetup('explore'); });
 
   // ---- example data --------------------------------------------------------
-  $('exampleBtn').addEventListener('click', function () {
+  Actions.loadExample = function () {
     try {
       state.undated = AC.loadUndated([window.RD_EXAMPLE]);
       state.undatedName = window.RD_EXAMPLE.name;
       state.chron = null; state.chronName = null;
-      setMsg('startMsg', 'Example data loaded — ' + AC.seriesNames(state.undated).length + ' undated series. Go to "Load & options" to run.', 'ok');
-      $('undatedInfo').innerHTML = '<p class="msg ok">Loaded ' + esc(state.undatedName) + ' (example).</p>' + seriesBadges(AC.seriesNames(state.undated));
+      setMsg('startMsg', 'Example data loaded — ' + AC.seriesNames(state.undated).length + ' undated series.', 'ok');
+      renderDataInfo();
       onDataChanged();
-      showTab('load');
-    } catch (err) { setMsg('startMsg', err.message, 'err'); }
-  });
+      return true;
+    } catch (err) { setMsg('startMsg', err.message, 'err'); return false; }
+  };
+  // Tour helper: make sure the example data is loaded, confirming before it
+  // replaces data the user loaded themselves.
+  Actions.usingExampleData = function () { return !!state.undated && state.undatedName === window.RD_EXAMPLE.name; };
+  Actions.ensureExampleData = function () {
+    if (Actions.usingExampleData()) return true;
+    if (state.undated && !window.confirm('The tour uses the bundled example data, replacing the data you loaded. Continue?')) return false;
+    return Actions.loadExample();
+  };
+  $('setupExampleBtn').addEventListener('click', Actions.loadExample);
 
   function onDataChanged() {
     var names = state.undated ? AC.seriesNames(state.undated) : [];
@@ -153,26 +202,68 @@
       ? (names.length + ' undated series' + (state.chron ? ' + chronology' : '') + ' loaded')
       : 'No data loaded';
     $('runBtn').disabled = !state.undated;
-    // The Build-chronology tab only needs loaded data (it creates its own
-    // builder from state.undated + the current detrend settings), so enable it
-    // as soon as data is present — independent of running the batch analysis.
-    var bb = document.querySelector('nav.tabs button[data-tab="build"]');
-    if (bb) bb.disabled = !state.undated;
+    // Header Clear + Export appear only once there's data to act on.
+    document.querySelector('.header-actions').style.display = state.undated ? '' : 'none';
+    syncModeUI();
+    refreshSetup();
+    if (!state.result) updateExploreEmpty();
+    syncNav();
   }
 
-  $('clearBtn').addEventListener('click', function () {
+  Actions.clearAll = function () {
     state = { undated: null, chron: null, undatedName: null, chronName: null, detrend: null, result: null, filteredTable: null, selectedPair: null, builder: null, review: null };
-    $('file1').value = ''; $('file2').value = '';
-    $('undatedInfo').innerHTML = ''; $('chronInfo').innerHTML = ''; xlsxWarn([]);
+    $('setupUndatedInput').value = ''; $('setupChronInput').value = '';
+    xlsxWarn([]);
     resetBuildUI();
-    setMsg('runMsg', ''); onDataChanged(); enableTabs(false);
+    renderDataInfo();
+    setMsg('runMsg', ''); setMsg('startMsg', '');
+    showExploreResults(false);
+    onDataChanged(); syncResumeBanners();
+  };
+  // Clear from the rail or the header; confirm only when real work would be lost.
+  Actions.clearConfirmed = function () {
+    var risky = (state.builder && state.builder.state().members.length) || state.result;
+    if (risky && !window.confirm('Clear all loaded data, results and the current chronology session?')) return;
+    Actions.clearAll();
+    closeTaskSetup();
+    showView('home');
+  };
+  $('clearBtn').addEventListener('click', Actions.clearConfirmed);
+  $('headerClearBtn').addEventListener('click', Actions.clearConfirmed);
+
+  // ---- explore: empty state vs results -------------------------------------
+  function showExploreResults(on) {
+    $('exploreEmpty').style.display = on ? 'none' : '';
+    $('exploreResults').style.display = on ? '' : 'none';
+    $('explorePlots').style.display = on ? '' : 'none';
+    if (!on) updateExploreEmpty();
+  }
+  // The empty panel is data-aware: "no data" before anything is loaded, and a
+  // "ready to run" prompt once undated series are present but no run has happened.
+  function updateExploreEmpty() {
+    var loaded = !!state.undated;
+    $('exploreEmptyNoData').style.display = loaded ? 'none' : '';
+    $('exploreEmptyReady').style.display = loaded ? '' : 'none';
+    if (loaded) {
+      $('exploreReadyMsg').innerHTML = AC.seriesNames(state.undated).length + ' undated series loaded' +
+        (state.chron ? ' + a chronology' : '') +
+        '. Choose a detrending method and analysis mode in the settings rail, then <b>Run analysis</b> — the results table and plots appear here.';
+    }
+  }
+
+  // rail collapse
+  $('railToggle').addEventListener('click', function () {
+    var ws = $('exploreWorkspace');
+    var collapsed = ws.classList.toggle('rail-collapsed');
+    $('railToggle').textContent = collapsed ? '⟩' : '⟨';
+    $('railToggle').title = collapsed ? 'Expand settings' : 'Collapse settings';
   });
 
   // ---- run analysis --------------------------------------------------------
-  $('runBtn').addEventListener('click', function () {
-    if (!state.undated) return;
+  Actions.runAnalysis = function (done) {
+    if (!state.undated) { setMsg('runMsg', 'Load undated data first.', 'err'); return; }
     var mode = Number($('mode_select').value);
-    if (mode === 2 && !state.chron) { setMsg('runMsg', 'Chronology mode needs a loaded chronology (Step 2).', 'err'); return; }
+    if (mode === 2 && !state.chron) { setMsg('runMsg', 'Chronology mode needs a loaded chronology (Data section above).', 'err'); return; }
     var target = $('target_select').value || AC.seriesNames(state.undated)[0];
     setMsg('runMsg', 'Running analysis…');
     setTimeout(function () {
@@ -194,12 +285,14 @@
         setMsg('runMsg', 'Analysis complete (' + (mode === 2 ? 'chronology' : 'pairwise') + ' mode). ' +
           state.result.crossDatRes.cols[0].length + ' result rows; ' +
           (state.result.aligned.names.length - 1) + ' aligned series.', 'ok');
-        enableTabs(true);
         setupResultControls();
-        showTab('results');
-      } catch (err) { setMsg('runMsg', 'Error: ' + err.message, 'err'); }
+        showExploreResults(true);
+        renderPlots();
+        if (done) done(true);
+      } catch (err) { setMsg('runMsg', 'Error: ' + err.message, 'err'); if (done) done(false); }
     }, 20);
-  });
+  };
+  $('runBtn').addEventListener('click', function () { Actions.runAnalysis(); });
 
   // ---- results table -------------------------------------------------------
   function setupResultControls() {
@@ -243,37 +336,51 @@
   function paintTable(tbl) {
     var thead = $('resTable').querySelector('thead');
     var tbody = $('resTable').querySelector('tbody');
-    thead.innerHTML = '<tr>' + tbl.columns.map(function (c) { return '<th>' + esc(c) + '</th>'; }).join('') + '</tr>';
+    // Display tweaks (headers/frame stay underscored for the engine + exports):
+    // hide the internal "col" column and show column names without underscores.
+    var dropIdx = tbl.columns.findIndex(function (c) { return String(c).toLowerCase() === 'col'; });
+    var keep = function (arr) { return dropIdx < 0 ? arr : arr.filter(function (_, i) { return i !== dropIdx; }); };
+    var pretty = function (c) { return String(c).replace(/_/g, ' '); };
+    var span = keep(tbl.columns).length;
+    thead.innerHTML = '<tr>' + keep(tbl.columns).map(function (c) { return '<th>' + esc(pretty(c)) + '</th>'; }).join('') + '</tr>';
     tbody.innerHTML = '';
-    tbl.rows.forEach(function (row, ri) {
-      var s1 = row[0], s2 = row[1];
+    tbl.rows.forEach(function (row) {
+      var s1 = row[0], s2 = row[1];       // Series_1 / Series_2 stay at indices 0,1 ("col" is later)
       var isSep = row.every(function (c) { return c === ''; });
       var tr = document.createElement('tr');
-      if (isSep) { tr.className = 'sep'; tr.innerHTML = '<td colspan="17"></td>'; tbody.appendChild(tr); return; }
-      tr.innerHTML = row.map(function (c) { return '<td>' + esc(c) + '</td>'; }).join('');
+      if (isSep) { tr.className = 'sep'; tr.innerHTML = '<td colspan="' + span + '"></td>'; tbody.appendChild(tr); return; }
+      tr.innerHTML = keep(row).map(function (c) { return '<td>' + esc(c) + '</td>'; }).join('');
       if (s1 && s2 && s1 !== s2) {
         tr.addEventListener('click', function () {
-          state.selectedPair = [s1, s2];
           tbody.querySelectorAll('tr').forEach(function (x) { x.classList.remove('sel'); });
           tr.classList.add('sel');
-          if ($('p_series1')) $('p_series1').value = s1;
-          if ($('p_series2') && Array.prototype.some.call($('p_series2').options, function (o) { return o.value === s2; })) $('p_series2').value = s2;
-          $('p_lag').value = AC.bestLagFor(state.result, s1, s2);
-          setMsg('resMsg', 'Selected pair: ' + s1 + ' vs ' + s2 + ' — open the Plots tab.', 'ok');
+          Actions.selectPair(s1, s2);
         });
       }
       tbody.appendChild(tr);
     });
   }
 
-  // ---- detrend diagnostic --------------------------------------------------
-  function renderDetrend() {
+  // Select a pair and render its plots in place (no tab hop).
+  Actions.selectPair = function (s1, s2) {
     if (!state.result) return;
-    var series = $('detrendSeriesSel').value || AC.seriesNames(state.undated)[0];
-    var plots = AC.buildPlots(state.result, { detrendSeries: series });
-    $('detrendPlot').innerHTML = plots.detrend ? AC.renderPlot(plots.detrend) : '<p class="msg err">Could not build the detrending plot for this series.</p>';
-  }
-  $('detrendSeriesSel').addEventListener('change', renderDetrend);
+    state.selectedPair = [s1, s2];
+    if ($('p_series1')) $('p_series1').value = s1;
+    if ($('p_series2') && Array.prototype.some.call($('p_series2').options, function (o) { return o.value === s2; })) $('p_series2').value = s2;
+    $('p_lag').value = AC.bestLagFor(state.result, s1, s2);
+    renderPlots();
+    $('explorePlots').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  };
+  // First selectable pair in the painted table (tour fallback for "click a row").
+  // Skips separator rows and diagonal self-pairs (s1 === s2), which carry no
+  // click handler.
+  Actions.selectFirstPair = function () {
+    var rows = $('resTable').querySelectorAll('tbody tr:not(.sep)');
+    for (var i = 0; i < rows.length; i++) {
+      var c = rows[i].cells;
+      if (c.length >= 2 && c[0].textContent && c[0].textContent !== c[1].textContent) { rows[i].click(); return; }
+    }
+  };
 
   // ---- plots ---------------------------------------------------------------
   // Auto-render whenever any plot control changes (no explicit Render button).
@@ -286,18 +393,43 @@
       renderPlots();
     });
   });
-  ['p_colscale', 'p_which'].forEach(function (id) {
+  ['p_colscale', 'detrendSeriesSel'].forEach(function (id) {
     $(id).addEventListener('change', renderPlots);
   });
+  $('p_which').addEventListener('change', function () { syncPlotControls(); renderPlots(); });
   $('p_lag').addEventListener('input', renderPlots);
+
+  Actions.setPlotType = function (which) {
+    $('p_which').value = which;
+    syncPlotControls();
+    renderPlots();
+  };
+  // The detrend diagnostic picks a single raw series; the pairwise plots pick a
+  // pair — toggle the matching controls.
+  function syncPlotControls() {
+    var isDetrend = $('p_which').value === 'detrend';
+    document.querySelectorAll('#explorePlots .pairCtl').forEach(function (d) { d.style.display = isDetrend ? 'none' : ''; });
+    $('detrendCtl').style.display = isDetrend ? '' : 'none';
+  }
   function renderPlots() {
     if (!state.result) return;
-    var pair = [$('p_series1').value, $('p_series2').value];
-    var plots = AC.buildPlots(state.result, {
-      pair: pair, lag: Number($('p_lag').value) || 0, colorScale: $('p_colscale').value
-    });
     var which = $('p_which').value;
     var area = $('plotArea');
+
+    if (which === 'detrend') {
+      var series = $('detrendSeriesSel').value || AC.seriesNames(state.undated)[0];
+      var dspec = AC.buildPlots(state.result, { detrendSeries: series }).detrend;
+      area.innerHTML = dspec ? AC.renderPlot(dspec)
+        : '<p class="msg err">Could not build the detrending plot for this series.</p>';
+      setMsg('plotMsg', dspec ? 'Detrending diagnostic for ' + series + ' — raw + fitted curve, detrended series, autocorrelation.' : '', dspec ? 'ok' : '');
+      return;
+    }
+
+    var pair = [$('p_series1').value, $('p_series2').value];
+    var plots = AC.buildPlots(state.result, {
+      pair: pair, lag: Number($('p_lag').value) || 0, colorScale: $('p_colscale').value,
+      corWin: Number($('cor_win').value) || 21
+    });
     area.innerHTML = '';
     var vs = pair[0] + ' vs ' + pair[1];
     var zoomHint = ' Scroll = zoom time (x); Shift+scroll = zoom width (y); Ctrl+scroll = both; drag = pan; double-click = reset.';
@@ -315,7 +447,7 @@
       area.appendChild(lineDiv);
       if (plots.line) PlotZoom.attachDataZoom(lineDiv, plots.line, AC.RD.renderSvg);
       else lineDiv.innerHTML = '<p class="msg err">Line plot could not be built for ' + esc(vs) + '.</p>';
-      var restSvg = AC.combinedPlot([plots.leadLagBar, plots.heatmap]);
+      var restSvg = AC.combinedPlot([plots.skeleton, plots.leadLagBar, plots.heatmap]);
       if (restSvg) { var restDiv = document.createElement('div'); restDiv.innerHTML = restSvg; area.appendChild(restDiv); }
       setMsg('plotMsg', 'Combined for ' + vs + '. The line plot zooms/pans —' + zoomHint, 'ok');
       return;
@@ -326,12 +458,115 @@
     setMsg('plotMsg', 'Showing ' + which + ' for ' + vs + '.', 'ok');
   }
 
+  // ---- home task cards + per-task setup step -------------------------------
+  // Task-first flow: a card opens a setup step that collects ONLY the data that
+  // task requires (reusing anything already loaded); Continue enters the
+  // workspace. Learn needs no data and launches the tour directly.
+  var TASK_SPECS = {
+    explore: {
+      title: 'Set up: Explore & crossdate',
+      intro: 'Load the undated series you want to crossdate. A dated chronology is optional — you only need it for chronology mode.',
+      slots: {
+        undated: { show: true, required: true, order: 1, label: 'Undated series to crossdate' },
+        chron: { show: true, required: false, order: 2, label: 'Dated chronology (optional — for chronology mode)' }
+      },
+      example: true,
+      go: function () { showView('explore'); }
+    },
+    build: {
+      title: 'Set up: Build a chronology',
+      intro: "Load the undated series to build the chronology from. You'll pick an anchor series next.",
+      slots: {
+        undated: { show: true, required: true, order: 1, label: 'Undated series' },
+        chron: { show: false }
+      },
+      example: true,
+      go: function () { showView('build'); Actions.startBuilder(); }
+    },
+    extend: {
+      title: 'Set up: Extend a chronology',
+      intro: 'Load the dated chronology you want to extend, then the undated series to add to it.',
+      slots: {
+        chron: { show: true, required: true, order: 1, label: 'Chronology to extend' },
+        undated: { show: true, required: true, order: 2, label: 'Undated series to add' }
+      },
+      example: false,
+      go: function () { showView('build'); Actions.startBuilder(); }
+    }
+  };
+  var currentTask = null;
+
+  function configSlot(name, cfg) {
+    var slot = $('slot' + name);
+    if (!cfg || !cfg.show) { slot.style.display = 'none'; return; }
+    slot.style.display = '';
+    slot.style.order = cfg.order || 0;
+    $('slot' + name + 'Label').textContent = cfg.label;
+  }
+  function slotSatisfied(name) { return name === 'Undated' ? !!state.undated : !!state.chron; }
+  function refreshSetup() {
+    if (!currentTask || $('taskSetup').style.display === 'none') return;
+    var spec = TASK_SPECS[currentTask];
+    var ready = true;
+    ['Undated', 'Chron'].forEach(function (name) {
+      var cfg = spec.slots[name.toLowerCase()];
+      if (!cfg || !cfg.show) return;
+      var ok = slotSatisfied(name);
+      if (cfg.required && !ok) ready = false;
+      var st = $('slot' + name + 'Status');
+      if (ok) {
+        var detail = name === 'Undated'
+          ? AC.seriesNames(state.undated).length + ' series (' + esc(state.undatedName) + ')'
+          : AC.seriesNames(state.chron).length + ' members (' + esc(state.chronName) + ')';
+        st.innerHTML = '<span class="slot-ok">✓ Loaded: ' + detail + '</span>';
+      } else {
+        st.innerHTML = cfg.required ? '<span class="slot-need">Required</span>' : '<span class="slot-opt">Optional</span>';
+      }
+    });
+    $('setupContinueBtn').disabled = !ready;
+  }
+  function openTaskSetup(key) {
+    var spec = TASK_SPECS[key];
+    if (!spec) return;
+    currentTask = key;
+    showView('home');
+    $('homeChooser').style.display = 'none';
+    $('taskSetup').style.display = '';
+    $('setupTitle').textContent = spec.title;
+    $('setupIntro').textContent = spec.intro;
+    configSlot('Undated', spec.slots.undated);
+    configSlot('Chron', spec.slots.chron);
+    $('setupExample').style.display = spec.example ? '' : 'none';
+    setMsg('startMsg', '');
+    refreshSetup();
+    $('taskSetup').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  Actions.openTaskSetup = openTaskSetup;
+  function closeTaskSetup() {
+    currentTask = null;
+    $('taskSetup').style.display = 'none';
+    $('homeChooser').style.display = '';
+  }
+
+  $('exploreCardBtn').addEventListener('click', function () { openTaskSetup('explore'); });
+  $('buildCardBtn').addEventListener('click', function () { openTaskSetup('build'); });
+  $('extendCardBtn').addEventListener('click', function () { openTaskSetup('extend'); });
+  $('setupBack').addEventListener('click', closeTaskSetup);
+  $('setupContinueBtn').addEventListener('click', function () {
+    if (!currentTask) return;
+    var go = TASK_SPECS[currentTask].go;
+    closeTaskSetup();
+    go();
+  });
+  $('tourExploreBtn').addEventListener('click', function () { if (window.Tour) window.Tour.start('explore'); });
+  $('tourBuildBtn').addEventListener('click', function () { if (window.Tour) window.Tour.start('build'); });
 
   // ---- build chronology ----------------------------------------------------
   // Interactive, one-series-at-a-time chronology building driven by RD.createBuilder
   // (via AppCore). The left panel shows the current members + mean/all-series plot
-  // and export controls; the right panel picks a pool candidate, crossdates it,
-  // shows the best-3 suggestions + three review plots, and approves/skips it.
+  // and grouped Date / Auto-build / Set-aside sections; the right panel picks a pool
+  // candidate, crossdates it, shows the best-3 suggestions + three review plots,
+  // and approves/skips it.
   function resetBuildUI() {
     $('buildPanels').style.display = 'none';
     $('anchorWrap').style.display = 'none';
@@ -346,20 +581,19 @@
     state.review = null;
     $('suggTable').innerHTML = '';
     $('candNote').value = '';
-    $('reviewLine').innerHTML = ''; $('reviewHeat').innerHTML = ''; $('reviewBar').innerHTML = '';
+    $('reviewLine').innerHTML = ''; $('reviewSkel').innerHTML = ''; $('reviewHeat').innerHTML = ''; $('reviewBar').innerHTML = '';
     $('approveBtn').disabled = true;
   }
-  // Entering the tab: nothing auto-runs — the user clicks Start. But keep the
+  // Entering the view: nothing auto-runs — the user clicks Start. But keep the
   // start button state honest when there is no data.
   function renderBuild() {
     $('buildStartBtn').disabled = !state.undated;
-    // Offer to resume an autosaved session if one exists and nothing is in progress.
-    $('resumeWrap').style.display = (!state.builder && hasAutosave()) ? '' : 'none';
+    syncResumeBanners();
     if (state.builder) refreshBuild();
   }
 
-  $('buildStartBtn').addEventListener('click', function () {
-    if (!state.undated) { setMsg('buildMsg', 'Load undated data first (Load & options).', 'err'); return; }
+  Actions.startBuilder = function () {
+    if (!state.undated) { setMsg('buildMsg', 'Load undated data first (Home or the Explore settings rail).', 'err'); return false; }
     try {
       state.detrend = detrendUI();
       state.builder = AC.newBuilder({ undated: state.undated, chron: state.chron, detrend: state.detrend });
@@ -376,20 +610,25 @@
         $('buildPanels').style.display = 'none';
         setMsg('buildMsg', 'No chronology loaded — pick an anchor series to seed the working set, then Set anchor.', 'ok');
       }
-    } catch (err) { setMsg('buildMsg', 'Error: ' + err.message, 'err'); }
-  });
+      syncResumeBanners();
+      return true;
+    } catch (err) { setMsg('buildMsg', 'Error: ' + err.message, 'err'); return false; }
+  };
+  $('buildStartBtn').addEventListener('click', function () { Actions.startBuilder(); });
 
-  $('setAnchorBtn').addEventListener('click', function () {
+  Actions.setAnchor = function (id) {
     if (!state.builder) return;
-    var id = $('anchorSel').value;
+    id = id || $('anchorSel').value;
     try {
       state.builder.setAnchor(id);
+      $('anchorSel').value = id;
       $('anchorWrap').style.display = 'none'; $('anchorBtnWrap').style.display = 'none';
       setMsg('buildMsg', 'Anchor set to ' + id + '. Now add series on the right.', 'ok');
       clearReviewUI();
       refreshBuild();
     } catch (err) { setMsg('buildMsg', 'Error: ' + err.message, 'err'); }
-  });
+  };
+  $('setAnchorBtn').addEventListener('click', function () { Actions.setAnchor(); });
 
   // Repaint both panels from the current builder state.
   function refreshBuild() {
@@ -397,9 +636,6 @@
     var st = b.state();
     $('buildPanels').style.display = st.hasChronology ? '' : 'none';
     $('buildBadge').innerHTML = '<span class="pill mode1">' + st.members.length + ' members</span>';
-    // The built chronology can be reported on directly — make the Report tab reachable.
-    var rb = document.querySelector('nav.tabs button[data-tab="report"]');
-    if (rb && st.members.length) rb.disabled = false;
     if (!st.hasChronology) return;
 
     var sum = b.summary();
@@ -498,6 +734,11 @@
   }
   // Auto-crossdate whenever the selected candidate changes (no Crossdate button).
   $('candSel').addEventListener('change', runCrossdate);
+  Actions.selectCandidate = function (id) {
+    if (!state.builder) return;
+    if (id) $('candSel').value = id;
+    runCrossdate();
+  };
 
   function paintSuggestions(suggestions) {
     if (!suggestions || !suggestions.length) { $('suggTable').innerHTML = '<p class="msg err">No lag suggestions (insufficient overlap).</p>'; return; }
@@ -513,6 +754,7 @@
   function renderReviewPlots(specs) {
     if (specs.line) PlotZoom.attachDataZoom($('reviewLine'), specs.line, AC.RD.renderSvg);
     else $('reviewLine').innerHTML = '<p class="msg err">Line overlay unavailable for this alignment (thin overlap).</p>';
+    $('reviewSkel').innerHTML = specs.skeleton ? AC.renderPlot(specs.skeleton) : '<p class="msg err">Skeleton plot unavailable (thin overlap).</p>';
     $('reviewHeat').innerHTML = specs.heatmap ? AC.renderPlot(specs.heatmap) : '<p class="msg err">Heatmap unavailable (thin overlap).</p>';
     $('reviewBar').innerHTML = specs.leadLagBar ? AC.renderPlot(specs.leadLagBar) : '<p class="msg err">Lead-lag bar unavailable.</p>';
   }
@@ -526,7 +768,7 @@
     renderReviewPlots(AC.builderPlots(state.review.cn, state.review.masterLeadLag, id, L));
   });
 
-  $('approveBtn').addEventListener('click', function () {
+  Actions.approveCandidate = function () {
     if (!state.builder || !state.review) return;
     var id = $('candSel').value;
     var L = Number($('candLag').value) || 0;
@@ -536,7 +778,8 @@
       setMsg('candMsg', 'Added ' + id + ' at lag ' + L + '.', 'ok');
       refreshBuild();
     } catch (err) { setMsg('candMsg', 'Error: ' + err.message, 'err'); }
-  });
+  };
+  $('approveBtn').addEventListener('click', Actions.approveCandidate);
   // Skip / Needs-review move the candidate out of the pool with an optional note.
   function disposition(kind) {
     if (!state.builder) return;
@@ -569,7 +812,7 @@
   });
 
   // ---- auto-build ----------------------------------------------------------
-  $('autoBuildBtn').addEventListener('click', function () {
+  Actions.autoBuild = function () {
     if (!state.builder) { setMsg('autoBuildMsg', 'Start the builder first.', 'err'); return; }
     setMsg('autoBuildMsg', 'Auto-building…');
     setTimeout(function () {
@@ -587,35 +830,15 @@
           ' did not pass — left in the pool for review.', 'ok');
       } catch (err) { setMsg('autoBuildMsg', 'Auto-build failed: ' + err.message, 'err'); }
     }, 20);
-  });
+  };
+  $('autoBuildBtn').addEventListener('click', Actions.autoBuild);
 
-  function exportBuilder(which) {
-    if (!state.builder) return;
-    // Prefer the dated frame (col0 = calendar years) once a datum is set.
-    var frame = state.builder.isDated() ? state.builder.datedChronology() : state.builder.exportChronology();
-    if (!frame) { setMsg('buildMsg', 'Nothing to export yet.', 'err'); return; }
-    try {
-      var dls = AC.builderDownloads(frame);
-      triggerDownload(which === 'rwl' ? dls.chronologyRwl : dls.chronologyCsv);
-    } catch (err) { setMsg('buildMsg', 'Export error: ' + err.message, 'err'); }
-  }
-  $('buildExportCsv').addEventListener('click', function () { exportBuilder('csv'); });
-  $('buildExportRwl').addEventListener('click', function () { exportBuilder('rwl'); });
-
-  // Generate the built-chronology report (from summary()) and open it.
-  function openBuilderReport() {
-    if (!state.builder) { setMsg('buildMsg', 'Start the builder first.', 'err'); return false; }
-    try {
-      var html = AC.builderReport(state.builder, {
-        date: new Date(),
-        verbose: $('b_verbose').checked,
-        probWind: Number($('b_probs').value),
-        rbarWindow: Number($('b_eps').value)
-      });
-      return openReport(html, 'buildMsg');
-    } catch (err) { setMsg('buildMsg', 'Report error: ' + err.message, 'err'); return false; }
-  }
-  $('buildReportBtn').addEventListener('click', openBuilderReport);
+  // ---- export menu ---------------------------------------------------------
+  // One header menu, scoped to what exists: the Explore section exports the last
+  // analysis run; the Build section exports the built chronology. Each report
+  // lives next to its own artifact, so the old "builder shadows the run report"
+  // trap is gone.
+  function builderHasMembers() { return !!(state.builder && state.builder.state().members.length); }
   function openReport(html, msgId) {
     var w = window.open('', '_blank');
     if (!w) { setMsg(msgId, 'Pop-up blocked — allow pop-ups to view the report.', 'err'); return false; }
@@ -623,6 +846,91 @@
     setMsg(msgId, 'Report opened in a new tab.', 'ok');
     return true;
   }
+  function triggerDownload(d) {
+    var blob = new Blob([d.content], { type: d.mime });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = d.filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  }
+  function dlItem(d, label) {
+    var li = document.createElement('li');
+    li.innerHTML = '<span><span class="fn">' + esc(d.filename) + '</span><br><span class="mime">' + esc(label) + ' · ' + esc(d.mime) + '</span></span>';
+    var btn = document.createElement('button');
+    btn.className = 'btn secondary'; btn.textContent = 'Download';
+    btn.addEventListener('click', function () { triggerDownload(d); });
+    li.appendChild(btn);
+    return li;
+  }
+  function renderRunDownloads() {
+    var pair = state.selectedPair || [state.result.aligned.names[1], state.result.aligned.names[2]];
+    var plots = AC.buildPlots(state.result, { pair: pair });
+    var specs = {
+      pairwiseLinePlot: plots.line, pairwiseBarPlot: plots.leadLagBar,
+      fullHeatmap: plots.heatmap, detrendedSeriesPlot: plots.detrend
+    };
+    var dls = AC.downloads(state.result, { plots: specs });
+    var ul = $('dlList'); ul.innerHTML = '';
+    Object.keys(dls).forEach(function (key) { ul.appendChild(dlItem(dls[key], key)); });
+    if (!Object.keys(dls).length) ul.innerHTML = '<li>No downloadable artifacts for this run.</li>';
+  }
+  function renderBuildDownloads() {
+    // Prefer the dated frame (col0 = calendar years) once a datum is set.
+    var frame = state.builder.isDated() ? state.builder.datedChronology() : state.builder.exportChronology();
+    var ul = $('buildDlList'); ul.innerHTML = '';
+    if (!frame) { ul.innerHTML = '<li>Nothing to export yet.</li>'; return; }
+    var dls = AC.builderDownloads(frame);
+    ul.appendChild(dlItem(dls.chronologyCsv, 'chronology CSV'));
+    ul.appendChild(dlItem(dls.chronologyRwl, 'chronology RWL (Tucson)'));
+  }
+  function renderExportPanel() {
+    // On Home both sections show when they have content; in a workspace, that
+    // workspace's section leads.
+    var showRun = !!state.result && (currentView === 'explore' || currentView === 'home');
+    var showBuild = builderHasMembers() && (currentView === 'build' || currentView === 'home');
+    $('exportExplore').style.display = showRun ? '' : 'none';
+    $('exportBuild').style.display = showBuild ? '' : 'none';
+    $('exportEmpty').style.display = (showRun || showBuild) ? 'none' : '';
+    setMsg('reportMsg', ''); setMsg('buildReportMsg', '');
+    if (showRun) { try { renderRunDownloads(); } catch (err) { $('dlList').innerHTML = '<li>' + esc(err.message) + '</li>'; } }
+    if (showBuild) { try { renderBuildDownloads(); } catch (err) { $('buildDlList').innerHTML = '<li>' + esc(err.message) + '</li>'; } }
+  }
+  Actions.openExport = function () { renderExportPanel(); $('exportPanel').hidden = false; };
+  function closeExport() { $('exportPanel').hidden = true; }
+  Actions.closeExport = closeExport;
+  $('exportBtn').addEventListener('click', function () {
+    if ($('exportPanel').hidden) Actions.openExport(); else closeExport();
+  });
+  document.addEventListener('click', function (e) {
+    if (!$('exportPanel').hidden && !e.target.closest('.export')) closeExport();
+  });
+
+  // run report (Explore section of the export menu)
+  $('reportBtn').addEventListener('click', function () {
+    if (!state.result) { setMsg('reportMsg', 'Run an analysis first.', 'err'); return; }
+    try {
+      var html = AC.report(state.result, {
+        chrono: state.result.mode === 2,
+        files: { undated: state.undatedName, chrono: state.chronName },
+        settings: { verbose: $('rep_verbose').checked, probs: Number($('rep_probs').value), rbarWindow: Number($('rep_eps').value) }
+      });
+      openReport(html, 'reportMsg');
+    } catch (err) { setMsg('reportMsg', 'Error: ' + err.message, 'err'); }
+  });
+  // built-chronology report (Build section of the export menu)
+  $('buildReportBtn').addEventListener('click', function () {
+    if (!builderHasMembers()) { setMsg('buildReportMsg', 'Build a chronology first.', 'err'); return; }
+    try {
+      var html = AC.builderReport(state.builder, {
+        date: new Date(),
+        verbose: $('b_verbose').checked,
+        probWind: Number($('b_probs').value),
+        rbarWindow: Number($('b_eps').value)
+      });
+      openReport(html, 'buildReportMsg');
+    } catch (err) { setMsg('buildReportMsg', 'Error: ' + err.message, 'err'); }
+  });
 
   // ---- session save / restore ----------------------------------------------
   var AUTOSAVE_KEY = 'ringdater_autosave_v1';
@@ -643,6 +951,11 @@
   }
   function hasAutosave() {
     try { return !!localStorage.getItem(AUTOSAVE_KEY); } catch (e) { return false; }
+  }
+  // The resume banner appears on Home and in Build (same condition, shared class).
+  function syncResumeBanners() {
+    var show = !state.builder && hasAutosave();
+    document.querySelectorAll('.resumeWrap').forEach(function (w) { w.style.display = show ? '' : 'none'; });
   }
 
   $('sessionSaveBtn').addEventListener('click', function () {
@@ -672,91 +985,44 @@
       state.undated = r.undated; state.chron = r.chron; state.detrend = r.detrend; state.builder = r.builder;
       state.result = null; state.filteredTable = null; state.selectedPair = null;
       if (obj.meta) { state.undatedName = obj.meta.undatedName || 'session'; state.chronName = obj.meta.chronName || null; }
-      enableTabs(false); onDataChanged();
+      showExploreResults(false);
+      renderDataInfo(); onDataChanged();
       clearReviewUI();
-      $('resumeWrap').style.display = 'none';
+      syncResumeBanners();
       setMsg('buildMsg', 'Session restored — ' + state.builder.state().members.length + ' members. Continue editing below.', 'ok');
       setMsg(msgId, 'Session loaded.', 'ok');
-      showTab('build');
+      showView('build');
     } catch (err) { setMsg(msgId, 'Restore failed: ' + err.message, 'err'); }
   }
 
-  $('resumeBtn').addEventListener('click', function () {
-    try { loadSessionText(localStorage.getItem(AUTOSAVE_KEY), 'sessionMsg'); }
-    catch (err) { setMsg('sessionMsg', 'Could not resume: ' + err.message, 'err'); }
+  document.querySelectorAll('.resumeBtn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      try { loadSessionText(localStorage.getItem(AUTOSAVE_KEY), 'sessionMsg'); }
+      catch (err) { setMsg('sessionMsg', 'Could not resume: ' + err.message, 'err'); }
+    });
   });
-  $('resumeDismiss').addEventListener('click', function () {
-    try { localStorage.removeItem(AUTOSAVE_KEY); } catch (e) { /* ignore */ }
-    $('resumeWrap').style.display = 'none';
+  document.querySelectorAll('.resumeDismiss').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      try { localStorage.removeItem(AUTOSAVE_KEY); } catch (e) { /* ignore */ }
+      syncResumeBanners(); syncNav();
+    });
   });
   function isoToday() {
     var d = new Date(), p = function (n) { return String(n).padStart(2, '0'); };
     return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
   }
 
-  // ---- downloads -----------------------------------------------------------
-  function renderDownloads() {
-    if (!state.result) return;
-    var pair = state.selectedPair || [state.result.aligned.names[1], state.result.aligned.names[2]];
-    var plots = AC.buildPlots(state.result, { pair: pair });
-    var specs = {
-      pairwiseLinePlot: plots.line, pairwiseBarPlot: plots.leadLagBar,
-      fullHeatmap: plots.heatmap, detrendedSeriesPlot: plots.detrend
-    };
-    var dls = AC.downloads(state.result, { plots: specs });
-    var ul = $('dlList'); ul.innerHTML = '';
-    Object.keys(dls).forEach(function (key) {
-      var d = dls[key];
-      var li = document.createElement('li');
-      li.innerHTML = '<span><span class="fn">' + esc(d.filename) + '</span><br><span class="mime">' + esc(key) + ' · ' + esc(d.mime) + '</span></span>';
-      var btn = document.createElement('button');
-      btn.className = 'btn secondary'; btn.textContent = 'Download';
-      btn.addEventListener('click', function () { triggerDownload(d); });
-      li.appendChild(btn); ul.appendChild(li);
-    });
-    if (!Object.keys(dls).length) ul.innerHTML = '<li>No downloadable artifacts for this run.</li>';
-  }
-  function triggerDownload(d) {
-    var blob = new Blob([d.content], { type: d.mime });
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement('a');
-    a.href = url; a.download = d.filename;
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
-  }
-
-  // ---- report --------------------------------------------------------------
-  $('reportBtn').addEventListener('click', function () {
-    // When a builder is active, report the BUILT chronology; otherwise the batch run.
-    if (state.builder && state.builder.state().members.length) {
-      try {
-        var bhtml = AC.builderReport(state.builder, {
-          date: new Date(),
-          verbose: $('rep_verbose').checked,
-          probWind: Number($('rep_probs').value),
-          rbarWindow: Number($('rep_eps').value)
-        });
-        openReport(bhtml, 'reportMsg');
-      } catch (err) { setMsg('reportMsg', 'Error: ' + err.message, 'err'); }
-      return;
-    }
-    if (!state.result) { setMsg('reportMsg', 'Run an analysis (or build a chronology) first.', 'err'); return; }
-    try {
-      var html = AC.report(state.result, {
-        chrono: state.result.mode === 2,
-        files: { undated: state.undatedName, chrono: state.chronName },
-        settings: { verbose: $('rep_verbose').checked, probs: Number($('rep_probs').value), rbarWindow: Number($('rep_eps').value) }
-      });
-      openReport(html, 'reportMsg');
-    } catch (err) { setMsg('reportMsg', 'Error: ' + err.message, 'err'); }
-  });
+  // ---- tour hooks ----------------------------------------------------------
+  Actions.hasData = function () { return !!state.undated; };
+  Actions.hasResult = function () { return !!state.result; };
+  Actions.hasBuilder = function () { return !!state.builder; };
+  Actions.builderMemberCount = function () { return state.builder ? state.builder.state().members.length : 0; };
 
   // ---- boot ----------------------------------------------------------------
+  window.AppUI = Actions;
+  renderDataInfo();
   onDataChanged();
-  enableTabs(false);
-  // If an autosaved session exists, let the user reach the Build tab to resume it.
-  if (hasAutosave()) {
-    var bb = document.querySelector('nav.tabs button[data-tab="build"]');
-    if (bb) bb.disabled = false;
-  }
+  showExploreResults(false);
+  syncPlotControls();
+  syncResumeBanners();
 })();

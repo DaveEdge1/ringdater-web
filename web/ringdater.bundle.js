@@ -37,7 +37,7 @@ const { chronStd } = require('../stats/chron.js');
 module.exports = Object.assign({}, RD, { summaryTable, chronStd });
 
   });
-  define("m1", {"./spline.js":"m2","./prewhiten.js":"m3","./curvefit.js":"m4","./supsmu.js":"m6","./rwi_stats.js":"m7","./corr_rwl_seg.js":"m8","./analysis/comb.js":"m10","./stats/cortest.js":"m11","./detrend/normalise.js":"m12","./detrend/detcurves.js":"m13","./analysis/autoCorrel.js":"m14","./analysis/rollcor.js":"m15","./analysis/leadLag.js":"m16","./analysis/runningLeadLag.js":"m17","./analysis/heatmap.js":"m18","./analysis/filterCrossdates.js":"m19","./analysis/align.js":"m20","./analysis/correlReplace.js":"m21","./analysis/removeSeries.js":"m22","./analysis/errorMessage.js":"m23","./analysis/checks.js":"m24","./stats/probCheck.js":"m25","./stats/rBarEps.js":"m26","./io/load.js":"m27","./io/csv.js":"m29","./io/xlsx.js":"m30","./viz/chartUtils.js":"m35","./engine/store.js":"m36","./engine/actions.js":"m37","./engine/workflows.js":"m38","./engine/builder.js":"m39","./io/downloads.js":"m41","./report.js":"m45","./stats/chron.js":"m40","./engine/chronoChecker.js":"m46","./viz/linePlot.js":"m43","./viz/datedLinePlot.js":"m48","./viz/allSeries.js":"m49","./viz/heatmapPlot.js":"m47","./viz/detrendPlot.js":"m50","./viz/leadLagBar.js":"m44","./viz/render.js":"m42"}, function(module, exports, require){
+  define("m1", {"./spline.js":"m2","./prewhiten.js":"m3","./curvefit.js":"m4","./supsmu.js":"m6","./rwi_stats.js":"m7","./corr_rwl_seg.js":"m8","./analysis/comb.js":"m10","./stats/cortest.js":"m11","./detrend/normalise.js":"m12","./detrend/detcurves.js":"m13","./analysis/autoCorrel.js":"m14","./analysis/rollcor.js":"m15","./analysis/leadLag.js":"m16","./analysis/runningLeadLag.js":"m17","./analysis/heatmap.js":"m18","./analysis/filterCrossdates.js":"m19","./analysis/align.js":"m20","./analysis/correlReplace.js":"m21","./analysis/removeSeries.js":"m22","./analysis/errorMessage.js":"m23","./analysis/checks.js":"m24","./stats/probCheck.js":"m25","./stats/rBarEps.js":"m26","./io/load.js":"m27","./io/csv.js":"m29","./io/xlsx.js":"m30","./viz/chartUtils.js":"m35","./engine/store.js":"m36","./engine/actions.js":"m37","./engine/workflows.js":"m38","./engine/builder.js":"m39","./io/downloads.js":"m41","./report.js":"m45","./stats/chron.js":"m40","./engine/chronoChecker.js":"m46","./viz/linePlot.js":"m43","./viz/datedLinePlot.js":"m48","./viz/allSeries.js":"m49","./viz/heatmapPlot.js":"m47","./viz/detrendPlot.js":"m50","./viz/leadLagBar.js":"m44","./viz/skelPlot.js":"m51","./analysis/skel.js":"m52","./viz/render.js":"m42"}, function(module, exports, require){
 'use strict';
 // ringdater-js: JS port of the numeric core + analysis layer of dplR/ringdater
 // (crossdating). Every function is validated against R via tools/*.R + test/*.
@@ -102,6 +102,8 @@ const { allSeries } = require('./viz/allSeries.js');
 const { heatmapPlot } = require('./viz/heatmapPlot.js');
 const { detrendPlot } = require('./viz/detrendPlot.js');
 const { leadLagBar } = require('./viz/leadLagBar.js');
+const { skelPlot } = require('./viz/skelPlot.js');
+const { skelValues, hanning } = require('./analysis/skel.js');
 const renderSvg = require('./viz/render.js').toSVG;
 
 module.exports = {
@@ -135,9 +137,10 @@ module.exports = {
   loadRingMeasurer: io.loadRingMeasurer, combineRMFiles: io.combineRMFiles,
   parseDelimited, readXlsx, writeRwl: io.writeRwl, writeCsv: io.writeCsv,
 
-  // visualization: utilities, 6 plot builders (each returns a spec; renderSvg -> SVG string)
+  // visualization: utilities, 7 plot builders (each returns a spec; renderSvg -> SVG string)
   xScaleBar, yScaleBar, colPal, rDateRTheme,
-  linePlot, datedLinePlot, allSeries, heatmapPlot, detrendPlot, leadLagBar, renderSvg,
+  linePlot, datedLinePlot, allSeries, heatmapPlot, detrendPlot, leadLagBar, skelPlot, renderSvg,
+  skelValues, hanning,
 
   // orchestration engine: headless workflows + reactive store/actions (the "server")
   pairwiseWorkflow, chronologyWorkflow, createStore, engineActions,
@@ -7017,6 +7020,134 @@ function detrendPlot(undetData, firstSeries, opts = {}) {
 }
 
 module.exports = { detrendPlot, toSVG };
+
+  });
+  define("m51", {"../analysis/comb.js":"m10","../analysis/skel.js":"m52","./render.js":"m42","./chartUtils.js":"m35"}, function(module, exports, require){
+'use strict';
+// skelPlot — two-series skeleton-plot crossdating overlay (dplR skel.plot,
+// re-cast as a comparison like the heatmap). series_1 ("master") marks point
+// DOWN; series_2 ("sample") marks point UP with its position shifted by `lag`.
+// Each mark is a ring narrower than its immediate neighbours; taller = relatively
+// narrower (integer heights 3..10 from skelValues). When the two series crossdate
+// at `lag`, the up- and down-marks line up vertically.
+//
+// Frame convention matches linePlot/heatmapPlot: col 0 is the year/position axis,
+// series columns by name; `lag` shifts series_2 onto the crossdate alignment.
+
+const C = require('../analysis/comb.js');
+const { skelValues } = require('../analysis/skel.js');
+const { toSVG, roundR } = require('./render.js');
+const { xScaleBar } = require('./chartUtils.js');
+
+function seriesArray(frame, name) {
+  const c = C.colByName(frame, name);
+  if (c === undefined) throw new Error(`Error in skel_plot(). ${name} can not be found in the loaded data.`);
+  return c.map(v => (C.isNA(v) ? NaN : +v));
+}
+
+function skelPlot(theData, series1Nm, series2Nm, lag = 0, opts = {}) {
+  const f = C.asFrame(theData);
+  if (C.ncol(f) <= 2) throw new Error('Error in skel_plot(). Insufficient data.');
+  if (lag % 1 !== 0) throw new Error('Error in skel_plot(). lag should be a numeric integer.');
+  const fw = opts.filt_weight != null ? opts.filt_weight : 9;
+  const yr = C.col(f, 0).map(Number);
+  const sk1 = skelValues(seriesArray(f, series1Nm), fw);
+  const sk2 = skelValues(seriesArray(f, series2Nm), fw);
+
+  const mx0 = [], my1 = [], sx0 = [], sy1 = [];
+  for (let i = 0; i < sk1.length; i++) if (!Number.isNaN(sk1[i])) { mx0.push(yr[i]); my1.push(-sk1[i]); }
+  for (let i = 0; i < sk2.length; i++) if (!Number.isNaN(sk2[i])) { sx0.push(yr[i] + lag); sy1.push(sk2[i]); }
+
+  const allX = mx0.concat(sx0);
+  const xLo = allX.length ? Math.min(...allX) : 0;
+  const xHi = allX.length ? Math.max(...allX) : 1;
+
+  const spec = {
+    type: 'skelPlot',
+    width: opts.width || 760,
+    height: opts.height || 230,
+    title: `${series1Nm} (down) vs ${series2Nm} (up) — skeleton plot, lag ${lag}`,
+    xLabel: 'Year / position',
+    yLabel: 'Skeleton height',
+    scales: {
+      x: { domain: [xLo, xHi], breaks: xScaleBar(roundR(xLo, -1), roundR(xHi, -1)) },
+      y: { domain: [-10.5, 10.5], breaks: [-10, -5, 0, 5, 10] },
+    },
+    marks: [
+      { type: 'segment', x0: [xLo], x1: [xHi], y0: [0], y1: [0], color: '#bbb', width: 1 },
+      { type: 'segment', x0: mx0, x1: mx0.slice(), y0: mx0.map(() => 0), y1: my1, color: '#2c7fb8', width: 2 },
+      { type: 'segment', x0: sx0, x1: sx0.slice(), y0: sx0.map(() => 0), y1: sy1, color: '#c0392b', width: 2 },
+    ],
+    legend: { entries: [{ label: `${series1Nm} (down)`, color: '#2c7fb8' }, { label: `${series2Nm} (up)`, color: '#c0392b' }] },
+    colourbar: null,
+    data: { skel_1: sk1, skel_2: sk2, lag },
+  };
+  return spec;
+}
+
+module.exports = { skelPlot, toSVG };
+
+  });
+  define("m52", {}, function(module, exports, require){
+'use strict';
+// Skeleton-plot maths — faithful port of dplR's hanning() + the skeleton-value
+// calculation inside skel.plot(). Used by viz/skelPlot.js.
+//
+//   hanning(x, n)      -> centred Hann-window convolution filter (NA at the ends
+//                         and wherever the window overlaps an NA), as R's
+//                         filter(x, win, sides = 2, method = "convolution").
+//   skelValues(rw, fw) -> integer skeleton heights 3..10 (else NaN) per ring:
+//                         for each interior ring i,
+//                           skel[i] = ( rw[i] - (rw[i-1]+rw[i+1])/2 ) / hanning[i]
+//                         keep only negative (narrower-than-neighbours) values,
+//                         rescale so the narrowest -> 10 / least -> 1, drop < 3,
+//                         then ceiling() to integers (exactly dplR's steps).
+
+function hanning(x, n = 9) {
+  const win = [];
+  let s = 0;
+  for (let k = 0; k < n; k++) { const w = 1 - Math.cos((2 * Math.PI / (n - 1)) * k); win.push(w); s += w; }
+  for (let k = 0; k < n; k++) win[k] /= s;
+  const m = Math.floor(n / 2), N = x.length, y = new Array(N).fill(NaN);
+  for (let i = 0; i < N; i++) {
+    let acc = 0, ok = true;
+    for (let k = 0; k < n; k++) {
+      const xi = i - m + k;
+      const v = xi >= 0 && xi < N ? x[xi] : null;
+      if (v == null || Number.isNaN(v)) { ok = false; break; }
+      acc += win[k] * v;
+    }
+    if (ok) y[i] = acc;
+  }
+  return y;
+}
+
+function skelValues(rw, filtWeight = 9) {
+  const n = rw.length;
+  const dt = hanning(rw, filtWeight);
+  const skel = new Array(n).fill(NaN);
+  const diff = [];
+  for (let i = 0; i < n - 1; i++) diff.push(rw[i + 1] - rw[i]);
+  for (let i = 1; i <= n - 2; i++) {
+    const a = diff[i - 1], b = -diff[i];
+    if (Number.isNaN(a) || Number.isNaN(b) || Number.isNaN(dt[i])) continue;
+    skel[i] = ((a + b) / 2) / dt[i];             // = (rw[i] - mean(neighbours)) / hanning[i]
+  }
+  for (let i = 0; i < n; i++) if (skel[i] > 0) skel[i] = NaN;   // keep narrower-than-neighbours
+  const vals = skel.filter(v => !Number.isNaN(v));
+  if (vals.length) {
+    const mn = Math.min(...vals), mx = Math.max(...vals);
+    const mult = (1 - 10) / ((mx - mn) || 1);     // newrange c(10, 1): narrowest -> 10
+    for (let i = 0; i < n; i++) {
+      if (Number.isNaN(skel[i])) continue;
+      const v = 10 + (skel[i] - mn) * mult;
+      skel[i] = v < 3 ? NaN : Math.ceil(v);
+    }
+  }
+  return skel;
+}
+
+module.exports = { hanning, skelValues };
 
   });
   global["RD"] = req("m0");

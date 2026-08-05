@@ -111,3 +111,98 @@ table.res tr.sep td { background: #fafbfc; height: 5px; padding: 0; }
 .start-hero h2 { color: #fff; font-size: 22px; }
 .start-hero ol { margin: 8px 0 0; padding-left: 20px; }
 .start-hero li { margin: 4px 0; }
+.start-hero p { margin: 6px 0 0; }
+
+/* ---- home task cards ------------------------------------------------------ */
+.home-sub { font-size: 16px; color: var(--green-d); margin: 4px 0 12px; display: flex; align-items: center; gap: 8px; }
+.home-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px; margin-bottom: 18px; }
+.task-card { display: flex; flex-direction: column; margin: 0; }
+.task-card p.hint { flex: 1 1 auto; }
+.task-card .btn { width: 100%; margin-top: 6px; }
+.task-card .btn.secondary + .btn.secondary { margin-top: 8px; }
+
+/* per-task setup step */
+#taskSetup #setupBack { margin-bottom: 10px; }
+#setupSlots { display: flex; flex-direction: column; gap: 14px; margin: 14px 0; }
+.setup-slot { border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; background: #fbfcfd; }
+.setup-slot label { margin-top: 0; }
+.slot-status { font-size: 12px; margin: 2px 0 7px; }
+.slot-ok { color: var(--green-d); font-weight: 600; }
+.slot-need { color: #8a4f47; font-weight: 600; }
+.slot-opt { color: var(--muted); }
+
+/* ---- header actions (Clear + Export menu) --------------------------------- */
+header.app .status { margin-left: auto; }
+header.app .header-actions { display: flex; align-items: center; gap: 10px; margin-left: 16px; }
+header.app .export { position: relative; }
+.export-btn { background: rgba(255,255,255,.14); color: #fff; }
+.export-btn:hover { background: rgba(255,255,255,.24); }
+.export-btn:disabled { background: rgba(255,255,255,.08); color: rgba(255,255,255,.5); cursor: not-allowed; }
+.export-panel {
+  position: absolute; right: 0; top: 44px; z-index: 60; width: 380px; max-height: 75vh; overflow: auto;
+  background: var(--card); color: var(--ink); border: 1px solid var(--line); border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(0,0,0,.18); padding: 14px 16px; text-align: left;
+}
+.export-panel h3 { margin: 10px 0 6px; font-size: 13px; color: var(--green-d); }
+.export-panel h3:first-child { margin-top: 0; }
+.export-panel .plot-controls > div { min-width: 120px; }
+
+/* ---- explore workspace (rail + main) -------------------------------------- */
+.workspace { display: flex; gap: 18px; align-items: flex-start; }
+.rail {
+  flex: 0 0 280px; position: sticky; top: 12px; max-height: calc(100vh - 80px); overflow-y: auto;
+  background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px;
+  box-shadow: 0 1px 2px rgba(0,0,0,.04);
+}
+.rail-head { display: flex; align-items: center; justify-content: space-between; }
+.rail-head h2 { margin: 0; font-size: 15px; color: var(--green-d); }
+.rail-toggle {
+  background: #eef2f4; border: 1px solid var(--line); border-radius: 5px; cursor: pointer;
+  font-size: 13px; padding: 2px 9px; color: var(--ink);
+}
+.rail-toggle:hover { background: #e2e8ec; }
+.rail h3 { margin: 16px 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); border-top: 1px solid var(--line); padding-top: 10px; }
+.rail .rail-run { display: flex; gap: 8px; margin-top: 14px; }
+.workspace.rail-collapsed .rail { flex: 0 0 auto; padding: 8px; }
+.workspace.rail-collapsed .rail-body, .workspace.rail-collapsed .rail-head h2 { display: none; }
+.workmain { flex: 1 1 auto; min-width: 0; }
+
+/* ---- build view collapsible sections -------------------------------------- */
+details { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 8px; }
+details summary { cursor: pointer; font-size: 14px; font-weight: 600; color: var(--green-d); padding: 3px 0; }
+details summary:hover { color: var(--green); }
+/* rail data summary: compact status + a jump-to-Home button */
+.rail #railManageBtn { width: 100%; margin-top: 8px; font-size: 12px; padding: 6px 10px; }
+.rail #modeChronPrompt { margin-top: 8px; }
+.rail #modeChronPrompt .filelabel { display: inline-block; }
+/* advanced rail sections (Lead/lag, Diagnostics) collapse like section headers */
+.rail-adv { margin: 0; padding-top: 10px; }
+.rail-adv > summary {
+  list-style: none; font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--muted); font-weight: 700; padding: 0; margin-bottom: 4px;
+}
+.rail-adv > summary::-webkit-details-marker { display: none; }
+.rail-adv > summary::before { content: '▸ '; color: var(--muted); }
+.rail-adv[open] > summary::before { content: '▾ '; }
+
+/* ---- guided tour ---------------------------------------------------------- */
+.tour-highlight {
+  position: fixed; z-index: 90; border-radius: 6px; pointer-events: none;
+  box-shadow: 0 0 0 4px rgba(0,141,76,.85), 0 0 0 9999px rgba(15,25,32,.55);
+  transition: all .25s ease;
+}
+.tour-popover {
+  position: fixed; z-index: 95; width: 340px; max-width: calc(100vw - 24px);
+  background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+  box-shadow: 0 8px 30px rgba(0,0,0,.3); padding: 14px 16px;
+}
+.tour-popover h3 { margin: 0 0 6px; font-size: 15px; color: var(--green-d); }
+.tour-popover p { margin: 0 0 10px; font-size: 13px; line-height: 1.5; }
+.tour-popover .tour-foot { display: flex; align-items: center; gap: 8px; }
+.tour-popover .tour-count { font-size: 12px; color: var(--muted); margin-right: auto; }
+.tour-popover .tour-wait { font-size: 12px; color: var(--accent); font-weight: 600; margin-right: auto; }
+.tour-x {
+  position: absolute; top: 6px; right: 8px; background: none; border: 0; cursor: pointer;
+  font-size: 15px; color: var(--muted); padding: 2px 6px;
+}
+.tour-x:hover { color: var(--ink); }

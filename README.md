@@ -34,7 +34,15 @@ test — see [Validation](#validation)).
   afterwards), **calendar dating** by pinning a known sample's ring to a year, and
   **session save / restore** (portable file + browser autosave) so you can leave and
   come back.
-- **Export** the chronology (CSV / RWL), download plots (SVG), and generate a run report.
+- **Export** the chronology (CSV / RWL), download plots (SVG), and generate a run report —
+  from the **Export** menu in the header, scoped to whichever workspace you're in.
+
+The app opens on a **Home** page with four tasks — **Explore** (crossdate series against each
+other or a chronology), **Build** (start a new chronology from an anchor series), **Extend**
+(grow a loaded dated chronology), and **Learn** (an interactive, hands-on guided tour that
+drives the real app with the bundled example data). Work happens in two workspaces reached from
+the sidebar: **Explore** (settings rail + results table + linked plots on one screen) and
+**Build** (the chronology builder).
 
 ## Run locally
 
