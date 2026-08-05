@@ -62,6 +62,8 @@ const { allSeries } = require('./viz/allSeries.js');
 const { heatmapPlot } = require('./viz/heatmapPlot.js');
 const { detrendPlot } = require('./viz/detrendPlot.js');
 const { leadLagBar } = require('./viz/leadLagBar.js');
+const { skelPlot } = require('./viz/skelPlot.js');
+const { skelValues, hanning } = require('./analysis/skel.js');
 const renderSvg = require('./viz/render.js').toSVG;
 
 module.exports = {
@@ -95,9 +97,10 @@ module.exports = {
   loadRingMeasurer: io.loadRingMeasurer, combineRMFiles: io.combineRMFiles,
   parseDelimited, readXlsx, writeRwl: io.writeRwl, writeCsv: io.writeCsv,
 
-  // visualization: utilities, 6 plot builders (each returns a spec; renderSvg -> SVG string)
+  // visualization: utilities, 7 plot builders (each returns a spec; renderSvg -> SVG string)
   xScaleBar, yScaleBar, colPal, rDateRTheme,
-  linePlot, datedLinePlot, allSeries, heatmapPlot, detrendPlot, leadLagBar, renderSvg,
+  linePlot, datedLinePlot, allSeries, heatmapPlot, detrendPlot, leadLagBar, skelPlot, renderSvg,
+  skelValues, hanning,
 
   // orchestration engine: headless workflows + reactive store/actions (the "server")
   pairwiseWorkflow, chronologyWorkflow, createStore, engineActions,

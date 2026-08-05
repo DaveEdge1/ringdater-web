@@ -98,8 +98,10 @@ self-contained HTML run-log. Plots emit SVG (browser rasterizes to PNG via canva
 ## Phase 7 — chrono_checker COMPLETE
 
 `chronoCheck({frame,selected,lag,splinewindow})` (the Quick Chronology Checker) +
-`chron()` (dplR chronology: `std` ~1e-15, `samp.depth` exact). Standalone
-`web/chrono_checker.html`.
+`chron()` (dplR chronology: `std` ~1e-15, `samp.depth` exact). The `chronoCheck`
+engine remains exported and validated; its standalone `web/chrono_checker.html`
+page was retired in the V0.2 UX pass — its "one sample vs. a chronology" function
+is now a subset of the main app's Explore workspace (chronology mode).
 
 ## Phase 6 — main frontend (in progress)
 Functional web app wiring the engine, plots, and downloads. Not R-parity (it

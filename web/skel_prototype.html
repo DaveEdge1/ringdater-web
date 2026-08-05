@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RingdateR — Skeleton plot prototype</title>
+<style>
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; color: #1f2933; background: #f4f6f8; }
+  header { background: #008d4c; color: #fff; padding: 12px 20px; }
+  header h1 { margin: 0; font-size: 18px; }
+  header p { margin: 4px 0 0; font-size: 12px; opacity: .9; }
+  .wrap { padding: 18px 20px; }
+  .card { background: #fff; border: 1px solid #d7dde2; border-radius: 8px; padding: 14px 16px; margin-bottom: 16px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; }
+  label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 3px; }
+  select, input[type=number] { padding: 6px 8px; border: 1px solid #d7dde2; border-radius: 5px; font-size: 13px; }
+  input[type=number] { width: 80px; }
+  .plotwrap { overflow-x: auto; border: 1px solid #eee; border-radius: 6px; padding: 6px; background: #fff; }
+  .plotwrap svg { max-width: 100%; height: auto; }
+  .legend { font-size: 12px; margin: 6px 0; }
+  .sw { display: inline-block; width: 11px; height: 11px; border-radius: 2px; vertical-align: middle; margin: 0 4px 0 12px; }
+  .hint { color: #667; font-size: 12px; line-height: 1.5; }
+  code { background: #eef2f4; padding: 1px 4px; border-radius: 3px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Skeleton plot — prototype</h1>
+  <p>Faithful port of dplR <code>skel.plot</code>, adapted as a two-series crossdating overlay (like the heatmap).</p>
+</header>
+
+<div class="wrap">
+  <div class="card">
+    <div class="controls">
+      <div><label for="s1">Master series (marks down)</label><select id="s1"></select></div>
+      <div><label for="s2">Sample series (marks up)</label><select id="s2"></select></div>
+      <div><label for="lag">Lag (positions)</label><input type="number" id="lag" value="0" step="1"></div>
+      <div><label for="fw">Filter weight (Hanning)</label><input type="number" id="fw" value="9" min="3" step="2"></div>
+      <div><label for="best">&nbsp;</label><button id="best" class="btn">Snap lag to best match</button></div>
+    </div>
+    <div class="legend">
+      <span class="sw" style="background:#2c7fb8"></span>Master (narrow rings, pointing down)
+      <span class="sw" style="background:#c0392b"></span>Sample (narrow rings, pointing up)
+    </div>
+    <p class="hint" id="matchMsg"></p>
+  </div>
+
+  <div class="card">
+    <div class="plotwrap" id="plot"></div>
+    <p class="hint">
+      Each vertical mark is a ring that is <b>narrower than its immediate neighbours</b>; taller = relatively narrower
+      (scaled 1–10, only ≥3 drawn, per dplR). A convincing crossdate is where the master's downward marks line up
+      vertically with the sample's upward marks. Slide the lag to hunt for that alignment — this is the classic
+      Stokes &amp; Smiley skeleton-plot method that dendrochronologists do by eye.
+    </p>
+  </div>
+
+  <div class="card">
+    <h3 style="margin:0 0 6px;font-size:14px">Algorithm (matches dplR <code>skel.plot</code>)</h3>
+    <p class="hint">
+      <code>rw.dt = hanning(rw, filt.weight)</code> (low-frequency curve). For each interior ring <i>i</i>:
+      <code>skel[i] = ( rw[i] − (rw[i−1]+rw[i+1])/2 ) / rw.dt[i]</code>. Keep only negative values (narrower than
+      neighbours), linearly rescale so the narrowest → 10 and the least-narrow → 1, drop values &lt; 3, then
+      <code>ceiling()</code> to integer heights 3–10.
+    </p>
+  </div>
+</div>
+
+<script src="./ringdater.bundle.js"></script>
+<script src="./exampleData.js"></script>
+<script>
+(function () {
+  'use strict';
+  var RD = window.RD;
+  var $ = function (id) { return document.getElementById(id); };
+
+  // ---- skeleton-plot maths (faithful port of dplR skel.plot / hanning) ------
+  function hanning(x, n) {
+    var win = [], s = 0, k;
+    for (k = 0; k < n; k++) { var w = 1 - Math.cos(2 * Math.PI / (n - 1) * k); win.push(w); s += w; }
+    for (k = 0; k < n; k++) win[k] /= s;
+    // R filter(x, win, sides = 2, method = "convolution"): centred, NA at the
+    // ends and wherever the window overlaps an NA. The window is symmetric.
+    var m = Math.floor(n / 2), N = x.length, y = new Array(N).fill(NaN);
+    for (var i = 0; i < N; i++) {
+      var acc = 0, ok = true;
+      for (k = 0; k < n; k++) {
+        var xi = i - m + k;
+        if (xi < 0 || xi >= N || x[xi] == null || isNaN(x[xi])) { ok = false; break; }
+        acc += win[k] * x[xi];
+      }
+      if (ok) y[i] = acc;
+    }
+    return y;
+  }
+
+  // rw: array of ring widths (numbers; null/NaN allowed). Returns integer heights
+  // 3..10 (or NaN) per ring — dplR's skeleton values.
+  function skelCalc(rw, filtWeight) {
+    var n = rw.length, i;
+    var dt = hanning(rw, filtWeight);
+    var skel = new Array(n).fill(NaN);
+    var diff = [];
+    for (i = 0; i < n - 1; i++) diff.push(rw[i + 1] - rw[i]);
+    // skel[i] = mean(diff[i-1], -diff[i]) / dt[i]  for interior i (1..n-2)
+    for (i = 1; i <= n - 2; i++) {
+      var a = diff[i - 1], b = -diff[i];
+      if (isNaN(a) || isNaN(b) || isNaN(dt[i])) continue;
+      skel[i] = ((a + b) / 2) / dt[i];
+    }
+    // keep only narrower-than-neighbours (strictly positive -> NA, as in dplR)
+    for (i = 0; i < n; i++) if (skel[i] > 0) skel[i] = NaN;
+    // rescale narrowest -> 10, least -> 1
+    var vals = skel.filter(function (v) { return !isNaN(v); });
+    if (vals.length) {
+      var mn = Math.min.apply(null, vals), mx = Math.max.apply(null, vals);
+      var mult = (1 - 10) / ((mx - mn) || 1);        // newrange c(10,1)
+      for (i = 0; i < n; i++) {
+        if (isNaN(skel[i])) continue;
+        var v = 10 + (skel[i] - mn) * mult;
+        skel[i] = v < 3 ? NaN : Math.ceil(v);         // drop <3, ceiling
+      }
+    }
+    return skel;
+  }
+
+  // Pearson correlation of the two RAW series over their overlap at a given lag
+  // (sample[j] aligns with master[j+lag]) — the actual crossdating statistic the
+  // app uses. "Snap to best" maximises this; the skeleton overlay is a visual
+  // confirmation of the alignment, not the thing that finds it.
+  function corrAt(a, b, lag) {
+    var xs = [], ys = [], i;
+    for (i = 0; i < a.length; i++) {
+      var j = i - lag;
+      if (j < 0 || j >= b.length || isNaN(a[i]) || isNaN(b[j])) continue;
+      xs.push(a[i]); ys.push(b[j]);
+    }
+    var n = xs.length;
+    if (n < 20) return { r: NaN, n: n };
+    var mx = 0, my = 0, k;
+    for (k = 0; k < n; k++) { mx += xs[k]; my += ys[k]; }
+    mx /= n; my /= n;
+    var sxy = 0, sx = 0, sy = 0;
+    for (k = 0; k < n; k++) { var dx = xs[k] - mx, dy = ys[k] - my; sxy += dx * dy; sx += dx * dx; sy += dy * dy; }
+    return { r: sxy / Math.sqrt(sx * sy), n: n };
+  }
+
+  // ---- build a render.js spec (segment marks) -------------------------------
+  function overlaySpec(name1, sk1, name2, sk2, lag, fw) {
+    var i, xs = [];
+    for (i = 0; i < sk1.length; i++) xs.push(i);
+    for (i = 0; i < sk2.length; i++) xs.push(i + lag);
+    var xmin = Math.min.apply(null, xs) - 1, xmax = Math.max.apply(null, xs) + 1;
+
+    var mx0 = [], mx1 = [], my0 = [], my1 = [];   // master, pointing down
+    for (i = 0; i < sk1.length; i++) if (!isNaN(sk1[i])) { mx0.push(i); mx1.push(i); my0.push(0); my1.push(-sk1[i]); }
+    var sx0 = [], sx1 = [], sy0 = [], sy1 = [];   // sample, pointing up
+    for (i = 0; i < sk2.length; i++) if (!isNaN(sk2[i])) { sx0.push(i + lag); sx1.push(i + lag); sy0.push(0); sy1.push(sk2[i]); }
+
+    var breaks = [];
+    var start = Math.ceil(xmin / 10) * 10;
+    for (var b = start; b <= xmax; b += 10) breaks.push(b);
+
+    return {
+      type: 'skelPlot',
+      width: 960, height: 300,
+      title: name1 + ' (down) vs ' + name2 + ' (up) — skeleton overlay, lag ' + lag + ', filt ' + fw,
+      xLabel: 'Ring position', yLabel: 'Skeleton height',
+      scales: {
+        x: { domain: [xmin, xmax], breaks: breaks },
+        y: { domain: [-10.5, 10.5], breaks: [-10, -5, 0, 5, 10] }
+      },
+      marks: [
+        { type: 'segment', x0: [xmin], x1: [xmax], y0: [0], y1: [0], color: '#bbb', width: 1 },
+        { type: 'segment', x0: mx0, x1: mx1, y0: my0, y1: my1, color: '#2c7fb8', width: 2 },
+        { type: 'segment', x0: sx0, x1: sx1, y0: sy0, y1: sy1, color: '#c0392b', width: 2 }
+      ],
+      legend: null, colourbar: null
+    };
+  }
+
+  // ---- wire up --------------------------------------------------------------
+  var frame = RD.loadUndated([window.RD_EXAMPLE]);
+  var names = frame.names.slice(1);
+  var series = {};                          // name -> numeric ring-width array
+  names.forEach(function (nm, k) { series[nm] = frame.cols[k + 1].map(function (v) { return v == null ? NaN : +v; }); });
+
+  function fill(sel, val) { sel.innerHTML = names.map(function (n) { return '<option' + (n === val ? ' selected' : '') + '>' + n + '</option>'; }).join(''); }
+  fill($('s1'), names[0]); fill($('s2'), names[1]);
+
+  function render() {
+    var n1 = $('s1').value, n2 = $('s2').value;
+    var fw = Number($('fw').value) || 9;
+    var lag = Number($('lag').value) || 0;
+    var sk1 = skelCalc(series[n1], fw), sk2 = skelCalc(series[n2], fw);
+    $('plot').innerHTML = RD.renderSvg(overlaySpec(n1, sk1, n2, sk2, lag, fw));
+    var c = corrAt(series[n1], series[n2], lag);
+    $('matchMsg').textContent = isNaN(c.r)
+      ? 'At lag ' + lag + ': not enough overlap to correlate.'
+      : 'At lag ' + lag + ': ring-width correlation R = ' + c.r.toFixed(3) + ' over ' + c.n + ' overlapping rings.';
+  }
+  function snapBest() {
+    var n1 = $('s1').value, n2 = $('s2').value;
+    var a = series[n1], b = series[n2];
+    var bestLag = 0, bestR = -Infinity;
+    for (var lag = -(b.length - 20); lag <= a.length - 20; lag++) {
+      var c = corrAt(a, b, lag);
+      if (!isNaN(c.r) && c.r > bestR) { bestR = c.r; bestLag = lag; }
+    }
+    $('lag').value = bestLag;
+    render();
+  }
+
+  ['s1', 's2', 'lag', 'fw'].forEach(function (id) { $(id).addEventListener('input', render); });
+  $('best').addEventListener('click', snapBest);
+  render();
+})();
+</script>
+</body>
+</html>

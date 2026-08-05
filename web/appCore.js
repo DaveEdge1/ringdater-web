@@ -192,31 +192,34 @@
     var lag = Number(o.lag) || 0;
     var detrend = result.detrendOpts || {};
 
-    // Frame the two-series plots (line / heatmap / lead-lag bar) operate on, and
-    // where their pair names come from. Mode 1 (pairwise): the detrended undated
-    // series (same names as `aligned`), pair = two series. Mode 2 (chronology):
-    // `chronNSeries` = mean_chronology + undated series; the meaningful comparison
-    // is an undated series vs the mean chronology, so `aligned` (which holds the
-    // dated members) is the WRONG place to pick the pair from.
+    // Frame the two-series plots (line / skeleton / heatmap / lead-lag bar)
+    // operate on, and where their pair names come from. Both modes use the
+    // UNALIGNED comparison frame — mode 1 (pairwise): the detrended undated series
+    // (each at its own position 0); mode 2 (chronology): `chronNSeries` =
+    // mean_chronology + undated series. The `lag` then shifts series 2 to the
+    // crossdate alignment, so all four two-series plots share one lag convention.
+    // (Using the pre-aligned `aligned` frame here double-shifts the line plot.)
     var compFrame = mode === 2 ? result.chronNSeries : result.detrended;
-    var lineFrame = mode === 2 ? result.chronNSeries : aligned;
+    var lineFrame = compFrame;
     var pn = compFrame && compFrame.names ? compFrame.names : [];
     var target = result.target || (mode === 2 ? 'mean_chronology' : pn[1]);
     var s1 = (o.pair && o.pair[0]) || (mode === 2 ? target : pn[1]);
     var s2 = (o.pair && o.pair[1]) || (mode === 2 ? (pn[2] || pn[1]) : pn[2]);
 
-    var out = { line: null, heatmap: null, leadLagBar: null, allSeries: null, detrend: null };
+    var out = { line: null, skeleton: null, heatmap: null, leadLagBar: null, allSeries: null, detrend: null };
 
     out.line = safe(function () { return RD.linePlot(lineFrame, s1, s2, lag, { sel_col_pal: colScale }); });
+    out.skeleton = safe(function () { return RD.skelPlot(compFrame, s1, s2, lag, {}); });
     out.leadLagBar = safe(function () { return RD.leadLagBar(result.masterLeadLag, s1, s2); });
     out.allSeries = safe(function () { return RD.allSeries(aligned); });
     // heatmap: running lead-lag between the two series on the comparison frame,
     // with the lag (y) axis centered on the pair's best crossdate lag by default
     // (e.g. best lag 98 -> lag axis ~78..118) so the match band is visible.
     var hmCenter = o.heatmapCenter != null ? Number(o.heatmapCenter) : bestLagFor(result, s1, s2);
+    var corWin = o.corWin != null ? Number(o.corWin) : 21;
     out.heatmap = safe(function () {
       var rll = RD.heatmapAnalysis(compFrame, {
-        s1: s1, s2: s2, neg_lag: -20, pos_lag: 20, center: hmCenter, win: 21, complete: false
+        s1: s1, s2: s2, neg_lag: -20, pos_lag: 20, center: hmCenter, win: corWin, complete: false
       });
       return RD.heatmapPlot(rll, { s1: s1, s2: s2, sel_col_pal: colScale });
     });
@@ -266,6 +269,7 @@
     var L = Number(lag) || 0;
     return {
       line: safe(function () { return RD.linePlot(cn, TARGET, id, L); }),
+      skeleton: safe(function () { return RD.skelPlot(cn, TARGET, id, L, {}); }),
       heatmap: safe(function () {
         var rll = RD.heatmapAnalysis(cn, { s1: TARGET, s2: id, neg_lag: -20, pos_lag: 20, center: L, win: 21, complete: false });
         return RD.heatmapPlot(rll, { s1: TARGET, s2: id });
@@ -288,7 +292,7 @@
     return {
       suggestions: suggestions, cn: cx.cn, masterLeadLag: cx.masterLeadLag,
       bestLag: bestLag, lag: L,
-      line: plots.line, heatmap: plots.heatmap, leadLagBar: plots.leadLagBar
+      line: plots.line, skeleton: plots.skeleton, heatmap: plots.heatmap, leadLagBar: plots.leadLagBar
     };
   }
 

@@ -8,167 +8,252 @@
 </head>
 <body>
 <header class="app">
-  <h1>RingdateR</h1><span class="ver">web V0.1.0</span>
+  <h1>RingdateR</h1><span class="ver">web V0.2.0</span>
   <span class="status" id="statusBar">No data loaded</span>
+  <div class="header-actions">
+    <button class="btn ghost export-btn" id="headerClearBtn">Clear data</button>
+    <div class="export">
+    <button class="btn ghost export-btn" id="exportBtn">Export ▾</button>
+    <div class="export-panel" id="exportPanel" hidden>
+      <div id="exportEmpty" class="hint" style="display:none">Nothing to export yet — run an analysis (Explore) or build a chronology (Build).</div>
+
+      <div id="exportExplore" style="display:none">
+        <h3>Analysis run</h3>
+        <ul class="dl-list" id="dlList"></ul>
+        <h3>Run report</h3>
+        <label class="inline"><input type="checkbox" id="rep_verbose"> Verbose (full per-window tables)</label>
+        <button class="btn" id="reportBtn">Generate run report</button>
+        <span class="msg" id="reportMsg"></span>
+      </div>
+
+      <div id="exportBuild" style="display:none">
+        <h3>Built chronology</h3>
+        <ul class="dl-list" id="buildDlList"></ul>
+        <h3>Chronology report</h3>
+        <label class="inline"><input type="checkbox" id="b_verbose"> Verbose (full per-window tables)</label>
+        <div class="plot-controls">
+          <div><label for="b_probs">Problem window</label><input type="number" id="b_probs" value="30"></div>
+          <div><label for="b_eps">EPS/Rbar window</label><input type="number" id="b_eps" value="30"></div>
+        </div>
+        <button class="btn" id="buildReportBtn">Generate chronology report</button>
+        <span class="msg" id="buildReportMsg"></span>
+      </div>
+    </div>
+    </div>
+  </div>
 </header>
 
 <div class="layout">
   <nav class="tabs" id="tabnav">
-    <div class="grp">Workflow</div>
-    <button data-tab="start" class="active">Starting page</button>
-    <button data-tab="load">Load &amp; options</button>
-    <button data-tab="detrend" disabled>Detrending</button>
-    <button data-tab="results" disabled>Results table</button>
-    <button data-tab="plots" disabled>Plots</button>
-    <button data-tab="build" disabled>Build chronology</button>
-    <div class="grp">Output</div>
-    <button data-tab="downloads" disabled>Downloads</button>
-    <button data-tab="report" disabled>Report</button>
+    <button data-view="home" class="active">Home</button>
+    <button data-view="explore">Explore</button>
+    <button data-view="build" disabled>Build</button>
   </nav>
 
   <main>
-    <!-- ===== STARTING PAGE ===== -->
-    <section class="tabpage active" id="tab-start">
+    <!-- ===== HOME ===== -->
+    <section class="tabpage active" id="view-home">
       <div class="card start-hero">
         <h2>Welcome to RingdateR (web)</h2>
-        <p>A browser port of the RingdateR crossdating tool — detrend tree-ring series, crossdate them
-           pairwise or against a chronology, inspect the results, and export data, plots and a run report.
-           Everything runs locally in your browser; no data leaves your machine.</p>
-        <ol>
-          <li><b>Load &amp; options</b> — load undated series (and optionally a dated chronology), or use the example data.</li>
-          <li>Choose a <b>detrending</b> method and lead/lag limits.</li>
-          <li>Pick <b>Pairwise</b> or <b>Chronology</b> mode and <b>Run analysis</b>.</li>
-          <li>Filter the <b>results table</b>, view <b>plots</b>, <b>build a chronology</b>, then <b>download</b> or generate a <b>report</b>.</li>
-        </ol>
+        <p>Crossdate tree-ring series in your browser — detrend, compare series against each other or a
+           dated chronology, and build chronologies interactively. Everything runs locally; no data leaves
+           your machine.</p>
       </div>
-      <div class="card">
-        <h2>Quick start</h2>
-        <p class="hint">Jump straight in with the bundled example dataset (13 undated series).</p>
-        <button class="btn" id="exampleBtn">Load example data</button>
+
+      <div class="warn resumeWrap" style="display:none">
+        A previous unsaved chronology-building session was found in this browser.
+        <button class="btn secondary resumeBtn">Resume previous session</button>
+        <button class="btn ghost resumeDismiss">Dismiss</button>
+      </div>
+
+      <div id="homeChooser">
+        <h2 class="home-sub">What would you like to do?</h2>
+        <div class="home-cards">
+          <div class="card task-card" id="cardExplore">
+            <h2>Explore</h2>
+            <p class="hint">Crossdate undated series against each other (pairwise) or against a dated
+               chronology. Inspect the results table and interactive plots.</p>
+            <button class="btn" id="exploreCardBtn">Explore &amp; crossdate</button>
+          </div>
+          <div class="card task-card" id="cardBuild">
+            <h2>Build</h2>
+            <p class="hint">Build a new chronology from scratch — pick an anchor series, then crossdate and
+               approve candidates one at a time (or auto-build).</p>
+            <button class="btn" id="buildCardBtn">Build a chronology</button>
+          </div>
+          <div class="card task-card" id="cardExtend">
+            <h2>Extend</h2>
+            <p class="hint">Extend an existing dated chronology — crossdate new undated series against its
+               mean and grow it.</p>
+            <button class="btn" id="extendCardBtn">Extend a chronology</button>
+          </div>
+          <div class="card task-card" id="cardLearn">
+            <h2>Learn</h2>
+            <p class="hint">New to RingdateR? Take a guided, hands-on tour using the bundled example data.</p>
+            <button class="btn secondary" id="tourExploreBtn">Tour: Explore &amp; crossdate</button>
+            <button class="btn secondary" id="tourBuildBtn">Tour: Build a chronology</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- per-task data setup step (shown after a task is chosen) -->
+      <div class="card" id="taskSetup" style="display:none">
+        <button class="btn ghost" id="setupBack">← Back to tasks</button>
+        <h2 id="setupTitle"></h2>
+        <p class="hint" id="setupIntro"></p>
+        <p class="hint">Formats: .csv, .txt, .rwl, .pos, .lps, Ring-Measurer. First column = years/increment.</p>
+        <div id="setupSlots">
+          <div class="setup-slot" id="slotUndated">
+            <label id="slotUndatedLabel" for="setupUndatedInput"></label>
+            <div class="slot-status" id="slotUndatedStatus"></div>
+            <input type="file" id="setupUndatedInput" multiple accept=".csv,.txt,.rwl,.pos,.lps">
+          </div>
+          <div class="setup-slot" id="slotChron">
+            <label id="slotChronLabel" for="setupChronInput"></label>
+            <div class="slot-status" id="slotChronStatus"></div>
+            <input type="file" id="setupChronInput" accept=".csv,.txt,.rwl">
+          </div>
+        </div>
+        <div class="warn" id="xlsxWarn" style="display:none"></div>
+        <div id="setupExample" style="display:none">
+          <p class="hint" style="margin-top:12px">…or try it with sample data:</p>
+          <button class="btn ghost" id="setupExampleBtn">Load example data (13 undated series)</button>
+        </div>
         <span class="msg" id="startMsg"></span>
+        <div style="margin-top:14px">
+          <button class="btn" id="setupContinueBtn" disabled>Continue →</button>
+        </div>
       </div>
     </section>
 
-    <!-- ===== LOAD & OPTIONS ===== -->
-    <section class="tabpage" id="tab-load">
-      <div class="grid2">
-        <div class="card">
-          <h2>Step 1 · Analysis options</h2>
-          <label for="detrending_select">Detrending method</label>
-          <select id="detrending_select"></select>
-          <label for="splinewindow">Spline window (years, method 3 only)</label>
-          <input type="number" id="splinewindow" value="32" min="5" max="200" step="1">
-          <label class="inline"><input type="checkbox" id="ARmod"> Apply AR1 pre-whitening</label>
-          <label class="inline"><input type="checkbox" id="logT"> Apply log transform</label>
-          <h3>Lead / lag</h3>
-          <label class="inline"><input type="checkbox" id="total_overlap" checked> Auto lag limits (all possible leads/lags)</label>
-          <label for="neg_lag">Lower lag limit (years)</label>
-          <input type="number" id="neg_lag" value="-20" step="1">
-          <label for="pos_lag">Upper lag limit (years)</label>
-          <input type="number" id="pos_lag" value="20" step="1">
-          <label for="cor_win">Correlation window (years)</label>
-          <input type="number" id="cor_win" value="21" min="5" step="1">
-        </div>
-
-        <div class="card">
-          <h2>Step 2 · Load undated series</h2>
-          <p class="hint">Formats: .csv, .txt, .rwl, .pos, .lps, Ring-Measurer. First column = years/increment.</p>
-          <div class="warn" id="xlsxWarn" style="display:none"></div>
-          <label for="file1">Undated data (one or more files)</label>
-          <input type="file" id="file1" multiple accept=".csv,.txt,.rwl,.pos,.lps">
-          <div id="undatedInfo"></div>
-
-          <h2 style="margin-top:18px">Load a dated chronology (optional)</h2>
-          <p class="hint">Needed for Chronology mode. Formats: .rwl, .csv, .txt.</p>
-          <label for="file2">Chronology data</label>
-          <input type="file" id="file2" accept=".csv,.txt,.rwl">
-          <div id="chronInfo"></div>
-        </div>
-      </div>
-
-      <div class="card">
-        <h2>Step 3 · Choose analysis pathway &amp; run</h2>
-        <div class="plot-controls">
-          <div>
-            <label for="mode_select">Analysis mode</label>
-            <select id="mode_select">
-              <option value="1">Pairwise analysis mode</option>
-              <option value="2">Chronology analysis mode</option>
-            </select>
+    <!-- ===== EXPLORE WORKSPACE ===== -->
+    <section class="tabpage" id="view-explore">
+      <div class="workspace" id="exploreWorkspace">
+        <aside class="rail" id="exploreRail">
+          <div class="rail-head">
+            <h2>Settings</h2>
+            <button class="rail-toggle" id="railToggle" title="Collapse settings">⟨</button>
           </div>
-          <div id="targetField">
-            <label for="target_select">Target series</label>
-            <select id="target_select"><option value="">(load data first)</option></select>
+          <div class="rail-body">
+            <div class="rail-sec" id="railData">
+              <h3>Data</h3>
+              <div id="undatedInfo"></div>
+              <div id="chronInfo"></div>
+              <button class="btn ghost" id="railManageBtn">Manage data on Home →</button>
+            </div>
+
+            <div class="rail-sec" id="railMode">
+              <h3>Analysis mode</h3>
+              <select id="mode_select">
+                <option value="1">Pairwise analysis mode</option>
+                <option value="2">Chronology analysis mode</option>
+              </select>
+              <div id="targetField">
+                <label for="target_select">Target series</label>
+                <select id="target_select"><option value="">(load data first)</option></select>
+              </div>
+              <div id="modeChronPrompt" style="display:none">
+                <p class="hint">Chronology mode needs a dated chronology.</p>
+                <label class="btn ghost filelabel" for="modeChronInput">Load chronology</label>
+                <input type="file" id="modeChronInput" accept=".csv,.txt,.rwl" style="display:none">
+              </div>
+            </div>
+
+            <div class="rail-sec" id="railDetrend">
+              <h3>Detrending</h3>
+              <label for="detrending_select">Method</label>
+              <select id="detrending_select"></select>
+              <label for="splinewindow">Spline window (years, spline method only)</label>
+              <input type="number" id="splinewindow" value="11" min="5" max="200" step="1">
+              <label class="inline"><input type="checkbox" id="ARmod"> AR1 pre-whitening</label>
+              <label class="inline"><input type="checkbox" id="logT"> Log transform</label>
+            </div>
+
+            <details class="rail-sec rail-adv" id="railLags">
+              <summary>Lead / lag</summary>
+              <label class="inline"><input type="checkbox" id="total_overlap" checked> Auto lag limits (all possible leads/lags)</label>
+              <label for="neg_lag">Lower lag limit (years)</label>
+              <input type="number" id="neg_lag" value="-20" step="1">
+              <label for="pos_lag">Upper lag limit (years)</label>
+              <input type="number" id="pos_lag" value="20" step="1">
+              <label for="cor_win">Correlation window (years)</label>
+              <input type="number" id="cor_win" value="21" min="5" step="1">
+            </details>
+
+            <details class="rail-sec rail-adv" id="railDiag">
+              <summary>Diagnostics</summary>
+              <p class="hint">Windows used by the run report's problem-check and Rbar/EPS statistics.</p>
+              <label for="rep_probs">Problem window (years)</label>
+              <input type="number" id="rep_probs" value="30">
+              <label for="rep_eps">EPS/Rbar window (years)</label>
+              <input type="number" id="rep_eps" value="30">
+            </details>
+
+            <div class="rail-run">
+              <button class="btn" id="runBtn" disabled>Run analysis</button>
+              <button class="btn ghost" id="clearBtn">Clear</button>
+            </div>
+            <span class="msg" id="runMsg"></span>
           </div>
-          <div>
-            <button class="btn" id="runBtn" disabled>Run analysis</button>
-            <button class="btn ghost" id="clearBtn">Clear</button>
+        </aside>
+
+        <div class="workmain">
+          <div class="card" id="exploreEmpty">
+            <div id="exploreEmptyNoData">
+              <h2>Explore &amp; crossdate</h2>
+              <p class="hint">No data loaded yet. Pick a task on the <b>Home</b> page to load undated series
+                 (and, optionally, a dated chronology), then run the analysis here.</p>
+              <button class="btn ghost" id="exploreLoadBtn">Load data on Home →</button>
+            </div>
+            <div id="exploreEmptyReady" style="display:none">
+              <h2>Ready to crossdate</h2>
+              <p class="hint" id="exploreReadyMsg"></p>
+            </div>
+          </div>
+
+          <div class="card" id="exploreResults" style="display:none">
+            <h2>Crossdating results <span id="resModeBadge"></span></h2>
+            <p class="hint">Best 3 lag matches per pair. Click a row to plot that pair below.</p>
+            <div class="plot-controls">
+              <div><label for="f_target">Target series</label><select id="f_target"></select></div>
+              <div><label for="f_r">Min R</label><input type="number" id="f_r" value="0.5" step="0.05" min="0" max="1"></div>
+              <div><label for="f_p">Max p</label><input type="number" id="f_p" value="0.05" step="0.01" min="0" max="1"></div>
+              <div><label for="f_overlap">Min overlap</label><input type="number" id="f_overlap" value="30" step="1" min="1"></div>
+              <div><label class="inline"><input type="checkbox" id="f_apply" checked> Apply filter</label></div>
+            </div>
+            <div class="msg" id="resMsg"></div>
+            <div class="tablewrap" id="resTableWrap"><table class="res" id="resTable"><thead></thead><tbody></tbody></table></div>
+          </div>
+
+          <div class="card" id="explorePlots" style="display:none">
+            <h2>Plots</h2>
+            <div class="plot-controls">
+              <div><label for="p_which">Show</label>
+                <select id="p_which">
+                  <option value="combined">Combined (line + skeleton + bar + heatmap)</option>
+                  <option value="line">Line plot</option>
+                  <option value="skeleton">Skeleton plot</option>
+                  <option value="heatmap">Running-correlation heatmap</option>
+                  <option value="leadLagBar">Lead-lag bar</option>
+                  <option value="allSeries">All aligned series</option>
+                  <option value="detrend">Detrending diagnostic</option>
+                </select>
+              </div>
+              <div class="pairCtl"><label for="p_series1">Series 1</label><select id="p_series1"></select></div>
+              <div class="pairCtl"><label for="p_series2">Series 2</label><select id="p_series2"></select></div>
+              <div class="pairCtl"><label for="p_lag">Line-plot lag</label><input type="number" id="p_lag" value="0" step="1"></div>
+              <div class="pairCtl"><label for="p_colscale">Colour scale</label><select id="p_colscale"></select></div>
+              <div id="detrendCtl" style="display:none"><label for="detrendSeriesSel">Series</label><select id="detrendSeriesSel"></select></div>
+            </div>
+            <div class="msg" id="plotMsg"></div>
+            <div class="plotwrap" id="plotArea"></div>
           </div>
         </div>
-        <span class="msg" id="runMsg"></span>
       </div>
     </section>
 
-    <!-- ===== DETRENDING ===== -->
-    <section class="tabpage" id="tab-detrend">
-      <div class="card">
-        <h2>Detrending diagnostic</h2>
-        <p class="hint">Raw series + fitted detrending curve, the detrended series, and raw vs detrended autocorrelation.</p>
-        <div class="plot-controls">
-          <div>
-            <label for="detrendSeriesSel">Series</label>
-            <select id="detrendSeriesSel"></select>
-          </div>
-        </div>
-        <div class="plotwrap" id="detrendPlot"></div>
-      </div>
-    </section>
-
-    <!-- ===== RESULTS TABLE ===== -->
-    <section class="tabpage" id="tab-results">
-      <div class="card">
-        <h2>Crossdating results <span id="resModeBadge"></span></h2>
-        <p class="hint">The 17-column interseries results table (best 3 lag matches per pair). Click a row to select a pair for the plots.</p>
-        <div class="plot-controls">
-          <div><label for="f_target">Target series</label><select id="f_target"></select></div>
-          <div><label for="f_r">Min R</label><input type="number" id="f_r" value="0.5" step="0.05" min="0" max="1"></div>
-          <div><label for="f_p">Max p</label><input type="number" id="f_p" value="0.05" step="0.01" min="0" max="1"></div>
-          <div><label for="f_overlap">Min overlap</label><input type="number" id="f_overlap" value="30" step="1" min="1"></div>
-          <div><label class="inline"><input type="checkbox" id="f_apply"> Apply filter</label></div>
-        </div>
-        <div class="msg" id="resMsg"></div>
-        <div class="tablewrap"><table class="res" id="resTable"><thead></thead><tbody></tbody></table></div>
-      </div>
-    </section>
-
-    <!-- ===== PLOTS ===== -->
-    <section class="tabpage" id="tab-plots">
-      <div class="card">
-        <h2>Plots</h2>
-        <div class="plot-controls">
-          <div><label for="p_series1">Series 1</label><select id="p_series1"></select></div>
-          <div><label for="p_series2">Series 2</label><select id="p_series2"></select></div>
-          <div><label for="p_lag">Line-plot lag</label><input type="number" id="p_lag" value="0" step="1"></div>
-          <div><label for="p_colscale">Colour scale</label><select id="p_colscale"></select></div>
-          <div><label for="p_which">Show</label>
-            <select id="p_which">
-              <option value="combined">Combined (line + bar + heatmap)</option>
-              <option value="line">Line plot</option>
-              <option value="heatmap">Running-correlation heatmap</option>
-              <option value="leadLagBar">Lead-lag bar</option>
-              <option value="allSeries">All aligned series</option>
-            </select>
-          </div>
-        </div>
-        <div class="msg" id="plotMsg"></div>
-        <div class="plotwrap" id="plotArea"></div>
-      </div>
-    </section>
-
-    <!-- ===== ALIGN & CHRONOLOGY ===== -->
-
-    <!-- ===== BUILD CHRONOLOGY ===== -->
-    <section class="tabpage" id="tab-build">
+    <!-- ===== BUILD WORKSPACE ===== -->
+    <section class="tabpage" id="view-build">
       <div class="card">
         <h2>Build chronology <span id="buildBadge"></span></h2>
         <p class="hint">Grow a chronology iteratively — crossdate one candidate series at a time against the current
@@ -188,10 +273,10 @@
             <input type="file" id="sessionLoadInput" accept=".json" style="display:none">
           </div>
         </div>
-        <div class="warn" id="resumeWrap" style="display:none">
+        <div class="warn resumeWrap" style="display:none">
           A previous unsaved session was found in this browser.
-          <button class="btn secondary" id="resumeBtn">Resume previous session</button>
-          <button class="btn ghost" id="resumeDismiss">Dismiss</button>
+          <button class="btn secondary resumeBtn">Resume previous session</button>
+          <button class="btn ghost resumeDismiss">Dismiss</button>
         </div>
         <span class="msg" id="buildMsg"></span>
         <span class="msg" id="sessionMsg"></span>
@@ -202,47 +287,42 @@
         <div class="card">
           <h2>Chronology</h2>
           <p class="hint" id="buildSummary"></p>
-
-          <h3>Date the chronology</h3>
-          <p class="hint">Pin a known ring on a member series to give the whole chronology calendar years.</p>
-          <div class="plot-controls">
-            <div><label for="dateSeriesSel">Member series</label><select id="dateSeriesSel"></select></div>
-            <div><label for="dateEdgeSel">Ring</label>
-              <select id="dateEdgeSel"><option value="first">First ring</option><option value="last">Last ring</option></select>
-            </div>
-            <div><label for="dateYear">Calendar year</label><input type="number" id="dateYear" step="1" value="2000"></div>
-            <div><button class="btn secondary" id="applyDateBtn">Apply date</button></div>
-          </div>
           <div class="msg" id="dateStatus"></div>
-
-          <h3>Auto-build</h3>
-          <p class="hint">Repeatedly crossdate the pool and add every series that passes. Fully editable afterwards.</p>
-          <div class="plot-controls">
-            <div><label for="ab_r">Min R</label><input type="number" id="ab_r" value="0.5" step="0.05" min="0" max="1"></div>
-            <div><label for="ab_p">Max p</label><input type="number" id="ab_p" value="0.05" step="0.01" min="0" max="1"></div>
-            <div><label for="ab_overlap">Min overlap</label><input type="number" id="ab_overlap" value="30" step="1" min="1"></div>
-            <div><button class="btn secondary" id="autoBuildBtn">Auto-build</button></div>
-          </div>
-          <div class="msg" id="autoBuildMsg"></div>
 
           <h3>Members</h3>
           <div class="tablewrap" id="memberList" style="max-height:220px"></div>
           <div class="plotwrap" id="buildChronPlot" style="margin-top:10px"></div>
 
-          <h3>Set aside</h3>
-          <p class="hint">Skipped / flagged series left out of the chronology. Edit the note or return one to the pool.</p>
-          <div class="tablewrap" id="setAsideList" style="max-height:200px"></div>
+          <details id="dateSection">
+            <summary>Date the chronology</summary>
+            <p class="hint">Pin a known ring on a member series to give the whole chronology calendar years.</p>
+            <div class="plot-controls">
+              <div><label for="dateSeriesSel">Member series</label><select id="dateSeriesSel"></select></div>
+              <div><label for="dateEdgeSel">Ring</label>
+                <select id="dateEdgeSel"><option value="first">First ring</option><option value="last">Last ring</option></select>
+              </div>
+              <div><label for="dateYear">Calendar year</label><input type="number" id="dateYear" step="1" value="2000"></div>
+              <div><button class="btn secondary" id="applyDateBtn">Apply date</button></div>
+            </div>
+          </details>
 
-          <div class="plot-controls" style="margin-top:12px">
-            <div><label class="inline"><input type="checkbox" id="b_verbose"> Verbose</label></div>
-            <div><label for="b_probs">Problem window</label><input type="number" id="b_probs" value="30"></div>
-            <div><label for="b_eps">EPS/Rbar window</label><input type="number" id="b_eps" value="30"></div>
-          </div>
-          <div style="margin-top:12px">
-            <button class="btn secondary" id="buildExportCsv">Export CSV</button>
-            <button class="btn secondary" id="buildExportRwl">Export RWL</button>
-            <button class="btn" id="buildReportBtn">Generate report</button>
-          </div>
+          <details id="autoBuildSection">
+            <summary>Auto-build</summary>
+            <p class="hint">Repeatedly crossdate the pool and add every series that passes. Fully editable afterwards.</p>
+            <div class="plot-controls">
+              <div><label for="ab_r">Min R</label><input type="number" id="ab_r" value="0.5" step="0.05" min="0" max="1"></div>
+              <div><label for="ab_p">Max p</label><input type="number" id="ab_p" value="0.05" step="0.01" min="0" max="1"></div>
+              <div><label for="ab_overlap">Min overlap</label><input type="number" id="ab_overlap" value="30" step="1" min="1"></div>
+              <div><button class="btn secondary" id="autoBuildBtn">Auto-build</button></div>
+            </div>
+            <div class="msg" id="autoBuildMsg"></div>
+          </details>
+
+          <details id="setAsideSection">
+            <summary>Set aside</summary>
+            <p class="hint">Skipped / flagged series left out of the chronology. Edit the note or return one to the pool.</p>
+            <div class="tablewrap" id="setAsideList" style="max-height:200px"></div>
+          </details>
         </div>
 
         <!-- Add a series -->
@@ -263,33 +343,10 @@
           <span class="msg" id="candMsg"></span>
           <p class="hint">Line overlay: scroll = zoom time (x); Shift+scroll = zoom width (y); Ctrl+scroll = both; drag = pan; double-click = reset.</p>
           <div class="plotwrap" id="reviewLine" style="margin-top:8px"></div>
+          <div class="plotwrap" id="reviewSkel" style="margin-top:8px"></div>
           <div class="plotwrap" id="reviewHeat" style="margin-top:8px"></div>
           <div class="plotwrap" id="reviewBar" style="margin-top:8px"></div>
         </div>
-      </div>
-    </section>
-
-    <!-- ===== DOWNLOADS ===== -->
-    <section class="tabpage" id="tab-downloads">
-      <div class="card">
-        <h2>Downloads</h2>
-        <p class="hint">Every exportable artifact from the current run. Click to download (real browser blob download).</p>
-        <ul class="dl-list" id="dlList"></ul>
-      </div>
-    </section>
-
-    <!-- ===== REPORT ===== -->
-    <section class="tabpage" id="tab-report">
-      <div class="card">
-        <h2>Run report</h2>
-        <p class="hint">A self-contained HTML output log (detrending settings, correlations, prob-check). Opens in a new tab.</p>
-        <div class="plot-controls">
-          <div><label class="inline"><input type="checkbox" id="rep_verbose"> Verbose</label></div>
-          <div><label for="rep_probs">Problem window</label><input type="number" id="rep_probs" value="30"></div>
-          <div><label for="rep_eps">EPS/Rbar window</label><input type="number" id="rep_eps" value="30"></div>
-          <div><button class="btn" id="reportBtn">Generate report</button></div>
-        </div>
-        <span class="msg" id="reportMsg"></span>
       </div>
     </section>
   </main>
@@ -300,5 +357,6 @@
 <script src="./appCore.js"></script>
 <script src="./plotZoom.js"></script>
 <script src="./app.js"></script>
+<script src="./tour.js"></script>
 </body>
 </html>
