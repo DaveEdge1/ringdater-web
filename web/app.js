@@ -630,6 +630,15 @@
   };
   $('setAnchorBtn').addEventListener('click', function () { Actions.setAnchor(); });
 
+  // Hover-tooltip line list for the chronology plot: each member series by name,
+  // plus the mean chronology (from the allSeries spec's exposed data).
+  function chronHoverLines(spec) {
+    var lines = [], d = spec && spec.data;
+    if (d && d.series) d.series.forEach(function (g) { lines.push({ name: g.name, x: g.x, y: g.y }); });
+    if (d && d.meanChronology) lines.push({ name: 'mean chronology', x: d.meanChronology.x, y: d.meanChronology.y });
+    return lines;
+  }
+
   // Repaint both panels from the current builder state.
   function refreshBuild() {
     var b = state.builder; if (!b) return;
@@ -682,9 +691,10 @@
     // set-aside table (id, status badge, editable note, Return to pool)
     renderSetAside(st.setAside);
 
-    // mean / all-member-series plot
+    // mean / all-member-series plot — interactive (zoom/pan) + hover-to-name.
     var spec = AC.builderChronPlot(b.chronology());
-    $('buildChronPlot').innerHTML = spec ? AC.renderPlot(spec) : '<p class="msg err">Not enough member series to plot yet.</p>';
+    if (spec) PlotZoom.attachDataZoom($('buildChronPlot'), spec, AC.RD.renderSvg, { hoverLines: chronHoverLines(spec) });
+    else $('buildChronPlot').innerHTML = '<p class="msg err">Not enough member series to plot yet.</p>';
 
     // candidate pool picker (skipped / review series are not in poolIds)
     fillSelect($('candSel'), st.poolIds, function (n) { return n; }, function (n) { return n; });

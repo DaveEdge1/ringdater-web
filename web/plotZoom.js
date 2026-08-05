@@ -11,6 +11,32 @@
   var active = null;     // drag context (module singleton; only one plot drags at a time)
   var rafPending = false;
 
+  // ---- nearest-line hover tooltip (opt-in via opts.hoverLines) --------------
+  // A shared, body-level tooltip. Lines are 0.5px wide, so a native <title> is
+  // impossible to hover; instead we find the line closest to the cursor's y at
+  // the cursor's x and name it when within a few pixels.
+  var tip = null;
+  function ensureTip() {
+    if (tip) return;
+    tip = document.createElement('div');
+    tip.className = 'plot-hover-tip';
+    tip.style.cssText = 'position:fixed;z-index:1000;pointer-events:none;display:none;white-space:nowrap;' +
+      'background:#222d32;color:#fff;font:12px sans-serif;padding:2px 7px;border-radius:4px;box-shadow:0 1px 4px rgba(0,0,0,.3)';
+    document.body.appendChild(tip);
+  }
+  function showTip(cx, cy, text) { ensureTip(); tip.textContent = text; tip.style.left = (cx + 12) + 'px'; tip.style.top = (cy + 12) + 'px'; tip.style.display = 'block'; }
+  function hideTip() { if (tip) tip.style.display = 'none'; }
+
+  // y of a complete-case line {x[],y[]} (x ascending) at query x, else null.
+  function lineYAt(line, qx) {
+    var x = line.x, y = line.y, n = x.length;
+    if (n === 0 || qx < x[0] || qx > x[n - 1]) return null;
+    var lo = 0, hi = n - 1;
+    while (hi - lo > 1) { var mid = (lo + hi) >> 1; if (x[mid] <= qx) lo = mid; else hi = mid; }
+    var x0 = x[lo], x1 = x[hi];
+    return x1 === x0 ? y[lo] : y[lo] + (y[hi] - y[lo]) * (qx - x0) / (x1 - x0);
+  }
+
   function niceStep(span, target) {
     if (!(span > 0)) return 1;
     var raw = span / (target || 6);
@@ -46,7 +72,8 @@
     return s;
   }
 
-  function attachDataZoom(container, spec, renderSvg) {
+  function attachDataZoom(container, spec, renderSvg, opts) {
+    var hoverLines = (opts && opts.hoverLines) || null;   // [{ name, x, y }] for the hover tooltip
     // Only single-panel specs with numeric scales are data-zoomable; anything else
     // renders statically.
     if (!spec || !spec.scales || spec.panels) { container.innerHTML = renderSvg ? renderSvg(spec) : ''; return; }
@@ -77,11 +104,33 @@
     }
 
     function draw() {
+      hideTip();
       container.innerHTML = renderSvg(withView(spec, xd, yd, isHome()));
       var svg = container.querySelector('svg');
       if (!svg) return;
       svg.style.cursor = active ? 'grabbing' : 'grab';
       svg.style.touchAction = 'none';
+
+      // Nearest-line hover: name the series closest to the cursor (within ~6px).
+      if (hoverLines) {
+        svg.addEventListener('mousemove', function (e) {
+          if (active) { hideTip(); return; }
+          var d = toData(svg, e.clientX, e.clientY);
+          if (!d.inside) { hideTip(); return; }
+          var pxH = (box.bottom - box.top) / H * d.rect.height;   // plot-area height in client px
+          var tol = 6 * (yd[1] - yd[0]) / pxH;                    // 6px in data-y units
+          var best = null, bestDist = Infinity;
+          for (var i = 0; i < hoverLines.length; i++) {
+            var ly = lineYAt(hoverLines[i], d.x);
+            if (ly == null) continue;
+            var dist = Math.abs(ly - d.y);
+            if (dist < bestDist) { bestDist = dist; best = hoverLines[i]; }
+          }
+          if (best && bestDist <= tol) showTip(e.clientX, e.clientY, best.name);
+          else hideTip();
+        });
+        svg.addEventListener('mouseleave', hideTip);
+      }
 
       svg.addEventListener('wheel', function (e) {
         var d = toData(svg, e.clientX, e.clientY);
