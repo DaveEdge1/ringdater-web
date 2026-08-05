@@ -177,7 +177,7 @@
         onEnter: function (ui) { if (!ui.hasBuilder()) ui.startBuilder(); },
         body: 'The builder starts from your loaded data using the current detrend settings. With no chronology loaded, it first asks you to choose an <b>anchor</b> — the seed series everything else aligns to.' },
       { title: 'Pick an anchor series', target: '#anchorWrap',
-        body: 'Choose any well-replicated series as the anchor, then <b>Set anchor</b>. On the next step we\'ll set one for you so the working chronology has a single member to grow from.' },
+        body: 'Pick a long series you measured with high confidence as the anchor — plenty of rings and clean measurements give the growing chronology a strong backbone for everything else to align to. Then <b>Set anchor</b>. On the next step we\'ll set one for you so the working chronology has a single member to grow from.' },
       { title: 'The candidate pool', target: '#candSel',
         onEnter: function (ui) { if (ui.hasBuilder() && ui.builderMemberCount() === 0) ui.setAnchor(); },
         body: 'With the anchor set, pick a <b>candidate</b> from the pool of not-yet-added series. RingdateR immediately crossdates it against the current mean chronology.' },
