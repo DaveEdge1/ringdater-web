@@ -19,6 +19,8 @@
   var state = {
     undated: null, chron: null,
     undatedName: null, chronName: null,
+    meta: {},              // per-series metadata keyed by column name (src/io/meta.js); rides beside the Frames
+    tridasLinks: {},       // imported derivedSeries provenance: { chronColumn: [memberSeriesId...] }
     detrend: null,         // detrend UI object the current builder was created with (for session save)
     result: null,          // last workflow result
     filteredTable: null,   // current (possibly re-filtered) crossDatRes Frame
@@ -112,29 +114,116 @@
     } else { w.style.display = 'none'; w.innerHTML = ''; }
   }
 
+  // The union of every loaded series name (undated pool + chronology members),
+  // which is exactly the key set the metadata side-channel should cover.
+  function allSeriesNames() {
+    var u = state.undated ? AC.seriesNames(state.undated) : [];
+    var c = state.chron ? AC.seriesNames(state.chron) : [];
+    return u.concat(c);
+  }
+  // Keep state.meta in step with the loaded series: preserve existing entries
+  // (imported TRiDaS fields / user edits), add empties for new series, drop stale.
+  function refreshMeta() {
+    state.meta = AC.ensureMeta(state.meta || {}, allSeriesNames());
+  }
+
+  // Per-series metadata table: read-only identity/dating/unit + EDITABLE taxon,
+  // lab code, pith, bark, notes. Edits are captured by a delegated listener
+  // (onMetaEdit) that writes straight to state.meta — no re-render, so text
+  // inputs keep focus while typing. Dating/unit render "—" when unknown.
+  function escA(s) { return esc(s).replace(/"/g, '&quot;'); }
+  function txtInput(n, field, v) {
+    return '<input class="sm-edit" data-series="' + escA(n) + '" data-field="' + field + '" value="' + escA(v == null ? '' : v) + '">';
+  }
+  function presenceSelect(n, field, v) {
+    var cur = v === true ? 'present' : (v === false ? 'absent' : '');
+    var opt = function (val, lab) { return '<option value="' + val + '"' + (val === cur ? ' selected' : '') + '>' + lab + '</option>'; };
+    return '<select class="sm-edit" data-series="' + escA(n) + '" data-field="' + field + '">' +
+      opt('', '—') + opt('present', 'present') + opt('absent', 'absent') + '</select>';
+  }
+  function seriesMetaTable(names) {
+    if (!names.length) return '';
+    var rows = names.map(function (n) {
+      var m = (state.meta && state.meta[n]) || {};
+      var dating = m.dated === 'absolute' && m.firstYearInternal != null
+        ? esc(AC.RD.formatCal(m.firstYearInternal)) + ' start'
+        : (m.dated || '—');
+      return '<tr><td class="sm-name" title="' + escA(m.title || n) + '">' + esc(m.title || n) + '</td>' +
+        '<td>' + txtInput(n, 'taxon', m.taxon) + '</td>' +
+        '<td>' + dating + '</td>' +
+        '<td>' + (m.unit == null || m.unit === '' ? '—' : esc(m.unit)) + '</td>' +
+        '<td>' + txtInput(n, 'labCode', m.labCode) + '</td>' +
+        '<td>' + presenceSelect(n, 'pith', m.pith) + '</td>' +
+        '<td>' + presenceSelect(n, 'bark', m.bark) + '</td>' +
+        '<td>' + txtInput(n, 'notes', m.notes) + '</td></tr>';
+    }).join('');
+    return '<details class="series-meta"><summary>' + names.length + ' series — details (editable)</summary>' +
+      '<div class="sm-wrap"><table><thead><tr><th>Series</th><th>Taxon</th><th>Dating</th><th>Unit</th>' +
+      '<th>Lab code</th><th>Pith</th><th>Bark</th><th>Notes</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody></table></div></details>';
+  }
+  // Delegated editor: any .sm-edit control writes its field into state.meta.
+  function onMetaEdit(e) {
+    var el = e.target;
+    if (!el || !el.classList || !el.classList.contains('sm-edit')) return;
+    var series = el.getAttribute('data-series'), field = el.getAttribute('data-field');
+    if (!series || !field || !state.meta[series]) return;
+    var v = el.value;
+    if (field === 'pith' || field === 'bark') v = (v === '' ? null : (v === 'present'));
+    else v = (v === '' ? null : v);
+    state.meta[series][field] = v;
+    scheduleAutosave();
+  }
+  document.addEventListener('input', onMetaEdit);
+  document.addEventListener('change', onMetaEdit);
+
   // Home is the loader; the Explore rail shows a compact summary of what's
   // loaded. Both repaint from the same state, and the requirement chips update.
   function renderDataInfo() {
+    refreshMeta();
     var un = state.undated ? AC.seriesNames(state.undated) : [];
-    // rail: compact status lines
+    // rail: compact status lines + an expandable per-series metadata table
     $('undatedInfo').innerHTML = state.undated
-      ? '<p class="msg ok">' + un.length + ' undated series loaded.</p>'
+      ? '<p class="msg ok">' + un.length + ' undated series loaded.</p>' + seriesMetaTable(un)
       : '<p class="hint">No undated series loaded.</p>';
+    var cn = state.chron ? AC.seriesNames(state.chron) : [];
     $('chronInfo').innerHTML = state.chron
-      ? '<p class="msg ok">Chronology: ' + AC.seriesNames(state.chron).length + ' members.</p>'
+      ? '<p class="msg ok">Chronology: ' + cn.length + ' members.</p>' + seriesMetaTable(cn)
       : '<p class="hint">No chronology loaded.</p>';
+  }
+  // Merge a TRiDaS ingest ({undated,chron,meta,links}) into state, auto-routing
+  // its content to the pool / chronology slots. Returns a short summary string.
+  function absorbTridas(t, nameLabel) {
+    if (t.undated) state.undated = state.undated ? AC.bindUndated(state.undated, t.undated) : t.undated;
+    if (t.chron) { state.chron = t.chron; state.chronName = nameLabel; }
+    state.meta = Object.assign({}, state.meta, t.meta);
+    state.tridasLinks = Object.assign({}, state.tridasLinks, t.links || {});
+    var parts = [];
+    if (t.undated) parts.push(AC.seriesNames(t.undated).length + ' undated series');
+    if (t.chron) parts.push(AC.seriesNames(t.chron).length + '-series chronology');
+    return parts.join(' + ');
   }
   function loadUndatedFiles(fileList, msgId) {
     readFilesAsText(fileList, function (descriptors, xlsx) {
       xlsxWarn(xlsx);
       if (xlsx.length && msgId) setMsg(msgId, '.xlsx files skipped — see the warning above.', 'err');
       if (!descriptors.length) { renderDataInfo(); return; }
+      var xmls = descriptors.filter(function (d) { return AC.isTridas(d.name); });
+      var others = descriptors.filter(function (d) { return !AC.isTridas(d.name); });
       try {
-        state.undated = AC.loadUndated(descriptors);
-        state.undatedName = descriptors.map(function (d) { return d.name; }).join(', ');
+        if (others.length) {
+          state.undated = AC.loadUndated(others);
+          state.undatedName = others.map(function (d) { return d.name; }).join(', ');
+        }
+        if (xmls.length) {
+          var label = xmls.map(function (d) { return d.name; }).join(', ');
+          absorbTridas(AC.loadTridas(xmls), label);
+          if (!state.undatedName) state.undatedName = label;
+          if (state.chron) $('mode_select').value = '2';   // a chronology arrived with the pool
+        }
         renderDataInfo();
         onDataChanged();
-        if (msgId) setMsg(msgId, 'Loaded ' + AC.seriesNames(state.undated).length + ' undated series.', 'ok');
+        if (msgId) setMsg(msgId, 'Loaded ' + (state.undated ? AC.seriesNames(state.undated).length : 0) + ' undated series' + (state.chron ? ' + chronology' : '') + '.', 'ok');
       } catch (err) {
         if (msgId) setMsg(msgId, err.message, 'err');
         $('undatedInfo').innerHTML = '<p class="msg err">' + esc(err.message) + '</p>';
@@ -145,9 +234,18 @@
     readFilesAsText(fileList, function (descriptors, xlsx) {
       xlsxWarn(xlsx);
       if (!descriptors.length) { renderDataInfo(); return; }
+      var d0 = descriptors[0];
       try {
-        state.chron = AC.loadChron(descriptors[0]);
-        state.chronName = descriptors[0].name;
+        if (AC.isTridas(d0.name)) {
+          var t = AC.loadTridas([d0]);
+          // Chronology input: prefer the file's dated content; if it holds only
+          // undated series, treat those as the chronology members.
+          if (!t.chron && t.undated) { t = { undated: null, chron: t.undated, meta: t.meta, links: t.links }; }
+          absorbTridas(t, d0.name);
+        } else {
+          state.chron = AC.loadChron(d0);
+          state.chronName = d0.name;
+        }
         // A loaded chronology is almost always there to be crossdated against —
         // default the Explore analysis mode to chronology mode.
         $('mode_select').value = '2';
@@ -196,6 +294,7 @@
   $('setupExampleBtn').addEventListener('click', Actions.loadExample);
 
   function onDataChanged() {
+    refreshMeta();
     var names = state.undated ? AC.seriesNames(state.undated) : [];
     fillSelect($('target_select'), names, function (n) { return n; }, function (n) { return n; });
     $('statusBar').textContent = state.undated
@@ -211,7 +310,7 @@
   }
 
   Actions.clearAll = function () {
-    state = { undated: null, chron: null, undatedName: null, chronName: null, detrend: null, result: null, filteredTable: null, selectedPair: null, builder: null, review: null };
+    state = { undated: null, chron: null, undatedName: null, chronName: null, meta: {}, tridasLinks: {}, detrend: null, result: null, filteredTable: null, selectedPair: null, builder: null, review: null };
     $('setupUndatedInput').value = ''; $('setupChronInput').value = '';
     xlsxWarn([]);
     resetBuildUI();
@@ -893,6 +992,16 @@
     var dls = AC.builderDownloads(frame);
     ul.appendChild(dlItem(dls.chronologyCsv, 'chronology CSV'));
     ul.appendChild(dlItem(dls.chronologyRwl, 'chronology RWL (Tucson)'));
+    try {
+      var tri = AC.builderTridasDownloads({
+        builder: state.builder, undated: state.undated, meta: state.meta,
+        chronName: state.chronName || 'chronology', projectTitle: state.undatedName || 'RingdateR chronology'
+      });
+      ul.appendChild(dlItem(tri.chronologyTridasSelfContained, 'chronology TRiDaS (self-contained, for Tellervo)'));
+      ul.appendChild(dlItem(tri.chronologyTridasDerivedOnly, 'chronology TRiDaS (derivedSeries only)'));
+    } catch (err) {
+      var li = document.createElement('li'); li.textContent = 'TRiDaS export unavailable: ' + err.message; ul.appendChild(li);
+    }
   }
   function renderExportPanel() {
     // On Home both sections show when they have content; in a workspace, that
@@ -949,7 +1058,8 @@
     return AC.serializeSession({
       undated: state.undated, chron: state.chron,
       detrend: state.detrend || detrendUI(), builder: state.builder,
-      undatedName: state.undatedName, chronName: state.chronName
+      undatedName: state.undatedName, chronName: state.chronName,
+      seriesMeta: state.meta
     });
   }
   function scheduleAutosave() {
@@ -993,6 +1103,7 @@
     try {
       var r = AC.restoreSession(obj);
       state.undated = r.undated; state.chron = r.chron; state.detrend = r.detrend; state.builder = r.builder;
+      state.meta = r.seriesMeta || {};
       state.result = null; state.filteredTable = null; state.selectedPair = null;
       if (obj.meta) { state.undatedName = obj.meta.undatedName || 'session'; state.chronName = obj.meta.chronName || null; }
       showExploreResults(false);
@@ -1024,6 +1135,7 @@
 
   // ---- tour hooks ----------------------------------------------------------
   Actions.hasData = function () { return !!state.undated; };
+  Actions.seriesMeta = function () { return state.meta; };   // read accessor (tour/console/tests)
   Actions.hasResult = function () { return !!state.result; };
   Actions.hasBuilder = function () { return !!state.builder; };
   Actions.builderMemberCount = function () { return state.builder ? state.builder.state().members.length : 0; };

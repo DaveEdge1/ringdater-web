@@ -199,13 +199,15 @@ function loadUndated(files, opts = {}) {
 function loadChron(file, opts = {}) {
   const readers = opts.readers || {};
   const ftype = ext3(file.name);
-  const ACC = ['rwl', 'csv', 'lsx', 'txt'];
+  const ACC = ['rwl', 'crn', 'csv', 'lsx', 'txt'];
   if (ACC.indexOf(ftype) < 0) {
     throw new Error('Error in load_chron: File type is not supported\nProblem file: ' + file.name);
   }
   let df;
   if (ftype === 'rwl') {
     df = needReader(readers, 'rwl')(file);
+  } else if (ftype === 'crn') {
+    df = needReader(readers, 'crn')(file);       // ITRDB/Tucson standardized chronology
   } else if (ftype === 'csv') {
     df = parseDelimited(file.text, { sep: ',', header: true, checkNames: true });
   } else if (ftype === 'lsx') {

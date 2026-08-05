@@ -39,6 +39,7 @@ const { rBarEps } = require('./stats/rBarEps.js');
 const io = require('./io/load.js');
 const { parseDelimited } = require('./io/csv.js');
 const { readXlsx } = require('./io/xlsx.js');
+const year = require('./io/year.js');
 
 // ---- visualization (Phase 4): utilities + 6 plot builders ------------------
 const { xScaleBar, yScaleBar, colPal, rDateRTheme } = require('./viz/chartUtils.js');
@@ -93,9 +94,14 @@ module.exports = {
   // IO — loading (extension-dispatched), format parsers, writers
   loadUndated: io.loadUndated, loadChron: io.loadChron,
   loadDataTabs: io.loadDataTabs, ldUndatedChron: io.ldUndatedChron,
-  loadPos: io.loadPos, loadLps: io.loadLps, readRWL: io.readRWL,
+  loadPos: io.loadPos, loadLps: io.loadLps, readRWL: io.readRWL, readCrn: io.readCrn,
   loadRingMeasurer: io.loadRingMeasurer, combineRMFiles: io.combineRMFiles,
   parseDelimited, readXlsx, writeRwl: io.writeRwl, writeCsv: io.writeCsv,
+  // per-series metadata side-channel + calendar (AD/BC, no year 0)
+  emptySeriesMeta: io.emptySeriesMeta, normalizeSeriesMeta: io.normalizeSeriesMeta,
+  ensureMeta: io.ensureMeta, META_EDITABLE: io.META_EDITABLE,
+  astroToCal: year.astroToCal, calToAstro: year.calToAstro, formatCal: year.formatCal,
+  readTridas: io.readTridas, writeTridas: io.writeTridas,
 
   // visualization: utilities, 7 plot builders (each returns a spec; renderSvg -> SVG string)
   xScaleBar, yScaleBar, colPal, rDateRTheme,

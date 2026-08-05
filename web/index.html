@@ -101,17 +101,17 @@
         <button class="btn ghost" id="setupBack">← Back to tasks</button>
         <h2 id="setupTitle"></h2>
         <p class="hint" id="setupIntro"></p>
-        <p class="hint">Formats: .csv, .txt, .rwl, .pos, .lps, Ring-Measurer. First column = years/increment.</p>
+        <p class="hint">Formats: .csv, .txt, .rwl, .pos, .lps, .xml (TRiDaS/Tellervo), Ring-Measurer. First column = years/increment.</p>
         <div id="setupSlots">
           <div class="setup-slot" id="slotUndated">
             <label id="slotUndatedLabel" for="setupUndatedInput"></label>
             <div class="slot-status" id="slotUndatedStatus"></div>
-            <input type="file" id="setupUndatedInput" multiple accept=".csv,.txt,.rwl,.pos,.lps">
+            <input type="file" id="setupUndatedInput" multiple accept=".csv,.txt,.rwl,.pos,.lps,.xml">
           </div>
           <div class="setup-slot" id="slotChron">
             <label id="slotChronLabel" for="setupChronInput"></label>
             <div class="slot-status" id="slotChronStatus"></div>
-            <input type="file" id="setupChronInput" accept=".csv,.txt,.rwl">
+            <input type="file" id="setupChronInput" accept=".csv,.txt,.rwl,.crn,.xml">
           </div>
         </div>
         <div class="warn" id="xlsxWarn" style="display:none"></div>
@@ -155,7 +155,7 @@
               <div id="modeChronPrompt" style="display:none">
                 <p class="hint">Chronology mode needs a dated chronology.</p>
                 <label class="btn ghost filelabel" for="modeChronInput">Load chronology</label>
-                <input type="file" id="modeChronInput" accept=".csv,.txt,.rwl" style="display:none">
+                <input type="file" id="modeChronInput" accept=".csv,.txt,.rwl,.crn,.xml" style="display:none">
               </div>
             </div>
 

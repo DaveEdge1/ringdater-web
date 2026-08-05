@@ -14,7 +14,7 @@
     var msg = "ringdater: Node module \"zlib\" is not available in the browser bundle. (.xlsx reading needs a zlib shim — use CSV/TXT/RWL/.pos/.lps instead.)";
     module.exports = new Proxy({}, { get: function(){ return function(){ throw new Error(msg); }; } });
   });
-  define("m0", {"zlib":"ext:zlib","../index.js":"m1","./chronoChecker.js":"m46","../stats/chron.js":"m40"}, function(module, exports, require){
+  define("m0", {"zlib":"ext:zlib","../index.js":"m1","./chronoChecker.js":"m51","../stats/chron.js":"m45"}, function(module, exports, require){
 'use strict';
 // Browser entry for the RingdateR web apps. Bundled by tools/bundle.js into
 // web/ringdater.bundle.js and exposed as window.RD.
@@ -37,7 +37,7 @@ const { chronStd } = require('../stats/chron.js');
 module.exports = Object.assign({}, RD, { summaryTable, chronStd });
 
   });
-  define("m1", {"./spline.js":"m2","./prewhiten.js":"m3","./curvefit.js":"m4","./supsmu.js":"m6","./rwi_stats.js":"m7","./corr_rwl_seg.js":"m8","./analysis/comb.js":"m10","./stats/cortest.js":"m11","./detrend/normalise.js":"m12","./detrend/detcurves.js":"m13","./analysis/autoCorrel.js":"m14","./analysis/rollcor.js":"m15","./analysis/leadLag.js":"m16","./analysis/runningLeadLag.js":"m17","./analysis/heatmap.js":"m18","./analysis/filterCrossdates.js":"m19","./analysis/align.js":"m20","./analysis/correlReplace.js":"m21","./analysis/removeSeries.js":"m22","./analysis/errorMessage.js":"m23","./analysis/checks.js":"m24","./stats/probCheck.js":"m25","./stats/rBarEps.js":"m26","./io/load.js":"m27","./io/csv.js":"m29","./io/xlsx.js":"m30","./viz/chartUtils.js":"m35","./engine/store.js":"m36","./engine/actions.js":"m37","./engine/workflows.js":"m38","./engine/builder.js":"m39","./io/downloads.js":"m41","./report.js":"m45","./stats/chron.js":"m40","./engine/chronoChecker.js":"m46","./viz/linePlot.js":"m43","./viz/datedLinePlot.js":"m48","./viz/allSeries.js":"m49","./viz/heatmapPlot.js":"m47","./viz/detrendPlot.js":"m50","./viz/leadLagBar.js":"m44","./viz/skelPlot.js":"m51","./analysis/skel.js":"m52","./viz/render.js":"m42"}, function(module, exports, require){
+  define("m1", {"./spline.js":"m2","./prewhiten.js":"m3","./curvefit.js":"m4","./supsmu.js":"m6","./rwi_stats.js":"m7","./corr_rwl_seg.js":"m8","./analysis/comb.js":"m10","./stats/cortest.js":"m11","./detrend/normalise.js":"m12","./detrend/detcurves.js":"m13","./analysis/autoCorrel.js":"m14","./analysis/rollcor.js":"m15","./analysis/leadLag.js":"m16","./analysis/runningLeadLag.js":"m17","./analysis/heatmap.js":"m18","./analysis/filterCrossdates.js":"m19","./analysis/align.js":"m20","./analysis/correlReplace.js":"m21","./analysis/removeSeries.js":"m22","./analysis/errorMessage.js":"m23","./analysis/checks.js":"m24","./stats/probCheck.js":"m25","./stats/rBarEps.js":"m26","./io/load.js":"m27","./io/csv.js":"m29","./io/xlsx.js":"m30","./io/year.js":"m39","./viz/chartUtils.js":"m40","./engine/store.js":"m41","./engine/actions.js":"m42","./engine/workflows.js":"m43","./engine/builder.js":"m44","./io/downloads.js":"m46","./report.js":"m50","./stats/chron.js":"m45","./engine/chronoChecker.js":"m51","./viz/linePlot.js":"m48","./viz/datedLinePlot.js":"m53","./viz/allSeries.js":"m54","./viz/heatmapPlot.js":"m52","./viz/detrendPlot.js":"m55","./viz/leadLagBar.js":"m49","./viz/skelPlot.js":"m56","./analysis/skel.js":"m57","./viz/render.js":"m47"}, function(module, exports, require){
 'use strict';
 // ringdater-js: JS port of the numeric core + analysis layer of dplR/ringdater
 // (crossdating). Every function is validated against R via tools/*.R + test/*.
@@ -79,6 +79,7 @@ const { rBarEps } = require('./stats/rBarEps.js');
 const io = require('./io/load.js');
 const { parseDelimited } = require('./io/csv.js');
 const { readXlsx } = require('./io/xlsx.js');
+const year = require('./io/year.js');
 
 // ---- visualization (Phase 4): utilities + 6 plot builders ------------------
 const { xScaleBar, yScaleBar, colPal, rDateRTheme } = require('./viz/chartUtils.js');
@@ -133,9 +134,14 @@ module.exports = {
   // IO — loading (extension-dispatched), format parsers, writers
   loadUndated: io.loadUndated, loadChron: io.loadChron,
   loadDataTabs: io.loadDataTabs, ldUndatedChron: io.ldUndatedChron,
-  loadPos: io.loadPos, loadLps: io.loadLps, readRWL: io.readRWL,
+  loadPos: io.loadPos, loadLps: io.loadLps, readRWL: io.readRWL, readCrn: io.readCrn,
   loadRingMeasurer: io.loadRingMeasurer, combineRMFiles: io.combineRMFiles,
   parseDelimited, readXlsx, writeRwl: io.writeRwl, writeCsv: io.writeCsv,
+  // per-series metadata side-channel + calendar (AD/BC, no year 0)
+  emptySeriesMeta: io.emptySeriesMeta, normalizeSeriesMeta: io.normalizeSeriesMeta,
+  ensureMeta: io.ensureMeta, META_EDITABLE: io.META_EDITABLE,
+  astroToCal: year.astroToCal, calToAstro: year.calToAstro, formatCal: year.formatCal,
+  readTridas: io.readTridas, writeTridas: io.writeTridas,
 
   // visualization: utilities, 7 plot builders (each returns a spec; renderSvg -> SVG string)
   xScaleBar, yScaleBar, colPal, rDateRTheme,
@@ -2939,7 +2945,7 @@ function rBarEps(frame, opts) {
 module.exports = { rBarEps };
 
   });
-  define("m27", {"./loaders.js":"m28","./pos.js":"m31","./lps.js":"m32","./rwl.js":"m33","./ringMeasurer.js":"m34","../analysis/comb.js":"m10"}, function(module, exports, require){
+  define("m27", {"./loaders.js":"m28","./pos.js":"m31","./lps.js":"m32","./rwl.js":"m34","./crn.js":"m35","./ringMeasurer.js":"m36","./meta.js":"m37","./tridas.js":"m38","../analysis/comb.js":"m10"}, function(module, exports, require){
 'use strict';
 // T2.6 — IO dispatcher. Wires the format-specific parsers (pos/lps/rwl) into the
 // loaders' pluggable reader hooks and exposes the full RingdateR file surface:
@@ -2950,7 +2956,10 @@ const loaders = require('./loaders.js');
 const { loadPos } = require('./pos.js');
 const { loadLps } = require('./lps.js');
 const { readRWL, writeRwl } = require('./rwl.js');
+const { readCrn } = require('./crn.js');
 const { loadRingMeasurer, combineRMFiles } = require('./ringMeasurer.js');
+const meta = require('./meta.js');
+const { readTridas, writeTridas } = require('./tridas.js');
 const C = require('../analysis/comb.js');
 
 // Default reader hooks, adapting each parser to the signature loaders.js expects.
@@ -2958,6 +2967,7 @@ const READERS = {
   pos: (file) => loadPos(file.text),
   lps: ({ series, file }) => loadLps(file.text, series),
   rwl: (file) => readRWL(file.text, { fileName: file.name }),
+  crn: (file) => readCrn(file.text, { fileName: file.name }),
 };
 
 function withReaders(opts) {
@@ -2981,8 +2991,13 @@ function writeCsv(frame) {
 
 module.exports = {
   loadUndated, loadChron, loadDataTabs, ldUndatedChron,
-  loadPos, loadLps, readRWL, loadRingMeasurer, combineRMFiles,
+  loadPos, loadLps, readRWL, readCrn, loadRingMeasurer, combineRMFiles,
   writeRwl, writeCsv, READERS,
+  // per-series metadata side-channel helpers
+  emptySeriesMeta: meta.emptySeriesMeta, normalizeSeriesMeta: meta.normalizeSeriesMeta,
+  ensureMeta: meta.ensureMeta, META_EDITABLE: meta.EDITABLE,
+  // TRiDaS (Tellervo) XML
+  readTridas, writeTridas,
 };
 
   });
@@ -3188,13 +3203,15 @@ function loadUndated(files, opts = {}) {
 function loadChron(file, opts = {}) {
   const readers = opts.readers || {};
   const ftype = ext3(file.name);
-  const ACC = ['rwl', 'csv', 'lsx', 'txt'];
+  const ACC = ['rwl', 'crn', 'csv', 'lsx', 'txt'];
   if (ACC.indexOf(ftype) < 0) {
     throw new Error('Error in load_chron: File type is not supported\nProblem file: ' + file.name);
   }
   let df;
   if (ftype === 'rwl') {
     df = needReader(readers, 'rwl')(file);
+  } else if (ftype === 'crn') {
+    df = needReader(readers, 'crn')(file);       // ITRDB/Tucson standardized chronology
   } else if (ftype === 'csv') {
     df = parseDelimited(file.text, { sep: ',', header: true, checkNames: true });
   } else if (ftype === 'lsx') {
@@ -3831,7 +3848,7 @@ function loadPos(text, seriesName = 'series', col1Name = 'ring') {
 module.exports = { loadPos };
 
   });
-  define("m32", {}, function(module, exports, require){
+  define("m32", {"./xml.js":"m33"}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // loadLps: port of ringdater::load_lps (Image-Pro `.lps` line-profile XML).
@@ -3856,54 +3873,11 @@ module.exports = { loadPos };
 const NA = null;
 
 // ---- minimal XML walk -------------------------------------------------------
-// A node is {tag, attrs:{}, children:[node]}. We only need element tags and
-// attributes; text/comments/PIs are ignored. Sufficient for the .lps schema.
-
-function parseXml(text) {
-  const root = { tag: '#root', attrs: {}, children: [] };
-  const stack = [root];
-  const re = /<([!?/]?)([A-Za-z_][\w.:-]*)((?:\s+[^<>]*?)?)\s*(\/?)>|<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>/g;
-  let m;
-  while ((m = re.exec(text)) !== null) {
-    const marker = m[1];      // '', '/', '!', '?'
-    if (marker === '!' || marker === '?') continue;    // <!doctype>, <?xml?>, matched comment/cdata
-    const tag = m[2];
-    const attrText = m[3] || '';
-    const selfClose = m[4] === '/';
-    if (marker === '/') {                              // closing tag
-      // pop matching element
-      for (let k = stack.length - 1; k >= 1; k--) {
-        if (stack[k].tag === tag) { stack.length = k; break; }
-      }
-      continue;
-    }
-    const node = { tag, attrs: parseAttrs(attrText), children: [] };
-    stack[stack.length - 1].children.push(node);
-    if (!selfClose) stack.push(node);
-  }
-  return root;
-}
-
-function parseAttrs(s) {
-  const attrs = {};
-  const re = /([A-Za-z_][\w.:-]*)\s*=\s*("([^"]*)"|'([^']*)')/g;
-  let m;
-  while ((m = re.exec(s)) !== null) attrs[m[1]] = m[3] !== undefined ? m[3] : m[4];
-  return attrs;
-}
-
-// first child element whose tag matches (mirrors R `$name` first-match)
-function child(node, tag) {
-  if (!node) return undefined;
-  for (const c of node.children) if (c.tag === tag) return c;
-  return undefined;
-}
-// all child elements with tag (in document order)
-function childrenOf(node, tag) {
-  const out = [];
-  if (node) for (const c of node.children) if (c.tag === tag) out.push(c);
-  return out;
-}
+// The element walker now lives in ./xml.js (generalized for TRiDaS with
+// text-node capture, entity decoding, and namespace tolerance). For the fixed
+// .lps schema — which puts every value in an attribute and uses no namespaces —
+// these helpers behave identically to the original local copy.
+const { parseXml, child, childrenOf } = require('./xml.js');
 
 // ---- loader -----------------------------------------------------------------
 
@@ -3975,10 +3949,172 @@ function loadLps(text, series) {
   return { names, cols };
 }
 
-module.exports = { loadLps, parseXml };
+module.exports = { loadLps, parseXml };  // parseXml re-exported for back-compat
 
   });
   define("m33", {}, function(module, exports, require){
+'use strict';
+// ============================================================================
+// Dependency-free XML reader + serializer.
+//
+// Generalized from the tiny element walker originally in src/io/lps.js. It is
+// deliberately NOT a conforming XML parser — it is a pragmatic scanner good
+// enough for the fixed schemas RingdateR consumes (Image-Pro `.lps` and TRiDaS
+// `.xml`). Over the lps-only walker it adds three things TRiDaS needs:
+//
+//   1. TEXT-NODE CAPTURE  — character data between tags is stored on the owning
+//      element's `.text`, so `<title>Quercus robur</title>` is readable. The
+//      lps schema put everything in attributes; TRiDaS puts much in element
+//      text (titles, units, years, lab codes, taxon).
+//   2. ENTITY DECODING    — `&amp; &lt; &gt; &quot; &apos; &#nn; &#xHH;` are
+//      decoded in both text and attribute values.
+//   3. NAMESPACE TOLERANCE — child()/childrenOf() match on the LOCAL name, so a
+//      default-namespaced (`xmlns="…"`) or prefixed (`tridas:value`) document
+//      navigates the same as an unprefixed one.
+//
+// Node model:  { tag, attrs:{}, children:[node], text:string }
+// `tag` keeps the raw (possibly prefixed) name; `text` is the concatenation of
+// this element's direct character data (use text(node) for a trimmed read).
+// ============================================================================
+
+// ---- entity decoding --------------------------------------------------------
+const NAMED = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+function decodeEntities(s) {
+  if (s == null || s.indexOf('&') < 0) return s == null ? s : String(s);
+  return String(s).replace(/&(#x[0-9A-Fa-f]+|#[0-9]+|[A-Za-z][A-Za-z0-9]*);/g, (whole, body) => {
+    if (body[0] === '#') {
+      const code = body[1] === 'x' || body[1] === 'X'
+        ? parseInt(body.slice(2), 16)
+        : parseInt(body.slice(1), 10);
+      return Number.isFinite(code) ? String.fromCodePoint(code) : whole;
+    }
+    return Object.prototype.hasOwnProperty.call(NAMED, body) ? NAMED[body] : whole;
+  });
+}
+
+// ---- parsing ----------------------------------------------------------------
+
+function parseAttrs(s) {
+  const attrs = {};
+  const re = /([A-Za-z_][\w.:-]*)\s*=\s*("([^"]*)"|'([^']*)')/g;
+  let m;
+  while ((m = re.exec(s)) !== null) {
+    const raw = m[3] !== undefined ? m[3] : m[4];
+    attrs[m[1]] = decodeEntities(raw);
+  }
+  return attrs;
+}
+
+// Parse XML text into a { tag:'#root', children:[...] } tree.
+function parseXml(text) {
+  const root = { tag: '#root', attrs: {}, children: [], text: '' };
+  const stack = [root];
+  const re = /<([!?/]?)([A-Za-z_][\w.:-]*)((?:\s+[^<>]*?)?)\s*(\/?)>|<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>/g;
+  let last = 0, m;
+  while ((m = re.exec(text)) !== null) {
+    // character data between the previous match and this one belongs to the
+    // element currently on top of the stack.
+    if (m.index > last) appendText(stack[stack.length - 1], decodeEntities(text.slice(last, m.index)));
+    last = re.lastIndex;
+
+    const token = m[0];
+    if (token.charCodeAt(1) === 33 /* '!' */) {
+      if (token.startsWith('<![CDATA[')) appendText(stack[stack.length - 1], token.slice(9, -3));
+      continue;                                          // comment / CDATA / doctype
+    }
+    const marker = m[1];
+    if (marker === '?') continue;                        // processing instruction / <?xml?>
+    const tag = m[2];
+    if (!tag) continue;                                  // defensive
+    if (marker === '/') {                                // closing tag -> pop to match (by local name)
+      const ln = localName(tag);
+      for (let k = stack.length - 1; k >= 1; k--) {
+        if (localName(stack[k].tag) === ln) { stack.length = k; break; }
+      }
+      continue;
+    }
+    const node = { tag, attrs: parseAttrs(m[3] || ''), children: [], text: '' };
+    stack[stack.length - 1].children.push(node);
+    if (m[4] !== '/') stack.push(node);                  // not self-closing
+  }
+  return root;
+}
+
+function appendText(node, s) { if (s) node.text += s; }
+
+// ---- navigation (namespace-tolerant: match on local name) -------------------
+
+function localName(tag) {
+  const i = String(tag).indexOf(':');
+  return i < 0 ? tag : tag.slice(i + 1);
+}
+
+// first child element whose local name matches (mirrors R `$name` first-match)
+function child(node, tag) {
+  if (!node) return undefined;
+  for (const c of node.children) if (localName(c.tag) === tag) return c;
+  return undefined;
+}
+
+// all child elements with the given local name, in document order
+function childrenOf(node, tag) {
+  const out = [];
+  if (node) for (const c of node.children) if (localName(c.tag) === tag) out.push(c);
+  return out;
+}
+
+// trimmed text content of an element (empty string if none / node absent)
+function text(node) { return node && node.text != null ? node.text.trim() : ''; }
+
+// trimmed text of the first matching child, or undefined if the child is absent
+function childText(node, tag) { const c = child(node, tag); return c ? text(c) : undefined; }
+
+// ---- building + serialization (for the TRiDaS writer) -----------------------
+
+function el(tag, attrs, children) {
+  return { tag, attrs: attrs || {}, children: children || [], text: '' };
+}
+// leaf element carrying text content, e.g. elText('title', 'Oak 1')
+function elText(tag, value, attrs) {
+  const n = el(tag, attrs);
+  n.text = value == null ? '' : String(value);
+  return n;
+}
+
+function encodeText(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+function encodeAttr(s) { return encodeText(s).replace(/"/g, '&quot;'); }
+
+function serializeNode(node, indent, out) {
+  const pad = '  '.repeat(indent);
+  const attrs = Object.keys(node.attrs || {})
+    .map(k => ' ' + k + '="' + encodeAttr(node.attrs[k]) + '"').join('');
+  const kids = node.children || [];
+  const hasText = node.text != null && node.text !== '';
+  if (!kids.length && !hasText) { out.push(pad + '<' + node.tag + attrs + '/>'); return; }
+  if (!kids.length) { out.push(pad + '<' + node.tag + attrs + '>' + encodeText(node.text) + '</' + node.tag + '>'); return; }
+  out.push(pad + '<' + node.tag + attrs + '>');
+  for (const c of kids) serializeNode(c, indent + 1, out);
+  out.push(pad + '</' + node.tag + '>');
+}
+
+// serialize a node tree to an XML string. opts.declaration=false omits <?xml?>.
+function serializeXml(node, opts) {
+  const out = [];
+  if (!opts || opts.declaration !== false) out.push('<?xml version="1.0" encoding="UTF-8"?>');
+  serializeNode(node, 0, out);
+  return out.join('\n') + '\n';
+}
+
+module.exports = {
+  parseXml, parseAttrs, decodeEntities,
+  child, childrenOf, text, childText, localName,
+  el, elText, serializeXml, encodeText, encodeAttr,
+};
+
+  });
+  define("m34", {}, function(module, exports, require){
 'use strict';
 // Tucson / RWL decadal-format reader & writer -- a JS port of dplR's
 // read.rwl/read.tucson and write.rwl/write.tucson (Tucson format only), plus
@@ -4400,7 +4536,103 @@ function readRWL(text, opts) {
 module.exports = { readRwl, writeRwl, readRWL, locateID, readWOheader, fixNames };
 
   });
-  define("m34", {}, function(module, exports, require){
+  define("m35", {}, function(module, exports, require){
+'use strict';
+// ============================================================================
+// Tucson / ITRDB chronology reader (.crn) — "standardized site growth indices".
+// A JS port of the parse shape of dplR::read.crn.
+//
+// This is NOT the .rwl decadal layout: a chronology line packs a 3-character
+// SAMPLE-DEPTH count after each index value. Per decade line:
+//   cols 1-6   site ID
+//   cols 7-10  decade year (year of the first of the ten blocks)
+//   cols 11-80 ten 7-char blocks of  (4-char index)(3-char sample depth)
+// The index is the chronology value x 1000 (so 1000 -> 1.000). The value 9990
+// is the ITRDB end/missing marker (padding for the final decade) -> NA.
+//
+// Output: the shared Frame contract {names:['year', <id>...], cols:[...]}, with
+// index values divided back to their fractional form (dimensionless RWI).
+// ============================================================================
+
+const NUMRE = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/;
+function asNumeric(str) {
+  if (str == null) return NaN;
+  const t = String(str).trim();
+  if (t === '') return NaN;
+  return NUMRE.test(t) ? Number(t) : NaN;
+}
+function isInt(x) { return Number.isFinite(x) && Math.round(x) === x; }
+function splitLines(text) {
+  const lines = String(text).split(/\r\n|\r|\n/);
+  if (lines.length && lines[lines.length - 1] === '') lines.pop();
+  return lines;
+}
+
+// A data line has a valid integer year in cols 7-10; anything else (the 3 ITRDB
+// header lines, blank/comment lines) is skipped.
+function looksLikeDataLine(ln) {
+  if (ln.length < 10) return false;
+  const y = asNumeric(ln.substring(6, 10));
+  return !Number.isNaN(y) && isInt(y) && y >= -12000 && y <= 12000;
+}
+
+// readCrn(text, opts) -> Frame  (opts.stopMarker default 9990)
+function readCrn(text, opts) {
+  opts = opts || {};
+  const stop = opts.stopMarker != null ? opts.stopMarker : 9990;
+
+  let lines = splitLines(text).filter(l => l.length > 0);
+  lines = lines.filter(l => { const p = l.indexOf('#'); return !(p >= 0 && p <= 77); }); // strip comments
+  if (!lines.length) { const e = new Error('crn file is empty'); e.crnError = true; throw e; }
+
+  const dataLines = lines.filter(looksLikeDataLine);
+  if (!dataLines.length) { const e = new Error('crn file has no chronology data'); e.crnError = true; throw e; }
+
+  const ids = [];
+  const byId = new Map();                 // id -> Map<year, index>
+  for (const ln of dataLines) {
+    const id = ln.substring(0, 6).trim();
+    const year = Math.round(asNumeric(ln.substring(6, 10)));
+    if (!byId.has(id)) { byId.set(id, new Map()); ids.push(id); }
+    const map = byId.get(id);
+    for (let i = 0; i < 10; i++) {
+      const base = 10 + i * 7;
+      const vStr = ln.substring(base, base + 4);      // 4-char index
+      if (vStr.trim() === '') continue;
+      const v = asNumeric(vStr);
+      if (Number.isNaN(v) || v === stop) continue;    // blank / end marker -> NA
+      map.set(year + i, v / 1000);
+    }
+  }
+
+  // overall span across all series that carry data
+  let omin = Infinity, omax = -Infinity;
+  for (const id of ids) for (const y of byId.get(id).keys()) { if (y < omin) omin = y; if (y > omax) omax = y; }
+
+  const names = ['year'];
+  const cols = [];
+  if (!Number.isFinite(omin)) {                       // no usable data
+    cols.push([]);
+    for (const id of ids) { names.push(id); cols.push([]); }
+    return { names, cols };
+  }
+  const years = [];
+  for (let y = omin; y <= omax; y++) years.push(y);
+  cols.push(years);
+  for (const id of ids) {
+    const map = byId.get(id);
+    names.push(id);
+    const col = new Array(years.length);
+    for (let i = 0; i < years.length; i++) { const y = years[i]; col[i] = map.has(y) ? map.get(y) : null; }
+    cols.push(col);
+  }
+  return { names, cols };
+}
+
+module.exports = { readCrn };
+
+  });
+  define("m36", {}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // Ring Measurer CSV loader + combiner. Faithful port of ringdater's
@@ -4565,7 +4797,584 @@ function combineRMFiles(texts) {
 module.exports = { loadRingMeasurer, combineRMFiles, parseCSV };
 
   });
-  define("m35", {}, function(module, exports, require){
+  define("m37", {}, function(module, exports, require){
+'use strict';
+// ============================================================================
+// Per-series metadata side-channel.
+//
+// The Frame contract {names, cols} (src/analysis/comb.js) carries only ring
+// widths and a (sanitized, possibly 6-char-truncatable) series name — it has
+// nowhere to hold the identifiers, taxon, units, and dating that Tellervo /
+// TRiDaS attach to each series. Rather than change that widely-validated shape,
+// metadata rides ALONGSIDE the Frame in a plain object keyed by the sanitized
+// internal column name (the Frame column key):
+//
+//     meta = { [columnName]: SeriesMeta }
+//
+// A plain object (not a Map) so it serializes straight into the session JSON.
+// The TRiDaS reader (src/io/tridas.js) populates these; non-TRiDaS loads get
+// empty entries so the UI can still display/annotate every series.
+// ============================================================================
+
+// Fields the light in-app editor is allowed to write (see PR5 UI + writeTridas).
+const EDITABLE = ['taxon', 'pith', 'bark', 'labCode', 'notes'];
+
+function emptySeriesMeta(columnName, title) {
+  return {
+    columnName: columnName,
+    title: title != null ? title : columnName,   // original (unsanitized) TRiDaS <title>
+    labCode: null,                                // lab / keycode identifier
+    tridas: null,                                 // { projectId, objectId, elementId, sampleId, radiusId, seriesId, identifierDomain }
+    taxon: null,                                  // e.g. "Quercus robur"    (EDITABLE)
+    pith: null,                                   // true | false | null(unknown) (EDITABLE)
+    bark: null,                                   // true | false | null(unknown) (EDITABLE)
+    unit: null,                                   // source unit string; Frame values are mm
+    variable: null,                               // 'ring width' | 'earlywood width' | ...
+    dated: null,                                  // 'absolute' | 'relative' | null(undated)
+    firstYearInternal: null,                      // astronomical-int first year (null if undated)
+    lastYearInternal: null,
+    notes: null,                                  // free text              (EDITABLE)
+    raw: null                                     // opaque sub-tree snapshot for lossless round-trip
+  };
+}
+
+// Merge a partial into a fresh empty meta, forcing columnName to the key.
+function normalizeSeriesMeta(columnName, partial) {
+  return Object.assign(emptySeriesMeta(columnName), partial || {}, { columnName: columnName });
+}
+
+// Return a meta object covering exactly `names`: reuse existing entries where
+// present (preserving edits/imported fields), add empty entries for new names,
+// and drop entries for names no longer loaded. `titleFor` optionally supplies a
+// display title for freshly-created entries.
+function ensureMeta(existing, names, titleFor) {
+  const out = {};
+  (names || []).forEach(function (n) {
+    out[n] = (existing && existing[n]) ? existing[n] : emptySeriesMeta(n, titleFor ? titleFor(n) : n);
+  });
+  return out;
+}
+
+module.exports = { EDITABLE, emptySeriesMeta, normalizeSeriesMeta, ensureMeta };
+
+  });
+  define("m38", {"./xml.js":"m33","./year.js":"m39","./meta.js":"m37","../analysis/checks.js":"m24"}, function(module, exports, require){
+'use strict';
+// ============================================================================
+// TRiDaS (Tree Ring Data Standard, v1.2.2) reader — the interchange format
+// Tellervo emits. Import only in this file; the writer lives alongside it
+// (added in a later step).
+//
+// TRiDaS hierarchy:
+//   tridas > project > object > element > sample > radius > measurementSeries
+//   tridas > project > derivedSeries        (chronologies; linkSeries -> members)
+//
+// This reader turns that into RingdateR's world:
+//   - undated measurementSeries  -> an increment-axis "undated pool" Frame
+//   - absolutely-dated series / derivedSeries -> a calendar-year "chron" Frame
+//     (col0 = INTERNAL astronomical year integers; the AD/BC no-year-0 mapping
+//      is applied only at display/export via src/io/year.js)
+//   - all series' identifiers / taxon / units / dating / pith-bark -> a `meta`
+//     side-channel (src/io/meta.js), so nothing Tellervo knows is dropped.
+//
+// Values are integer counts in the series <unit>; we convert to millimetres
+// (the Frame's internal convention, matching the RWL reader) using mmPerUnit().
+// ============================================================================
+
+const { parseXml, child, childrenOf, text, childText, localName, el, elText, serializeXml } = require('./xml.js');
+const { calToAstro, astroToCal } = require('./year.js');
+const { emptySeriesMeta, normalizeSeriesMeta } = require('./meta.js');
+const { makeNames } = require('../analysis/checks.js');
+
+const TRIDAS_NS = 'http://www.tridas.org/1.2.2';
+
+// ---- unit -> millimetres ----------------------------------------------------
+// The TRiDaS controlled unit vocabulary. Unknown/absent units fall back to a
+// factor of 1 (values kept as-is) and the raw unit string is preserved in meta
+// so a mis-scale is visible rather than silent.
+function mmPerUnit(u) {
+  if (u == null) return null;
+  const s = String(u).toLowerCase().replace(/(\d)\s*th\b/g, '$1').replace(/\s+/g, ' ').trim();
+  const table = {
+    'metres': 1000, 'meters': 1000,
+    'centimetres': 10, 'centimeters': 10,
+    'millimetres': 1, 'millimeters': 1,
+    '1/10 millimetres': 0.1, '1/10 millimeters': 0.1,
+    '1/20 millimetres': 0.05, '1/20 millimeters': 0.05,
+    '1/50 millimetres': 0.02, '1/50 millimeters': 0.02,
+    '1/100 millimetres': 0.01, '1/100 millimeters': 0.01,
+    '1/1000 millimetres': 0.001, '1/1000 millimeters': 0.001,
+    'micrometres': 0.001, 'micrometers': 0.001, 'microns': 0.001
+  };
+  return Object.prototype.hasOwnProperty.call(table, s) ? table[s] : null;
+}
+
+// ---- small field readers ----------------------------------------------------
+function readIdent(node) {
+  const e = child(node, 'identifier');
+  return { value: e ? (text(e) || null) : null, domain: e && e.attrs.domain ? e.attrs.domain : null };
+}
+function firstValuesGroup(series) { return child(series, 'values'); }
+
+function readUnit(values) {
+  const u = child(values, 'unit');
+  if (!u) return null;
+  if (u.attrs.unitless === 'true') return 'unitless';
+  if (u.attrs.normalTridas) return u.attrs.normalTridas;
+  if (u.attrs.value) return u.attrs.value;
+  const nt = child(u, 'normalTridas');
+  if (nt && text(nt)) return text(nt);
+  return text(u) || null;
+}
+function readVariable(values) {
+  const v = child(values, 'variable');
+  if (!v) return null;
+  if (v.attrs.normalTridas) return v.attrs.normalTridas;
+  if (v.attrs.normal) return v.attrs.normal;
+  if (text(v)) return text(v);
+  if (v.children.length) return localName(v.children[0].tag);   // e.g. <ringWidth/>
+  return null;
+}
+function presence(wc, tag) {
+  const el = wc && child(wc, tag);
+  if (!el) return null;
+  const p = String(el.attrs.presence || '').toLowerCase();
+  if (!p) return null;
+  if (p === 'absent') return false;
+  if (p === 'present' || p === 'complete' || p === 'incomplete') return true;
+  return null;   // 'unknown'
+}
+
+// interpretation -> { dated, firstYearInternal, lastYearInternal, datingType }
+function readInterp(interp, n) {
+  if (!interp) return { dated: false, firstYearInternal: null, lastYearInternal: null, datingType: null };
+  const dtEl = child(interp, 'dating');
+  const datingType = dtEl ? (dtEl.attrs.type || text(dtEl) || null) : null;
+  const isRelative = datingType != null && /relative/i.test(String(datingType));
+  const fy = child(interp, 'firstYear');
+  const ly = child(interp, 'lastYear');
+  let firstYearInternal = null, lastYearInternal = null, dated = false;
+  if (fy && text(fy)) {
+    const yr = parseInt(text(fy), 10);
+    if (Number.isFinite(yr) && !isRelative) {
+      firstYearInternal = calToAstro(yr, fy.attrs.suffix || 'AD');
+      dated = true;
+    }
+  }
+  if (dated) {
+    if (ly && text(ly)) {
+      const yr2 = parseInt(text(ly), 10);
+      if (Number.isFinite(yr2)) lastYearInternal = calToAstro(yr2, ly.attrs.suffix || 'AD');
+    }
+    if (lastYearInternal == null && n) lastYearInternal = firstYearInternal + n - 1;
+  }
+  return { dated, firstYearInternal, lastYearInternal, datingType };
+}
+
+// ---- series handlers --------------------------------------------------------
+function seriesValuesMm(seriesNode) {
+  const values = firstValuesGroup(seriesNode);
+  const valEls = values ? childrenOf(values, 'value') : [];
+  const raw = valEls.map(v => Number(v.attrs.value));
+  const counts = valEls.map(v => (v.attrs.count != null ? Number(v.attrs.count) : null));
+  const unit = values ? readUnit(values) : null;
+  const variable = values ? readVariable(values) : null;
+  const factor = mmPerUnit(unit);
+  const mm = factor == null ? 1 : factor;
+  const valuesMm = raw.map(v => (Number.isFinite(v) ? v * mm : null));
+  return { valuesMm: valuesMm, counts: counts, unit: unit, variable: variable };
+}
+
+function handleMeasurement(ms, ctx, undatedRaw, datedRaw) {
+  const id = readIdent(ms);
+  const title = childText(ms, 'title') || ctx.sampleTitle || ctx.elementTitle || id.value || 'series';
+  const v = seriesValuesMm(ms);
+  const wc = child(ms, 'woodCompleteness');
+  const interp = readInterp(child(ms, 'interpretation'), v.valuesMm.length);
+  const metaPartial = {
+    title: title, labCode: id.value,
+    tridas: {
+      projectId: ctx.projectId || null, objectId: ctx.objectId || null, elementId: ctx.elementId || null,
+      sampleId: ctx.sampleId || null, radiusId: ctx.radiusId || null,
+      seriesId: id.value, identifierDomain: id.domain
+    },
+    taxon: ctx.taxon || null,
+    pith: presence(wc, 'pith'), bark: presence(wc, 'bark'),
+    unit: v.unit, variable: v.variable,
+    dated: interp.dated ? 'absolute' : (interp.datingType && /relative/i.test(interp.datingType) ? 'relative' : null),
+    firstYearInternal: interp.dated ? interp.firstYearInternal : null,
+    lastYearInternal: interp.dated ? interp.lastYearInternal : null
+  };
+  const rec = {
+    title: title, valuesMm: v.valuesMm, seriesId: id.value,
+    firstYearInternal: interp.dated ? interp.firstYearInternal : null, metaPartial: metaPartial
+  };
+  (interp.dated ? datedRaw : undatedRaw).push(rec);
+}
+
+function handleDerived(ds, ctx, datedRaw) {
+  const id = readIdent(ds);
+  const title = childText(ds, 'title') || id.value || 'chronology';
+  const v = seriesValuesMm(ds);
+  const interp = readInterp(child(ds, 'interpretation'), v.valuesMm.length);
+  const links = [];
+  const ls = child(ds, 'linkSeries');
+  if (ls) childrenOf(ls, 'series').forEach(function (s) {
+    const sid = readIdent(s);
+    if (sid.value) links.push(sid.value);
+  });
+  const metaPartial = {
+    title: title, labCode: id.value,
+    tridas: {
+      projectId: ctx.projectId || null, seriesId: id.value, identifierDomain: id.domain, derived: true
+    },
+    unit: v.unit, variable: v.variable,
+    dated: interp.dated ? 'absolute' : (interp.datingType && /relative/i.test(interp.datingType) ? 'relative' : null),
+    firstYearInternal: interp.dated ? interp.firstYearInternal : null,
+    lastYearInternal: interp.dated ? interp.lastYearInternal : null,
+    isChronology: true, sampleDepth: v.counts, linkMembers: links
+  };
+  datedRaw.push({
+    title: title, valuesMm: v.valuesMm, seriesId: id.value,
+    firstYearInternal: interp.dated ? interp.firstYearInternal : 1, links: links, metaPartial: metaPartial
+  });
+}
+
+function collectFromObjects(objects, ctx, undatedRaw, datedRaw) {
+  objects.forEach(function (obj) {
+    const objId = readIdent(obj);
+    const objCtx = Object.assign({}, ctx, { objectId: objId.value, objectTitle: childText(obj, 'title') });
+    collectFromObjects(childrenOf(obj, 'object'), objCtx, undatedRaw, datedRaw);   // nested objects
+    childrenOf(obj, 'element').forEach(function (el) {
+      const elId = readIdent(el);
+      const elCtx = Object.assign({}, objCtx, {
+        elementId: elId.value, taxon: childText(el, 'taxon') || null, elementTitle: childText(el, 'title')
+      });
+      childrenOf(el, 'sample').forEach(function (sample) {
+        const sId = readIdent(sample);
+        const sCtx = Object.assign({}, elCtx, { sampleId: sId.value, sampleTitle: childText(sample, 'title') });
+        const radii = childrenOf(sample, 'radius');
+        if (radii.length) {
+          radii.forEach(function (rad) {
+            const rCtx = Object.assign({}, sCtx, { radiusId: readIdent(rad).value });
+            childrenOf(rad, 'measurementSeries').forEach(ms => handleMeasurement(ms, rCtx, undatedRaw, datedRaw));
+          });
+        } else {
+          childrenOf(sample, 'measurementSeries').forEach(ms => handleMeasurement(ms, sCtx, undatedRaw, datedRaw));
+        }
+      });
+    });
+  });
+}
+
+// ---- frame assembly ---------------------------------------------------------
+function lowerSpace(s) { return String(s).replace(/\s/g, '_').toLowerCase(); }
+function safeNames(bases) { return makeNames(bases).map(s => s.replace(/\./g, '_')); }
+
+// undated pool: increment axis (col0 = 1..maxLen), series bottom-padded with NA
+function buildUndatedFrame(recs, names) {
+  if (!recs.length) return null;
+  const maxLen = recs.reduce((m, r) => Math.max(m, r.valuesMm.length), 0);
+  const ring = []; for (let i = 0; i < maxLen; i++) ring.push(i + 1);
+  const cols = [ring];
+  recs.forEach(function (r) {
+    const c = r.valuesMm.slice();
+    while (c.length < maxLen) c.push(null);
+    cols.push(c);
+  });
+  return { names: ['ring'].concat(names), cols: cols };
+}
+
+// dated frame: col0 = contiguous INTERNAL astronomical years spanning all series
+function buildDatedFrame(recs, names) {
+  if (!recs.length) return null;
+  const spans = recs.map(function (r) {
+    const start = r.firstYearInternal != null ? r.firstYearInternal : 1;
+    return { start: start, end: start + r.valuesMm.length - 1 };
+  });
+  const axisMin = Math.min.apply(null, spans.map(s => s.start));
+  const axisMax = Math.max.apply(null, spans.map(s => s.end));
+  const years = []; for (let y = axisMin; y <= axisMax; y++) years.push(y);
+  const cols = [years];
+  recs.forEach(function (r, i) {
+    const col = new Array(years.length).fill(null);
+    const start = spans[i].start;
+    for (let k = 0; k < r.valuesMm.length; k++) col[start + k - axisMin] = r.valuesMm[k];
+    cols.push(col);
+  });
+  return { names: ['years'].concat(names), cols: cols, axisMin: axisMin };
+}
+
+/**
+ * readTridas(text, opts) -> { undated, chron, meta, dating, links }
+ *   undated : Frame | null  (increment-axis pool of undated measurementSeries)
+ *   chron   : Frame | null  (calendar/internal-year axis of dated + derivedSeries)
+ *   meta    : { [columnName]: SeriesMeta }  covering every column in both frames
+ *   dating  : { anyAbsolute, firstYearInternal } | null
+ *   links   : { [chronColumnName]: [memberSeriesId, ...] }  (derivedSeries provenance)
+ */
+function readTridas(xmlText, opts) {
+  if (typeof xmlText !== 'string') throw new Error('readTridas: text must be a string');
+  const root = parseXml(xmlText);
+  const tridas = child(root, 'tridas') || root;
+  const projects = childrenOf(tridas, 'project');
+  const scopes = projects.length ? projects : [tridas];   // tolerate a missing <project>
+
+  const undatedRaw = [], datedRaw = [];
+  scopes.forEach(function (project) {
+    const ctx = { projectId: readIdent(project).value };
+    collectFromObjects(childrenOf(project, 'object'), ctx, undatedRaw, datedRaw);
+    childrenOf(project, 'derivedSeries').forEach(ds => handleDerived(ds, ctx, datedRaw));
+  });
+
+  if (!undatedRaw.length && !datedRaw.length) {
+    throw new Error('readTridas: no measurementSeries or derivedSeries found (is this a TRiDaS file?)');
+  }
+
+  // Generate globally-unique safe column names across BOTH frames so the single
+  // meta object never has a key collision between a pool series and a chronology.
+  const allBases = undatedRaw.map(r => lowerSpace(r.title)).concat(datedRaw.map(r => r.title));
+  const allSafe = safeNames(allBases);
+  const undatedNames = allSafe.slice(0, undatedRaw.length);
+  const datedNames = allSafe.slice(undatedRaw.length);
+
+  const undated = buildUndatedFrame(undatedRaw, undatedNames);
+  const dated = buildDatedFrame(datedRaw, datedNames);
+
+  const meta = {};
+  undatedRaw.forEach((r, i) => { meta[undatedNames[i]] = normalizeSeriesMeta(undatedNames[i], r.metaPartial); });
+  datedRaw.forEach((r, i) => { meta[datedNames[i]] = normalizeSeriesMeta(datedNames[i], r.metaPartial); });
+
+  const links = {};
+  datedRaw.forEach(function (r, i) { if (r.links && r.links.length) links[datedNames[i]] = r.links.slice(); });
+
+  const anyAbsolute = datedRaw.some(r => r.metaPartial.dated === 'absolute');
+  const dating = dated ? { anyAbsolute: anyAbsolute, firstYearInternal: dated.axisMin } : null;
+  if (dated) delete dated.axisMin;   // keep the Frame shape clean {names, cols}
+
+  return { undated: undated, chron: dated, meta: meta, dating: dating, links: links };
+}
+
+// ============================================================================
+// writeTridas — emit a TRiDaS 1.2.2 document for a built/extended chronology.
+//
+// spec = {
+//   chronology: { name, valuesMm:[..], firstYearInternal, sampleDepth?:[..], meta? },
+//   members:    [ { name, valuesMm:[..], firstYearInternal|null, meta } ],
+//   mode:       'selfContained' | 'derivedOnly',
+//   unit:       output unit string (default '1/1000th millimetres'),
+//   project:    { title?, identifier?, domain?, laboratory? }
+// }
+// - selfContained: rebuilds object>element>sample>radius>measurementSeries for
+//   every member (grouped by their TRiDaS identifiers when present) AND a
+//   derivedSeries linking to them.
+// - derivedOnly: just the derivedSeries with <linkSeries> to member identifiers
+//   (assumes the members already live in Tellervo).
+// ============================================================================
+
+function firstYearNode(tag, internalYear) {
+  const c = astroToCal(internalYear);
+  return elText(tag, String(c.year), { suffix: c.suffix });
+}
+
+// keep the leading contiguous (non-null) run of a series — TRiDaS <values> is a
+// dense list; RingdateR columns are bottom-padded with NA.
+function densify(valuesMm) {
+  const out = [];
+  for (let i = 0; i < valuesMm.length; i++) {
+    if (valuesMm[i] == null) break;
+    out.push(valuesMm[i]);
+  }
+  return out;
+}
+
+function valuesBlock(valuesMm, unit, factor, sampleDepth) {
+  const kids = [el('variable', { normalTridas: 'ring width' }), el('unit', { normalTridas: unit })];
+  valuesMm.forEach(function (v, i) {
+    const attrs = { value: String(Math.round(v / factor)) };
+    if (sampleDepth && sampleDepth[i] != null) attrs.count = String(sampleDepth[i]);
+    kids.push(el('value', attrs));
+  });
+  return el('values', {}, kids);
+}
+
+function identNode(value, domain) { return elText('identifier', value, { domain: domain || 'ringdater' }); }
+
+function measurementSeriesNode(member, unit, factor) {
+  const m = member.meta || {};
+  const t = m.tridas || {};
+  const kids = [
+    elText('title', m.title || member.name),
+    identNode(t.seriesId || ('MS_' + member.name), t.identifierDomain)
+  ];
+  const wc = [];
+  if (m.pith != null) wc.push(el('pith', { presence: m.pith ? 'complete' : 'absent' }));
+  if (m.bark != null) wc.push(el('bark', { presence: m.bark ? 'present' : 'absent' }));
+  if (wc.length) kids.push(el('woodCompleteness', {}, wc));
+  if (member.firstYearInternal != null) {
+    const vals = densify(member.valuesMm);
+    kids.push(el('interpretation', {}, [
+      el('dating', { type: 'absolute' }),
+      firstYearNode('firstYear', member.firstYearInternal),
+      firstYearNode('lastYear', member.firstYearInternal + vals.length - 1)
+    ]));
+  }
+  kids.push(valuesBlock(densify(member.valuesMm), unit, factor));
+  return el('measurementSeries', {}, kids);
+}
+
+// group members into object>element>sample>radius using TRiDaS ids where present
+function buildObjectTree(members, unit, factor) {
+  const objects = [];
+  const objIndex = {};
+  members.forEach(function (member) {
+    const t = (member.meta && member.meta.tridas) || {};
+    const objId = t.objectId || ('OBJ_' + member.name);
+    const elId = t.elementId || ('EL_' + member.name);
+    const smpId = t.sampleId || ('SMP_' + member.name);
+    const radId = t.radiusId || ('RAD_' + member.name);
+    let obj = objIndex[objId];
+    if (!obj) {
+      obj = { id: objId, title: (member.meta && member.meta.objectTitle) || objId, elements: [], elIndex: {} };
+      objIndex[objId] = obj; objects.push(obj);
+    }
+    let elm = obj.elIndex[elId];
+    if (!elm) {
+      elm = { id: elId, taxon: (member.meta && member.meta.taxon) || null, samples: [], smpIndex: {} };
+      obj.elIndex[elId] = elm; obj.elements.push(elm);
+    }
+    let smp = elm.smpIndex[smpId];
+    if (!smp) { smp = { id: smpId, radii: [], radIndex: {} }; elm.smpIndex[smpId] = smp; elm.samples.push(smp); }
+    let rad = smp.radIndex[radId];
+    if (!rad) { rad = { id: radId, series: [] }; smp.radIndex[radId] = rad; smp.radii.push(rad); }
+    rad.series.push(measurementSeriesNode(member, unit, factor));
+  });
+
+  return objects.map(function (obj) {
+    return el('object', {}, [
+      elText('title', obj.title), identNode(obj.id), elText('type', 'site'),
+    ].concat(obj.elements.map(function (elm) {
+      const ekids = [elText('title', elm.id), identNode(elm.id)];
+      if (elm.taxon) ekids.push(elText('taxon', elm.taxon));
+      elm.samples.forEach(function (smp) {
+        ekids.push(el('sample', {}, [elText('title', smp.id), identNode(smp.id), elText('type', 'core')].concat(
+          smp.radii.map(function (rad) {
+            return el('radius', {}, [elText('title', rad.id), identNode(rad.id)].concat(rad.series));
+          })
+        )));
+      });
+      return el('element', {}, ekids);
+    })));
+  });
+}
+
+function derivedSeriesNode(chronology, members, unit, factor) {
+  const m = chronology.meta || {};
+  const t = m.tridas || {};
+  const linkSeries = el('linkSeries', {}, members.map(function (mem) {
+    const mt = (mem.meta && mem.meta.tridas) || {};
+    return el('series', {}, [identNode(mt.seriesId || ('MS_' + mem.name), mt.identifierDomain)]);
+  }));
+  const vals = densify(chronology.valuesMm);
+  const kids = [
+    elText('title', chronology.name || m.title || 'chronology'),
+    identNode(t.seriesId || ('CHRON_' + (chronology.name || 'x')), t.identifierDomain),
+    linkSeries,
+    elText('type', 'chronology')
+  ];
+  if (chronology.firstYearInternal != null) {
+    kids.push(el('interpretation', {}, [
+      el('dating', { type: 'absolute' }),
+      firstYearNode('firstYear', chronology.firstYearInternal),
+      firstYearNode('lastYear', chronology.firstYearInternal + vals.length - 1)
+    ]));
+  }
+  kids.push(valuesBlock(vals, unit, factor, chronology.sampleDepth));
+  return el('derivedSeries', {}, kids);
+}
+
+function writeTridas(spec) {
+  spec = spec || {};
+  const mode = spec.mode === 'derivedOnly' ? 'derivedOnly' : 'selfContained';
+  const unit = spec.unit || '1/1000th millimetres';
+  const factor = mmPerUnit(unit) || 0.001;
+  const members = spec.members || [];
+  const chronology = spec.chronology;
+  if (!chronology) throw new Error('writeTridas: spec.chronology is required');
+  const proj = spec.project || {};
+
+  const projKids = [
+    elText('title', proj.title || 'RingdateR chronology'),
+    identNode(proj.identifier || 'ringdater-export', proj.domain),
+    elText('type', 'unknown'),
+    elText('laboratory', proj.laboratory || 'RingdateR'),
+    elText('category', 'unknown'),
+    elText('investigator', proj.investigator || 'unknown'),
+    elText('period', 'unknown')
+  ];
+  if (mode === 'selfContained') {
+    buildObjectTree(members, unit, factor).forEach(o => projKids.push(o));
+  }
+  projKids.push(derivedSeriesNode(chronology, members, unit, factor));
+
+  const root = el('tridas', { xmlns: TRIDAS_NS }, [el('project', {}, projKids)]);
+  return serializeXml(root);
+}
+
+module.exports = { readTridas, writeTridas, mmPerUnit };
+
+  });
+  define("m39", {}, function(module, exports, require){
+'use strict';
+// ============================================================================
+// Calendar-year conversion for the traditional dendrochronology convention:
+// AD/BC with NO year zero.
+//
+// RingdateR's internal computation axis is a contiguous integer sequence
+// (astronomical year numbering, which DOES have a year 0). Keeping the internal
+// axis contiguous is what lets the chronology builder's year-keyed merge and
+// integer offsets work without special-casing the BC/AD boundary
+// (see src/engine/builder.js). This module confines the "no year 0" convention
+// to the I/O and display boundary only.
+//
+//   internal (astronomical)      calendar (traditional)
+//        ...  2                        2 AD
+//             1                        1 AD
+//             0            <->         1 BC
+//            -1                        2 BC
+//            -2                        3 BC   ...
+//
+// So there is no internal value that maps to "year 0" in calendar terms: the
+// transition 0 <-> -1 is exactly the 1 BC <-> 2 BC step, and 0 <-> 1 is the
+// 1 BC <-> 1 AD step. TRiDaS carries a `suffix="BC"|"AD"` on <firstYear> /
+// <lastYear>; convert with calToAstro on read and astroToCal on write.
+// ============================================================================
+
+// internal astronomical int -> { year: >=1, suffix: 'AD'|'BC' }
+function astroToCal(y) {
+  const n = Math.trunc(Number(y));
+  return n <= 0 ? { year: 1 - n, suffix: 'BC' } : { year: n, suffix: 'AD' };
+}
+
+// { year, suffix } -> internal astronomical int. year must be >= 1 (no year 0).
+function calToAstro(year, suffix) {
+  const yr = Math.trunc(Number(year));
+  if (!(yr >= 1)) throw new Error('calToAstro: calendar year must be >= 1 (no year 0), got ' + year);
+  const s = String(suffix == null ? 'AD' : suffix).toUpperCase();
+  if (s !== 'AD' && s !== 'BC') throw new Error('calToAstro: suffix must be AD or BC, got ' + suffix);
+  return s === 'BC' ? 1 - yr : yr;
+}
+
+// "12 BC" / "1450 AD" — display string for reports and dated plots.
+function formatCal(y) {
+  const c = astroToCal(y);
+  return c.year + ' ' + c.suffix;
+}
+
+module.exports = { astroToCal, calToAstro, formatCal };
+
+  });
+  define("m40", {}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // Shared visualization utilities, ports of four ringdater R helpers:
@@ -4715,7 +5524,7 @@ function rDateRTheme(opts = {}) {
 module.exports = { xScaleBar, yScaleBar, colPal, rDateRTheme };
 
   });
-  define("m36", {}, function(module, exports, require){
+  define("m41", {}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // store.js — a tiny, framework-agnostic state container that mirrors the 13
@@ -4805,7 +5614,7 @@ function createStore(opts = {}) {
 module.exports = { createStore, initialState, SLOTS };
 
   });
-  define("m37", {"../analysis/comb.js":"m10","../io/load.js":"m27","../analysis/checks.js":"m24","../detrend/normalise.js":"m12","../analysis/leadLag.js":"m16","../analysis/runningLeadLag.js":"m17","../analysis/filterCrossdates.js":"m19","../analysis/align.js":"m20","../analysis/removeSeries.js":"m22","../stats/probCheck.js":"m25","../stats/rBarEps.js":"m26","./workflows.js":"m38"}, function(module, exports, require){
+  define("m42", {"../analysis/comb.js":"m10","../io/load.js":"m27","../analysis/checks.js":"m24","../detrend/normalise.js":"m12","../analysis/leadLag.js":"m16","../analysis/runningLeadLag.js":"m17","../analysis/filterCrossdates.js":"m19","../analysis/align.js":"m20","../analysis/removeSeries.js":"m22","../stats/probCheck.js":"m25","../stats/rBarEps.js":"m26","./workflows.js":"m43"}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // actions.js — explicit, ordered actions over the store that reproduce the
@@ -4985,7 +5794,7 @@ module.exports = {
 };
 
   });
-  define("m38", {"../analysis/comb.js":"m10","../detrend/normalise.js":"m12","../analysis/leadLag.js":"m16","../analysis/filterCrossdates.js":"m19","../analysis/align.js":"m20","../stats/probCheck.js":"m25","../stats/rBarEps.js":"m26"}, function(module, exports, require){
+  define("m43", {"../analysis/comb.js":"m10","../detrend/normalise.js":"m12","../analysis/leadLag.js":"m16","../analysis/filterCrossdates.js":"m19","../analysis/align.js":"m20","../stats/probCheck.js":"m25","../stats/rBarEps.js":"m26"}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // workflows.js — the two headless RingdateR crossdating pipelines, expressed as
@@ -5151,7 +5960,7 @@ function chronologyWorkflow(input) {
 module.exports = { pairwiseWorkflow, chronologyWorkflow, meanChronology, dropYear };
 
   });
-  define("m39", {"../analysis/comb.js":"m10","../detrend/normalise.js":"m12","../analysis/leadLag.js":"m16","../analysis/align.js":"m20","./workflows.js":"m38","../stats/rBarEps.js":"m26","../stats/chron.js":"m40"}, function(module, exports, require){
+  define("m44", {"../analysis/comb.js":"m10","../detrend/normalise.js":"m12","../analysis/leadLag.js":"m16","../analysis/align.js":"m20","./workflows.js":"m43","../stats/rBarEps.js":"m26","../stats/chron.js":"m45"}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // builder.js — the headless INTERACTIVE CHRONOLOGY BUILDER engine.
@@ -5726,7 +6535,7 @@ function createBuilder({ undated, chron, detrend = {}, chronDated = true } = {})
 module.exports = { createBuilder, mergeMemberByYear };
 
   });
-  define("m40", {"../analysis/comb.js":"m10"}, function(module, exports, require){
+  define("m45", {"../analysis/comb.js":"m10"}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // T7.0  chron — port of dplR::chron(x, biweight = TRUE, prewhiten = FALSE).
@@ -5815,7 +6624,7 @@ function chron(frame, opts = {}) {
 module.exports = { chron, chronStd, tbrm };
 
   });
-  define("m41", {"./load.js":"m27","../viz/render.js":"m42","../viz/linePlot.js":"m43","../viz/leadLagBar.js":"m44"}, function(module, exports, require){
+  define("m46", {"./load.js":"m27","../viz/render.js":"m47","../viz/linePlot.js":"m48","../viz/leadLagBar.js":"m49"}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // downloads.js — Phase 5 download/export layer.
@@ -6016,7 +6825,7 @@ module.exports = {
 };
 
   });
-  define("m42", {}, function(module, exports, require){
+  define("m47", {}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // Shared, dependency-free SVG renderer for the six RingdateR plot builders.
@@ -6245,7 +7054,7 @@ module.exports = {
 };
 
   });
-  define("m43", {"../analysis/comb.js":"m10","./chartUtils.js":"m35","./render.js":"m42"}, function(module, exports, require){
+  define("m48", {"../analysis/comb.js":"m10","./chartUtils.js":"m40","./render.js":"m47"}, function(module, exports, require){
 'use strict';
 // linePlot — crossdating overlay of two standardized series (port of the DATA +
 // structure of R/line_plot_function.R). series_1 is drawn black; series_2 is
@@ -6309,7 +7118,7 @@ function linePlot(theData, series1Nm, series2Nm, lag = 0, opts = {}) {
 module.exports = { linePlot, toSVG };
 
   });
-  define("m44", {"../analysis/comb.js":"m10","./chartUtils.js":"m35","./render.js":"m42"}, function(module, exports, require){
+  define("m49", {"../analysis/comb.js":"m10","./chartUtils.js":"m40","./render.js":"m47"}, function(module, exports, require){
 'use strict';
 // leadLagBar — bar chart of T-value vs lag for one series pair, with the best,
 // 2nd and 3rd matches highlighted red / blue / green (port of
@@ -6390,7 +7199,7 @@ function leadLagBar(theData, sample1, sample2, opts = {}) {
 module.exports = { leadLagBar, leadLagBarData, toSVG };
 
   });
-  define("m45", {"./viz/render.js":"m42"}, function(module, exports, require){
+  define("m50", {"./viz/render.js":"m47"}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // report.js — headless port of RingdateR's run-report (inst/report.Rmd and
@@ -6579,7 +7388,7 @@ function fmtBool(v) {
 module.exports = { renderReport, detMethod, frameTable, probSummary, rbarTable };
 
   });
-  define("m46", {"../analysis/comb.js":"m10","../detrend/normalise.js":"m12","../stats/chron.js":"m40","../analysis/leadLag.js":"m16","../analysis/heatmap.js":"m18","../viz/linePlot.js":"m43","../viz/heatmapPlot.js":"m47","../viz/leadLagBar.js":"m44"}, function(module, exports, require){
+  define("m51", {"../analysis/comb.js":"m10","../detrend/normalise.js":"m12","../stats/chron.js":"m45","../analysis/leadLag.js":"m16","../analysis/heatmap.js":"m18","../viz/linePlot.js":"m48","../viz/heatmapPlot.js":"m52","../viz/leadLagBar.js":"m49"}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // chronoCheck — headless workflow for the RingdateR "Quick Chronology Checker"
@@ -6730,7 +7539,7 @@ function chronoCheck(input) {
 module.exports = { chronoCheck, summaryTable };
 
   });
-  define("m47", {"../analysis/comb.js":"m10","./chartUtils.js":"m35","./render.js":"m42"}, function(module, exports, require){
+  define("m52", {"../analysis/comb.js":"m10","./chartUtils.js":"m40","./render.js":"m47"}, function(module, exports, require){
 'use strict';
 // heatmapPlot — running-correlation raster (port of R/plotting_sing_hm_function.R).
 // Input `plotData` is the {year, lag, "R val"} Frame from runningLeadLag /
@@ -6778,7 +7587,7 @@ function heatmapPlot(plotData, opts = {}) {
 module.exports = { heatmapPlot, toSVG };
 
   });
-  define("m48", {"../analysis/comb.js":"m10","./render.js":"m42"}, function(module, exports, require){
+  define("m53", {"../analysis/comb.js":"m10","./render.js":"m47"}, function(module, exports, require){
 'use strict';
 // datedLinePlot — sample coverage plot (port of R/dated_line_plot_function.R).
 // The R function is a DATA-PREP helper: it returns a long data.frame `res` with
@@ -6853,7 +7662,7 @@ function datedLinePlot(theData, opts = {}) {
 module.exports = { datedLinePlot, datedLinePlotData, toSVG };
 
   });
-  define("m49", {"../analysis/comb.js":"m10","./chartUtils.js":"m35","./render.js":"m42"}, function(module, exports, require){
+  define("m54", {"../analysis/comb.js":"m10","./chartUtils.js":"m40","./render.js":"m47"}, function(module, exports, require){
 'use strict';
 // allSeries — all aligned series (semi-transparent black) plus the arithmetic
 // mean chronology (red). Port of R/plot_all_series_function.R.
@@ -6922,7 +7731,7 @@ function allSeries(alignedData, opts = {}) {
 module.exports = { allSeries, toSVG };
 
   });
-  define("m50", {"../analysis/comb.js":"m10","../detrend/normalise.js":"m12","../detrend/detcurves.js":"m13","../analysis/autoCorrel.js":"m14","./chartUtils.js":"m35","./render.js":"m42"}, function(module, exports, require){
+  define("m55", {"../analysis/comb.js":"m10","../detrend/normalise.js":"m12","../detrend/detcurves.js":"m13","../analysis/autoCorrel.js":"m14","./chartUtils.js":"m40","./render.js":"m47"}, function(module, exports, require){
 'use strict';
 // detrendPlot — 3 stacked panels (port of R/detrending_plot_function.R):
 //   1. raw series (alpha 0.75) + the fitted detrending curve (thick black)
@@ -7022,7 +7831,7 @@ function detrendPlot(undetData, firstSeries, opts = {}) {
 module.exports = { detrendPlot, toSVG };
 
   });
-  define("m51", {"../analysis/comb.js":"m10","../analysis/skel.js":"m52","./render.js":"m42","./chartUtils.js":"m35"}, function(module, exports, require){
+  define("m56", {"../analysis/comb.js":"m10","../analysis/skel.js":"m57","./render.js":"m47","./chartUtils.js":"m40"}, function(module, exports, require){
 'use strict';
 // skelPlot — two-series skeleton-plot crossdating overlay (dplR skel.plot,
 // re-cast as a comparison like the heatmap). series_1 ("master") marks point
@@ -7088,7 +7897,7 @@ function skelPlot(theData, series1Nm, series2Nm, lag = 0, opts = {}) {
 module.exports = { skelPlot, toSVG };
 
   });
-  define("m52", {}, function(module, exports, require){
+  define("m57", {}, function(module, exports, require){
 'use strict';
 // Skeleton-plot maths — faithful port of dplR's hanning() + the skeleton-value
 // calculation inside skel.plot(). Used by viz/skelPlot.js.

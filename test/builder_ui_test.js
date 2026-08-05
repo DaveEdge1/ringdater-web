@@ -196,12 +196,16 @@ ok('oversized windows do not throw', !repThrew);
 ok('oversized windows render an unavailable note', /unavailable/i.test(repHuge));
 
 // 13. session round-trip: serialize -> JSON -> restore, members+datum equal ----
+const firstMember = B.state().members[0].id;
+const seriesMeta = { [firstMember]: RD.normalizeSeriesMeta(firstMember, { taxon: 'Quercus robur', labCode: 'OAK-001' }) };
 const ser = AC.serializeSession({
   undated: undated, detrend: { detrending_select: 3, splinewindow: 21 },
-  builder: B, undatedName: 'undated_example.csv'
+  builder: B, undatedName: 'undated_example.csv', seriesMeta: seriesMeta
 });
-ok('serializeSession version + frames', ser.version === 1 && ser.undated && ser.undated.names && ser.builder,
+ok('serializeSession version + frames', ser.version === 2 && ser.undated && ser.undated.names && ser.builder,
   ser.builder.members.length + ' logged members');
+ok('serializeSession carries seriesMeta', ser.seriesMeta && ser.seriesMeta[firstMember] &&
+  ser.seriesMeta[firstMember].taxon === 'Quercus robur');
 const wire = JSON.parse(JSON.stringify(ser));           // prove it is JSON-able
 const restored = AC.restoreSession(wire);
 const om = B.state().members, rm = restored.builder.state().members;
@@ -216,6 +220,8 @@ ok('round-trip: setAside preserved',
   restored.builder.state().setAside.some(x => x.id === reviewId && x.note === 'ambiguous match'));
 ok('round-trip: member note preserved (setNote replay)',
   (function () { B.setNote(abMembers[1].id, 'kept'); const s2 = AC.serializeSession({ undated: undated, builder: B, detrend: {} }); const r2 = AC.restoreSession(JSON.parse(JSON.stringify(s2))); return r2.builder.state().members.some(m => m.id === abMembers[1].id && m.note === 'kept'); })());
+ok('round-trip: seriesMeta preserved',
+  restored.seriesMeta && restored.seriesMeta[firstMember] && restored.seriesMeta[firstMember].labCode === 'OAK-001');
 
 console.log(fails ? '\nFAIL' : '\nPASS: Build-chronology tab logic drives the builder end-to-end.');
 process.exit(fails ? 1 : 0);

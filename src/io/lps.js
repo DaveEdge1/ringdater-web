@@ -22,54 +22,11 @@
 const NA = null;
 
 // ---- minimal XML walk -------------------------------------------------------
-// A node is {tag, attrs:{}, children:[node]}. We only need element tags and
-// attributes; text/comments/PIs are ignored. Sufficient for the .lps schema.
-
-function parseXml(text) {
-  const root = { tag: '#root', attrs: {}, children: [] };
-  const stack = [root];
-  const re = /<([!?/]?)([A-Za-z_][\w.:-]*)((?:\s+[^<>]*?)?)\s*(\/?)>|<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>/g;
-  let m;
-  while ((m = re.exec(text)) !== null) {
-    const marker = m[1];      // '', '/', '!', '?'
-    if (marker === '!' || marker === '?') continue;    // <!doctype>, <?xml?>, matched comment/cdata
-    const tag = m[2];
-    const attrText = m[3] || '';
-    const selfClose = m[4] === '/';
-    if (marker === '/') {                              // closing tag
-      // pop matching element
-      for (let k = stack.length - 1; k >= 1; k--) {
-        if (stack[k].tag === tag) { stack.length = k; break; }
-      }
-      continue;
-    }
-    const node = { tag, attrs: parseAttrs(attrText), children: [] };
-    stack[stack.length - 1].children.push(node);
-    if (!selfClose) stack.push(node);
-  }
-  return root;
-}
-
-function parseAttrs(s) {
-  const attrs = {};
-  const re = /([A-Za-z_][\w.:-]*)\s*=\s*("([^"]*)"|'([^']*)')/g;
-  let m;
-  while ((m = re.exec(s)) !== null) attrs[m[1]] = m[3] !== undefined ? m[3] : m[4];
-  return attrs;
-}
-
-// first child element whose tag matches (mirrors R `$name` first-match)
-function child(node, tag) {
-  if (!node) return undefined;
-  for (const c of node.children) if (c.tag === tag) return c;
-  return undefined;
-}
-// all child elements with tag (in document order)
-function childrenOf(node, tag) {
-  const out = [];
-  if (node) for (const c of node.children) if (c.tag === tag) out.push(c);
-  return out;
-}
+// The element walker now lives in ./xml.js (generalized for TRiDaS with
+// text-node capture, entity decoding, and namespace tolerance). For the fixed
+// .lps schema — which puts every value in an attribute and uses no namespaces —
+// these helpers behave identically to the original local copy.
+const { parseXml, child, childrenOf } = require('./xml.js');
 
 // ---- loader -----------------------------------------------------------------
 
@@ -141,4 +98,4 @@ function loadLps(text, series) {
   return { names, cols };
 }
 
-module.exports = { loadLps, parseXml };
+module.exports = { loadLps, parseXml };  // parseXml re-exported for back-compat

@@ -40,7 +40,7 @@
     { value: 4, label: 'White-Black' }
   ];
   // dependency-free upload formats fully supported in the browser bundle.
-  var SUPPORTED_EXT = ['csv', 'txt', 'rwl', 'pos', 'lps'];
+  var SUPPORTED_EXT = ['csv', 'txt', 'rwl', 'crn', 'pos', 'lps', 'xml'];
 
   function ext(name) {
     var s = String(name || '');
@@ -48,6 +48,7 @@
     return dot < 0 ? '' : s.slice(dot + 1).toLowerCase();
   }
   function isXlsx(name) { return ext(name) === 'xlsx' || ext(name) === 'xls'; }
+  function isTridas(name) { return ext(name) === 'xml'; }
   function isSupportedUpload(name) { return SUPPORTED_EXT.indexOf(ext(name)) >= 0; }
 
   // ---- loading -------------------------------------------------------------
@@ -57,6 +58,57 @@
     return RD.loadUndated(files);
   }
   function loadChron(file) { return RD.loadChron(file); }
+
+  // Column-bind two undated (increment-axis) frames, aligning by ring index and
+  // resetting the ring column to 1..nrow.
+  function bindUndated(a, b) {
+    if (!a) return b;
+    if (!b) return a;
+    var merged = RD.combNA(a, { names: b.names.slice(1), cols: b.cols.slice(1) });
+    var nr = merged.cols[0].length, ring = [];
+    for (var i = 0; i < nr; i++) ring.push(i + 1);
+    merged.cols[0] = ring; merged.names[0] = 'ring';
+    return merged;
+  }
+  // Merge two dated frames on the UNION of their (contiguous) internal-year axes.
+  function bindDated(a, b) {
+    if (!a) return b;
+    if (!b) return a;
+    var ya = a.cols[0], yb = b.cols[0];
+    var min = Math.min(ya[0], yb[0]), max = Math.max(ya[ya.length - 1], yb[yb.length - 1]);
+    var years = []; for (var y = min; y <= max; y++) years.push(y);
+    function place(frame) {
+      var out = [], fy = frame.cols[0];
+      for (var c = 1; c < frame.cols.length; c++) {
+        var col = new Array(years.length).fill(null);
+        for (var i = 0; i < fy.length; i++) col[fy[i] - min] = frame.cols[c][i];
+        out.push(col);
+      }
+      return out;
+    }
+    return {
+      names: ['years'].concat(a.names.slice(1)).concat(b.names.slice(1)),
+      cols: [years].concat(place(a)).concat(place(b))
+    };
+  }
+
+  // Ingest one or more TRiDaS .xml descriptors, auto-routing by content:
+  // undated measurementSeries -> pool, derivedSeries / absolutely-dated -> chron.
+  // Returns { undated, chron, meta, links } (frames may be null).
+  function loadTridas(files) {
+    if (!Array.isArray(files)) files = [files];
+    var undated = null, chron = null, meta = {}, links = {}, anyAbsolute = false;
+    files.forEach(function (f) {
+      var r = RD.readTridas(f.text);
+      undated = bindUndated(undated, r.undated);
+      chron = bindDated(chron, r.chron);
+      Object.assign(meta, r.meta);
+      Object.assign(links, r.links || {});
+      if (r.dating && r.dating.anyAbsolute) anyAbsolute = true;
+    });
+    var dating = chron ? { anyAbsolute: anyAbsolute, firstYearInternal: chron.cols[0][0] } : null;
+    return { undated: undated, chron: chron, meta: meta, links: links, dating: dating };
+  }
 
   function seriesNames(frame) {
     return frame && frame.names ? frame.names.slice(1) : [];
@@ -317,6 +369,70 @@
     };
   }
 
+  // Assemble a writeTridas() spec from a builder + the raw undated frame + meta:
+  //   - derivedSeries  = the mean chronology, with per-year sample depth
+  //   - measurementSeries (members) = the RAW ring-width series from `undated`,
+  //     dated onto the chronology axis via summary() first years
+  //   - provenance = derivedSeries <linkSeries> back to each member's identifier
+  function colByName(frame, name) {
+    var i = frame ? frame.names.indexOf(name) : -1;
+    return i < 0 ? null : frame.cols[i];
+  }
+  function leadingRun(col) {                 // raw member columns are bottom-padded with NA
+    var out = [];
+    for (var i = 0; i < col.length; i++) { if (col[i] == null) break; out.push(col[i]); }
+    return out;
+  }
+  function tridasSpec(o, mode) {
+    var b = o.builder;
+    if (!b) throw new Error('No chronology to export.');
+    var dated = b.isDated();
+    var mean = b.meanChronology();
+    if (!mean) throw new Error('Nothing to export yet.');
+    var work = b.chronology();               // relative-axis working frame (col0 + member cols)
+    var meanVals = mean.cols[mean.cols.length - 1];
+    var firstInternal = dated ? b.calendarYear(mean.cols[0][0]) : null;
+    var depth = [];
+    for (var r = 0; r < work.cols[0].length; r++) {
+      var n = 0;
+      for (var c = 1; c < work.cols.length; c++) if (work.cols[c][r] != null) n++;
+      depth.push(n);
+    }
+    var meta = o.meta || {};
+    var sum = b.summary();
+    var members = sum.members.map(function (m) {
+      var col = colByName(o.undated, m.id);
+      return {
+        name: m.id,
+        valuesMm: col ? leadingRun(col) : [],
+        firstYearInternal: (dated && m.firstYear != null) ? m.firstYear : null,
+        meta: meta[m.id] || RD.emptySeriesMeta(m.id, m.id)
+      };
+    });
+    var chronology = {
+      name: o.chronName || 'chronology', valuesMm: meanVals,
+      firstYearInternal: firstInternal, sampleDepth: depth,
+      meta: RD.emptySeriesMeta('chronology', o.chronName || 'chronology')
+    };
+    return {
+      mode: mode, chronology: chronology, members: members,
+      project: { title: o.projectTitle || 'RingdateR chronology' }
+    };
+  }
+  function builderTridasDownloads(o) {
+    var dt = isoDate(o && o.date);
+    return {
+      chronologyTridasSelfContained: {
+        filename: 'chronology_' + dt + '.tridas.xml', mime: 'application/xml',
+        content: RD.writeTridas(tridasSpec(o, 'selfContained'))
+      },
+      chronologyTridasDerivedOnly: {
+        filename: 'chronology_derivedSeries_' + dt + '.tridas.xml', mime: 'application/xml',
+        content: RD.writeTridas(tridasSpec(o, 'derivedOnly'))
+      }
+    };
+  }
+
   // ---- builder report ------------------------------------------------------
   // Self-contained HTML report of a BUILT chronology, from summary() output.
   // Contains: members table (id, lag, calendar first/last year when dated, else
@@ -492,8 +608,9 @@
   function serializeSession(o) {
     o = o || {};
     var out = {
-      version: 1,
+      version: 2,
       meta: { undatedName: o.undatedName || null, chronName: o.chronName || null },
+      seriesMeta: o.seriesMeta || {},           // per-series metadata side-channel (src/io/meta.js)
       undated: serializeFrame(o.undated),
       chron: serializeFrame(o.chron),
       detrend: detrendOptions(o.detrend),
@@ -517,7 +634,7 @@
   // lag reproduces the working set; notes + dispositions + datum are re-applied.
   function restoreSession(obj) {
     if (!obj || typeof obj !== 'object') throw new Error('Not a session object.');
-    if (obj.version !== 1) throw new Error('Unsupported session version: ' + obj.version);
+    if (obj.version !== 1 && obj.version !== 2) throw new Error('Unsupported session version: ' + obj.version);
     if (!obj.undated || !obj.undated.names) throw new Error('Session is missing undated data.');
     var undated = obj.undated, chron = obj.chron || null, detrend = detrendOptions(obj.detrend);
     var builder = RD.createBuilder({ undated: undated, chron: chron, detrend: detrend });
@@ -540,7 +657,7 @@
       });
     }
     if (B && B.datum && B.datum.seriesId) builder.setDatum({ seriesId: B.datum.seriesId, edge: B.datum.edge, year: B.datum.year });
-    return { undated: undated, chron: chron, detrend: detrend, builder: builder };
+    return { undated: undated, chron: chron, detrend: detrend, builder: builder, seriesMeta: obj.seriesMeta || {} };
   }
 
   // ---- downloads + report --------------------------------------------------
@@ -583,8 +700,10 @@
     DETREND_METHODS: DETREND_METHODS,
     COLOR_SCALES: COLOR_SCALES,
     SUPPORTED_EXT: SUPPORTED_EXT,
-    ext: ext, isXlsx: isXlsx, isSupportedUpload: isSupportedUpload,
+    ext: ext, isXlsx: isXlsx, isTridas: isTridas, isSupportedUpload: isSupportedUpload,
     loadUndated: loadUndated, loadChron: loadChron, seriesNames: seriesNames,
+    loadTridas: loadTridas, bindUndated: bindUndated,
+    ensureMeta: RD.ensureMeta, META_EDITABLE: RD.META_EDITABLE,
     detrendOptions: detrendOptions,
     runAnalysis: runAnalysis,
     crossDatTable: crossDatTable, frameToTable: frameToTable, refilter: refilter,
@@ -594,6 +713,7 @@
     fmtP: fmtP,
     newBuilder: newBuilder, builderReview: builderReview, builderPlots: builderPlots,
     builderChronPlot: builderChronPlot, builderDownloads: builderDownloads,
+    builderTridasDownloads: builderTridasDownloads,
     builderReport: builderReport,
     serializeSession: serializeSession, restoreSession: restoreSession,
     downloads: downloads, report: report

@@ -185,6 +185,17 @@ details summary:hover { color: var(--green); }
 .rail-adv > summary::before { content: '▸ '; color: var(--muted); }
 .rail-adv[open] > summary::before { content: '▾ '; }
 
+/* per-series metadata table (Data rail: series details) */
+details.series-meta { border-top: none; margin-top: 4px; padding-top: 0; }
+details.series-meta > summary { font-size: 12px; font-weight: 600; color: var(--muted); }
+details.series-meta table { border-collapse: collapse; font-size: 11px; width: 100%; margin-top: 6px; }
+details.series-meta th, details.series-meta td {
+  border: 1px solid #e7ebee; padding: 2px 6px; text-align: left; white-space: nowrap;
+}
+details.series-meta th { background: #eef2f4; font-weight: 600; }
+details.series-meta td.sm-name { font-weight: 600; }
+details.series-meta .sm-wrap { max-height: 220px; overflow: auto; }
+
 /* ---- guided tour ---------------------------------------------------------- */
 .tour-highlight {
   position: fixed; z-index: 90; border-radius: 6px; pointer-events: none;

@@ -8,7 +8,10 @@ const loaders = require('./loaders.js');
 const { loadPos } = require('./pos.js');
 const { loadLps } = require('./lps.js');
 const { readRWL, writeRwl } = require('./rwl.js');
+const { readCrn } = require('./crn.js');
 const { loadRingMeasurer, combineRMFiles } = require('./ringMeasurer.js');
+const meta = require('./meta.js');
+const { readTridas, writeTridas } = require('./tridas.js');
 const C = require('../analysis/comb.js');
 
 // Default reader hooks, adapting each parser to the signature loaders.js expects.
@@ -16,6 +19,7 @@ const READERS = {
   pos: (file) => loadPos(file.text),
   lps: ({ series, file }) => loadLps(file.text, series),
   rwl: (file) => readRWL(file.text, { fileName: file.name }),
+  crn: (file) => readCrn(file.text, { fileName: file.name }),
 };
 
 function withReaders(opts) {
@@ -39,6 +43,11 @@ function writeCsv(frame) {
 
 module.exports = {
   loadUndated, loadChron, loadDataTabs, ldUndatedChron,
-  loadPos, loadLps, readRWL, loadRingMeasurer, combineRMFiles,
+  loadPos, loadLps, readRWL, readCrn, loadRingMeasurer, combineRMFiles,
   writeRwl, writeCsv, READERS,
+  // per-series metadata side-channel helpers
+  emptySeriesMeta: meta.emptySeriesMeta, normalizeSeriesMeta: meta.normalizeSeriesMeta,
+  ensureMeta: meta.ensureMeta, META_EDITABLE: meta.EDITABLE,
+  // TRiDaS (Tellervo) XML
+  readTridas, writeTridas,
 };
