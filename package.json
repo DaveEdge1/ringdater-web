@@ -1,12 +1,50 @@
 {
   "name": "ringdater-js",
   "version": "0.1.0",
-  "description": "JS port of the numeric core of dplR/ringdater (crossdating), validated against R.",
-  "main": "src/index.js",
+  "description": "Dependency-free JS port of the numeric core + crossdating analysis of dplR/RingdateR, validated against R.",
+  "keywords": [
+    "dendrochronology",
+    "crossdating",
+    "tree-rings",
+    "dplR",
+    "ringdater",
+    "detrending",
+    "time-series",
+    "chronology"
+  ],
+  "homepage": "https://github.com/DaveEdge1/ringdater-web#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DaveEdge1/ringdater-web.git"
+  },
+  "bugs": {
+    "url": "https://github.com/DaveEdge1/ringdater-web/issues"
+  },
+  "author": "David Edge <dce725@gmail.com>",
+  "license": "MIT",
   "type": "commonjs",
+  "main": "src/index.js",
+  "module": "src/index.mjs",
+  "exports": {
+    ".": {
+      "import": "./src/index.mjs",
+      "require": "./src/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=16"
+  },
   "scripts": {
     "test": "for t in test/*_test.js test/run.js; do echo \"# $t\"; node \"$t\" || exit 1; done",
-    "build:bundle": "node tools/bundle.js"
-  },
-  "license": "MIT"
+    "build:esm": "node tools/gen-esm.js",
+    "build:bundle": "node tools/bundle.js",
+    "prepublishOnly": "node tools/gen-esm.js && npm test"
+  }
 }

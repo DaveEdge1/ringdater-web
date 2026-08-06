@@ -6,8 +6,47 @@ and mollusc / fish / coral increments). It runs entirely in your browser: no ser
 no install, and your data never leaves your machine.
 
 - **Live app:** https://daveedge1.github.io/ringdater-web/
+- **Library on npm:** [`ringdater-js`](https://www.npmjs.com/package/ringdater-js)
 - **Original R package (RingdateR):** https://github.com/ringdater/ringdater_pkg
 - **Underlying dendro algorithms (dplR):** https://github.com/OpenDendro/dplR
+
+This repository is both the **web app** (`web/`) and the **`ringdater-js` library** (`src/`)
+it runs on. The library is published to npm and can be used on its own — see
+[Use as a library](#use-as-a-library-ringdater-js) below.
+
+## Use as a library (`ringdater-js`)
+
+The numeric core and crossdating analysis are published as a standalone,
+**zero-dependency** npm package. It works in Node and in the browser (via any bundler),
+and ships both CommonJS and ESM entry points.
+
+```bash
+npm install ringdater-js
+```
+
+```js
+// ESM
+import { caps, leadLag, normalise } from 'ringdater-js';
+// or the whole namespace:
+import RD from 'ringdater-js';
+
+// CommonJS
+const { caps, leadLag } = require('ringdater-js');
+```
+
+Loaders take file *descriptors* (`{ name, text, buffer }`), not disk paths, so the same
+code runs in Node and in the browser. `~79` functions are exported — the dplR numeric
+core (spline/`caps` detrending, AR(1) prewhitening, `supsmu`/Friedman, Rbar/EPS,
+`corr.rwl.seg`), the crossdating analysis (lead–lag, running correlation, heatmap,
+alignment), IO parsers/writers (CSV, RWL/Tucson, `.crn`, `.pos`, `.lps`, TRiDaS,
+Ring Measurer), SVG plot builders, and the headless orchestration engine
+(`pairwiseWorkflow`, `chronologyWorkflow`, `createBuilder`). See
+[`src/index.js`](src/index.js) for the full export list and
+[Validation](#validation) for R-parity.
+
+> Note: `.xlsx` reading uses Node's `zlib`. In a browser bundle that import needs an
+> inflate shim; CSV / TXT / RWL / `.crn` / `.pos` / `.lps` / TRiDaS / Ring Measurer
+> have no such requirement.
 
 ## About
 
@@ -55,10 +94,12 @@ open web/index.html
 node web/serve.js      # then visit http://localhost:8080
 ```
 
-After changing anything under `src/`, rebuild the browser bundle:
+After changing anything under `src/`, rebuild the browser bundle (and, if you changed
+the exported surface in `src/index.js`, regenerate the ESM facade):
 
 ```bash
-node tools/bundle.js   # regenerates web/ringdater.bundle.js (zero npm deps)
+node tools/bundle.js    # regenerates web/ringdater.bundle.js (zero npm deps)
+node tools/gen-esm.js   # regenerates src/index.mjs from src/index.js's exports
 ```
 
 Node is only needed for the bundler and the tests; the app itself has **no runtime
@@ -87,13 +128,18 @@ the complete R→JS port plan is in [`WORKPLAN.md`](WORKPLAN.md)):
 ## Repository layout
 
 ```
-src/    the ringdater-js library (numeric core + analysis + engine, no deps)
+src/    the ringdater-js npm package (numeric core + analysis + engine, no deps)
+        index.js  = CommonJS entry;  index.mjs = generated ESM facade
 web/    the browser app (index.html, app.js, appCore.js, styles, bundle)
 test/   R-oracle validation suites (+ fixtures)
-tools/  the bundler and the R ground-truth generators
+tools/  the bundler, the ESM-facade generator, and the R ground-truth generators
 docs/   VALIDATION.md (per-function parity tables)
 WORKPLAN.md   the full R→JS port plan
 ```
+
+Only `src/` (plus `README.md` and `LICENSE`) is published to npm — controlled by the
+`files` allowlist in `package.json`. `test/`, `tools/`, `web/`, and `docs/` stay in the
+repo but never ship in the package tarball.
 
 ## Deployment
 
