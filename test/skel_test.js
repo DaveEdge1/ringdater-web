@@ -63,16 +63,44 @@ const frame = {
     rw.slice(),                                 // identical -> should align at lag 0
   ],
 };
+// per-panel mark order (fixed contract): [0] grid, [1] baseline, [2] master, [3] sample
 const spec = skelPlot(frame, 'A', 'B', 0, {});
-ok('skelPlot returns a spec with 3 segment marks', spec && spec.marks && spec.marks.length === 3 && spec.marks.every(m => m.type === 'segment'));
-ok('skelPlot master marks point down, sample up', spec.marks[1].y1.every(v => v <= 0) && spec.marks[2].y1.every(v => v >= 0));
+ok('skelPlot returns decade-aligned row panels', spec && Array.isArray(spec.panels) && spec.panels.length >= 1 &&
+  spec.panels.every(p => p.marks.length === 4 && p.marks.every(m => m.type === 'segment')),
+  spec.panels ? spec.panels.length + ' panels' : 'no panels');
+ok('skelPlot master marks point down, sample up',
+  spec.panels.every(p => p.marks[2].y1.every(v => v <= 0)) &&
+  spec.panels.every(p => p.marks[3].y1.every(v => v >= 0)));
 ok('skelPlot exposes skeleton data', spec.data && Array.isArray(spec.data.skel_1) && Array.isArray(spec.data.skel_2));
 const svg = renderSvg(spec);
 ok('skelPlot renders a well-formed non-empty SVG', typeof svg === 'string' && /^<svg[\s\S]*<\/svg>$/.test(svg.trim()) && svg.length > 200, svg.length + ' chars');
 
+// every mark is drawn in the row panel whose x-domain contains it
+ok('marks land in their own row panel', spec.panels.every(function (p) {
+  var d = p.scales.x.domain;
+  return p.marks[2].x0.concat(p.marks[3].x0).every(function (x) { return x >= d[0] && x < d[1]; });
+}));
+
 // lag shifts the sample marks by exactly `lag` on the x axis
+function firstSampleX(s) {
+  var xs = [];
+  s.panels.forEach(function (p) { xs = xs.concat(p.marks[3].x0); });
+  return Math.min.apply(null, xs);
+}
 const spec5 = skelPlot(frame, 'A', 'B', 5, {});
-ok('lag shifts sample marks by +lag', spec5.marks[2].x0[0] - spec.marks[2].x0[0] === 5);
+ok('lag shifts sample marks by +lag', firstSampleX(spec5) - firstSampleX(spec) === 5);
+
+// a multi-century span wraps into multiple 120-year rows at fixed scale
+const longRw = [];
+for (let i = 0; i < 300; i++) longRw.push(5 + Math.sin(i) * 0.3 + (i % 47 === 0 ? -3 : 0));
+const longFrame = { names: ['year', 'A', 'B'], cols: [Array.from({ length: 300 }, (_, i) => i + 1001), longRw.slice(), longRw.slice()] };
+const specL = skelPlot(longFrame, 'A', 'B', 0, {});
+ok('300-year series wraps into multiple decade-aligned 120-year rows',
+  specL.panels.length >= 2 &&
+  specL.panels[0].scales.x.domain[0] % 10 === 0 &&
+  specL.panels.every(p => p.scales.x.domain[1] - p.scales.x.domain[0] === 120),
+  specL.panels.length + ' panels from ' + specL.panels[0].scales.x.domain[0]);
+ok('long-series SVG renders', /^<svg[\s\S]*<\/svg>$/.test(renderSvg(specL).trim()));
 
 console.log('');
 if (fails) { console.log('SKEL: ' + fails + ' FAIL'); process.exit(1); }
