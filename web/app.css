@@ -89,8 +89,12 @@ table.res tbody tr:hover { background: #eef6ef; cursor: pointer; }
 table.res tbody tr.sel { background: #d7efd7; }
 table.res tr.sep td { background: #fafbfc; height: 5px; padding: 0; }
 
-.plotwrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; padding: 8px; background: #fff; }
+.plotwrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; padding: 8px; background: #fff; position: relative; }
 .plotwrap svg { max-width: 100%; height: auto; }
+/* per-plot SVG/PNG save buttons (plotSaveBar in app.js) */
+.savebar { position: absolute; top: 6px; right: 8px; display: flex; gap: 4px; z-index: 5; opacity: 0.35; transition: opacity .15s; }
+.plotwrap:hover .savebar, .savebar:hover { opacity: 1; }
+.savebar .btn { padding: 1px 8px; font-size: 11px; line-height: 1.6; }
 .plot-controls { display: flex; flex-wrap: wrap; gap: 12px 18px; align-items: flex-end; margin-bottom: 12px; }
 .plot-controls > div { min-width: 150px; }
 

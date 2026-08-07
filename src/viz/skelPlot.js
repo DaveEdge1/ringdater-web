@@ -92,6 +92,7 @@ function rowPanel(start, end, master, sample, first, opts) {
     type: 'skelPlotRow',
     width: opts.width,
     height: first ? 150 : 120,
+    linkAxis: 'year',            // x is the shared year axis: hover-linkable
     title: first ? opts.title : null,
     xLabel: null,
     yLabel: first ? 'Skeleton height' : null,

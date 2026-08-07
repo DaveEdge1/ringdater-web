@@ -529,6 +529,7 @@
       var dspec = AC.buildPlots(state.result, { detrendSeries: series }).detrend;
       area.innerHTML = dspec ? AC.renderPlot(dspec)
         : '<p class="msg err">Could not build the detrending plot for this series.</p>';
+      plotSaveBar(area, 'detrend_' + series);
       setMsg('plotMsg', dspec ? 'Detrending diagnostic for ' + series + ' — raw + fitted curve, detrended series, autocorrelation.' : '', dspec ? 'ok' : '');
       return;
     }
@@ -546,7 +547,10 @@
     // zoom + pan with crisp, regenerating axes. Other plots stay static.
     if (which === 'line') {
       if (!plots.line) { setMsg('plotMsg', 'Line plot could not be built for ' + vs + '.', 'err'); return; }
-      PlotZoom.attachDataZoom(area, plots.line, AC.RD.renderSvg);
+      var zoomDiv = document.createElement('div');
+      area.appendChild(zoomDiv);
+      PlotZoom.attachDataZoom(zoomDiv, plots.line, AC.RD.renderSvg);
+      plotSaveBar(area, 'line_' + vs);
       setMsg('plotMsg', 'Line plot for ' + vs + '.' + zoomHint, 'ok');
       return;
     }
@@ -557,12 +561,18 @@
       else lineDiv.innerHTML = '<p class="msg err">Line plot could not be built for ' + esc(vs) + '.</p>';
       var restSvg = AC.combinedPlot([plots.skeleton, plots.leadLagBar, plots.heatmap]);
       if (restSvg) { var restDiv = document.createElement('div'); restDiv.innerHTML = restSvg; area.appendChild(restDiv); }
+      // hovering a year on the line plot highlights it on the skeleton rows
+      // below (and vice versa) — hotzones are year-tagged, so the lag-axis bar
+      // plot never cross-links.
+      if (restSvg && plots.line) PlotLink.linkYearHover([lineDiv, restDiv]);
+      plotSaveBar(area, 'combined_' + vs);
       setMsg('plotMsg', 'Combined for ' + vs + '. The line plot zooms/pans —' + zoomHint, 'ok');
       return;
     }
     var svg = AC.renderPlot(plots[which]);
     if (!svg) { setMsg('plotMsg', 'That plot could not be built for the selected pair (insufficient overlap?).', 'err'); return; }
     area.innerHTML = svg;
+    plotSaveBar(area, which + '_' + vs);
     setMsg('plotMsg', 'Showing ' + which + ' for ' + vs + '.', 'ok');
   }
 
@@ -801,8 +811,16 @@
 
     // mean / all-member-series plot — interactive (zoom/pan) + hover-to-name.
     var spec = AC.builderChronPlot(b.chronology());
-    if (spec) PlotZoom.attachDataZoom($('buildChronPlot'), spec, AC.RD.renderSvg, { hoverLines: chronHoverLines(spec) });
-    else $('buildChronPlot').innerHTML = '<p class="msg err">Not enough member series to plot yet.</p>';
+    var bc = $('buildChronPlot');
+    bc.innerHTML = '';
+    if (spec) {
+      var bz = document.createElement('div');
+      bc.appendChild(bz);
+      PlotZoom.attachDataZoom(bz, spec, AC.RD.renderSvg, { hoverLines: chronHoverLines(spec) });
+      plotSaveBar(bc, 'built_chronology');
+    } else {
+      bc.innerHTML = '<p class="msg err">Not enough member series to plot yet.</p>';
+    }
 
     // candidate pool picker (skipped / review series are not in poolIds)
     fillSelect($('candSel'), st.poolIds, function (n) { return n; }, function (n) { return n; });
@@ -868,13 +886,29 @@
     $('suggTable').innerHTML = '<table class="res"><thead><tr><th>Rank</th><th>Lag</th><th>R</th><th>P</th><th>Overlap</th></tr></thead><tbody>' + rows + '</tbody></table>';
   }
 
-  // Line (interactive data-zoom) + heatmap + lead-lag bar for the current review.
+  // Line (interactive data-zoom) + skeleton + heatmap + lead-lag bar for the
+  // current review. The zoomable line plot renders into an INNER div so the
+  // save bar (and container listeners) survive zoom re-renders.
   function renderReviewPlots(specs) {
-    if (specs.line) PlotZoom.attachDataZoom($('reviewLine'), specs.line, AC.RD.renderSvg);
-    else $('reviewLine').innerHTML = '<p class="msg err">Line overlay unavailable for this alignment (thin overlap).</p>';
+    var rl = $('reviewLine');
+    rl.innerHTML = '';
+    if (specs.line) {
+      var zd = document.createElement('div');
+      rl.appendChild(zd);
+      PlotZoom.attachDataZoom(zd, specs.line, AC.RD.renderSvg);
+    } else {
+      rl.innerHTML = '<p class="msg err">Line overlay unavailable for this alignment (thin overlap).</p>';
+    }
     $('reviewSkel').innerHTML = specs.skeleton ? AC.renderPlot(specs.skeleton) : '<p class="msg err">Skeleton plot unavailable (thin overlap).</p>';
     $('reviewHeat').innerHTML = specs.heatmap ? AC.renderPlot(specs.heatmap) : '<p class="msg err">Heatmap unavailable (thin overlap).</p>';
     $('reviewBar').innerHTML = specs.leadLagBar ? AC.renderPlot(specs.leadLagBar) : '<p class="msg err">Lead-lag bar unavailable.</p>';
+    var cand = $('candSel').value || 'candidate';
+    plotSaveBar(rl, 'review_line_' + cand);
+    plotSaveBar($('reviewSkel'), 'review_skeleton_' + cand);
+    plotSaveBar($('reviewHeat'), 'review_heatmap_' + cand);
+    plotSaveBar($('reviewBar'), 'review_leadlag_' + cand);
+    // hover a year on the line plot -> highlighted on the skeleton rows, and back
+    PlotLink.linkYearHover([rl, $('reviewSkel')]);
   }
 
   // Changing the lag re-renders the line + heatmap from the cached crossdate
@@ -971,6 +1005,67 @@
     a.href = url; a.download = d.filename;
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  }
+
+  // ---- per-plot image saving (SVG / PNG buttons on every plot) --------------
+  // Serialise the container's current SVG(s), stripped of transient hover
+  // artefacts (linked-cursor lines, hotzones). PNG rasterises at 2x via canvas.
+  function cleanSvgXml(svg) {
+    var c = svg.cloneNode(true);
+    c.querySelectorAll('.rd-cursor, .rd-hot').forEach(function (n) { n.remove(); });
+    return new XMLSerializer().serializeToString(c);
+  }
+  function savePlotImages(el, base, fmt) {
+    var svgs = el.querySelectorAll('svg');
+    var stamp = new Date().toISOString().slice(0, 10);
+    Array.prototype.forEach.call(svgs, function (svg, i) {
+      var name = base.replace(/[^A-Za-z0-9_-]+/g, '_') +
+        (svgs.length > 1 ? '_' + (i + 1) : '') + '-' + stamp;
+      var xml = cleanSvgXml(svg);
+      if (fmt === 'svg') {
+        triggerDownload({ content: xml, mime: 'image/svg+xml', filename: name + '.svg' });
+        return;
+      }
+      var w = Number(svg.getAttribute('width')) || svg.clientWidth || 760;
+      var h = Number(svg.getAttribute('height')) || svg.clientHeight || 300;
+      var img = new Image();
+      var url = URL.createObjectURL(new Blob([xml], { type: 'image/svg+xml' }));
+      img.onload = function () {
+        var cv = document.createElement('canvas');
+        cv.width = w * 2; cv.height = h * 2;                 // 2x for a crisp raster
+        var ctx = cv.getContext('2d');
+        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
+        ctx.scale(2, 2); ctx.drawImage(img, 0, 0);
+        URL.revokeObjectURL(url);
+        cv.toBlob(function (blob) {
+          var u = URL.createObjectURL(blob);
+          var a = document.createElement('a');
+          a.href = u; a.download = name + '.png';
+          document.body.appendChild(a); a.click(); document.body.removeChild(a);
+          setTimeout(function () { URL.revokeObjectURL(u); }, 1000);
+        }, 'image/png');
+      };
+      img.src = url;
+    });
+  }
+  // Small overlay toolbar (top-right of a plot container). Re-call after each
+  // render; PlotZoom re-renders must target an INNER div so the bar survives.
+  function plotSaveBar(el, base) {
+    var old = el.querySelector(':scope > .savebar');
+    if (old) old.remove();
+    if (!el.querySelector('svg')) return;
+    if (!el.style.position) el.style.position = 'relative';
+    var bar = document.createElement('div');
+    bar.className = 'savebar';
+    ['svg', 'png'].forEach(function (fmt) {
+      var b = document.createElement('button');
+      b.className = 'btn ghost'; b.type = 'button';
+      b.textContent = fmt.toUpperCase();
+      b.title = 'Save this plot as ' + fmt.toUpperCase();
+      b.addEventListener('click', function () { savePlotImages(el, base, fmt); });
+      bar.appendChild(b);
+    });
+    el.appendChild(bar);
   }
   function dlItem(d, label) {
     var li = document.createElement('li');

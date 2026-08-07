@@ -74,6 +74,10 @@ ok('skelPlot master marks point down, sample up',
 ok('skelPlot exposes skeleton data', spec.data && Array.isArray(spec.data.skel_1) && Array.isArray(spec.data.skel_2));
 const svg = renderSvg(spec);
 ok('skelPlot renders a well-formed non-empty SVG', typeof svg === 'string' && /^<svg[\s\S]*<\/svg>$/.test(svg.trim()) && svg.length > 200, svg.length + ' chars');
+// linked-hover hotzones: every row panel embeds a year-tagged capture rect
+ok('row panels embed year hover hotzones',
+  (svg.match(/class="rd-hot" data-axis="year"/g) || []).length === spec.panels.length &&
+  /data-xmin=/.test(svg) && /data-xmax=/.test(svg));
 
 // every mark is drawn in the row panel whose x-domain contains it
 ok('marks land in their own row panel', spec.panels.every(function (p) {

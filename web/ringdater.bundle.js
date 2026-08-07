@@ -7065,6 +7065,14 @@ function renderPanel(spec, offY, colourbarSpace) {
   }
   out.push('</g>');
 
+  // Invisible hover-capture zone over the plot area, carrying the x-domain so
+  // browser-side code (web/plotLink.js) can map cursor position <-> data-x and
+  // link hover across plots. Emitted only when the builder declares linkAxis
+  // (e.g. 'year'), so unrelated axes (lags, ring counts) never cross-link.
+  if (spec.linkAxis) {
+    out.push(`<rect class="rd-hot" data-axis="${esc(spec.linkAxis)}" data-xmin="${xd[0]}" data-xmax="${xd[1]}" x="${left}" y="${top}" width="${(right - left).toFixed(2)}" height="${(bottom - top).toFixed(2)}" fill="none" pointer-events="all"/>`);
+  }
+
   // colour bar (below panel)
   if (spec.colourbar) {
     const cb = spec.colourbar;
@@ -7165,6 +7173,7 @@ function linePlot(theData, series1Nm, series2Nm, lag = 0, opts = {}) {
     type: 'linePlot',
     width: opts.width || 760,
     height: opts.height || 300,
+    linkAxis: 'year',            // x is the shared year axis: hover-linkable
     title: `${series1Nm} (black line) and ${series2Nm} lagged by ${lag} years (red line)`,
     xLabel: 'Years',
     yLabel: 'Standardised increment width',
@@ -7995,6 +8004,7 @@ function rowPanel(start, end, master, sample, first, opts) {
     type: 'skelPlotRow',
     width: opts.width,
     height: first ? 150 : 120,
+    linkAxis: 'year',            // x is the shared year axis: hover-linkable
     title: first ? opts.title : null,
     xLabel: null,
     yLabel: first ? 'Skeleton height' : null,

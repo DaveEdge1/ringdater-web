@@ -168,6 +168,14 @@ function renderPanel(spec, offY, colourbarSpace) {
   }
   out.push('</g>');
 
+  // Invisible hover-capture zone over the plot area, carrying the x-domain so
+  // browser-side code (web/plotLink.js) can map cursor position <-> data-x and
+  // link hover across plots. Emitted only when the builder declares linkAxis
+  // (e.g. 'year'), so unrelated axes (lags, ring counts) never cross-link.
+  if (spec.linkAxis) {
+    out.push(`<rect class="rd-hot" data-axis="${esc(spec.linkAxis)}" data-xmin="${xd[0]}" data-xmax="${xd[1]}" x="${left}" y="${top}" width="${(right - left).toFixed(2)}" height="${(bottom - top).toFixed(2)}" fill="none" pointer-events="all"/>`);
+  }
+
   // colour bar (below panel)
   if (spec.colourbar) {
     const cb = spec.colourbar;

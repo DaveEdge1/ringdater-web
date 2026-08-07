@@ -39,6 +39,7 @@ function linePlot(theData, series1Nm, series2Nm, lag = 0, opts = {}) {
     type: 'linePlot',
     width: opts.width || 760,
     height: opts.height || 300,
+    linkAxis: 'year',            // x is the shared year axis: hover-linkable
     title: `${series1Nm} (black line) and ${series2Nm} lagged by ${lag} years (red line)`,
     xLabel: 'Years',
     yLabel: 'Standardised increment width',
