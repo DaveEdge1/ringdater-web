@@ -64,7 +64,7 @@ const { heatmapPlot } = require('./viz/heatmapPlot.js');
 const { detrendPlot } = require('./viz/detrendPlot.js');
 const { leadLagBar } = require('./viz/leadLagBar.js');
 const { skelPlot } = require('./viz/skelPlot.js');
-const { skelValues, hanning } = require('./analysis/skel.js');
+const { skelValues, skelGrowth, hanning } = require('./analysis/skel.js');
 const renderSvg = require('./viz/render.js').toSVG;
 
 module.exports = {
@@ -106,7 +106,7 @@ module.exports = {
   // visualization: utilities, 7 plot builders (each returns a spec; renderSvg -> SVG string)
   xScaleBar, yScaleBar, colPal, rDateRTheme,
   linePlot, datedLinePlot, allSeries, heatmapPlot, detrendPlot, leadLagBar, skelPlot, renderSvg,
-  skelValues, hanning,
+  skelValues, skelGrowth, hanning,
 
   // orchestration engine: headless workflows + reactive store/actions (the "server")
   pairwiseWorkflow, chronologyWorkflow, createStore, engineActions,

@@ -77,6 +77,7 @@ export const {
   skelPlot,
   renderSvg,
   skelValues,
+  skelGrowth,
   hanning,
   pairwiseWorkflow,
   chronologyWorkflow,

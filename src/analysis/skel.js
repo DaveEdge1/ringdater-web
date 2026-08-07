@@ -37,7 +37,11 @@ function hanning(x, n = 9) {
   return y;
 }
 
-function skelValues(rw, filtWeight = 9) {
+// Continuous relative-growth values, the quantity dplR rescales: negative where
+// the ring is narrower than its neighbours' mean (only those are kept; positives
+// -> NaN), NaN at edges / NA windows / nonpositive divisors. skelValues() is
+// dplR's rescale+threshold of exactly these values.
+function skelGrowth(rw, filtWeight = 9) {
   const n = rw.length;
   const dt = hanning(rw, filtWeight);
   const skel = new Array(n).fill(NaN);
@@ -50,6 +54,12 @@ function skelValues(rw, filtWeight = 9) {
     skel[i] = ((a + b) / 2) / dt[i];             // = (rw[i] - mean(neighbours)) / hanning[i]
   }
   for (let i = 0; i < n; i++) if (skel[i] > 0) skel[i] = NaN;   // keep narrower-than-neighbours
+  return skel;
+}
+
+function skelValues(rw, filtWeight = 9) {
+  const skel = skelGrowth(rw, filtWeight);
+  const n = skel.length;
   const vals = skel.filter(v => !Number.isNaN(v));
   if (vals.length) {
     const mn = Math.min(...vals), mx = Math.max(...vals);
@@ -63,4 +73,4 @@ function skelValues(rw, filtWeight = 9) {
   return skel;
 }
 
-module.exports = { hanning, skelValues };
+module.exports = { hanning, skelValues, skelGrowth };

@@ -102,6 +102,45 @@ ok('300-year series wraps into multiple decade-aligned 120-year rows',
   specL.panels.length + ' panels from ' + specL.panels[0].scales.x.domain[0]);
 ok('long-series SVG renders', /^<svg[\s\S]*<\/svg>$/.test(renderSvg(specL).trim()));
 
+// ---- the plot window is the data overlap +10% each side ----
+// A occupies rows 0..99, B rows 50..149 -> overlap [50,99], ext 5 -> [45,104].
+{
+  const n = 150;
+  const noisy = i => 5 + Math.sin(i * 1.7) * 1.5;
+  const colA = Array.from({ length: n }, (_, i) => (i < 100 ? noisy(i) : null));
+  const colB = Array.from({ length: n }, (_, i) => (i >= 50 ? noisy(i + 3) : null));
+  const fr = { names: ['year', 'A', 'B'], cols: [Array.from({ length: n }, (_, i) => i), colA, colB] };
+  const sp = skelPlot(fr, 'A', 'B', 0, {});
+  ok('window = overlap extended 10%', sp.data.overlap[0] === 50 && sp.data.overlap[1] === 99 &&
+    sp.data.window[0] === 45 && sp.data.window[1] === 104,
+    'overlap=' + sp.data.overlap + ' window=' + sp.data.window);
+  const allMarkX = [];
+  sp.panels.forEach(p => { allMarkX.push.apply(allMarkX, p.marks[2].x0.concat(p.marks[3].x0)); });
+  ok('all marks inside the window', allMarkX.every(x => x >= 45 && x <= 104), JSON.stringify(allMarkX));
+  ok('single 120-year row covers the window', sp.panels.length === 1 && sp.panels[0].scales.x.domain[0] === 40);
+}
+
+// ---- density matching: an outlier-dominated series is topped up to the
+// denser series' dplR mark count instead of showing almost no marks ----
+{
+  const n = 120;
+  // "chronology": gentle variation + one extreme narrow outlier -> dplR yields ~1 mark
+  const chronCol = Array.from({ length: n }, (_, i) => 5 + Math.sin(i) * 0.25);
+  chronCol[60] = 0.05;
+  // "sample": strong variation -> many dplR marks
+  const sampCol = Array.from({ length: n }, (_, i) => 5 + Math.sin(i * 1.7) * 2);
+  const fr = { names: ['year', 'M', 'S'], cols: [Array.from({ length: n }, (_, i) => i), chronCol, sampCol] };
+  const sp = skelPlot(fr, 'M', 'S', 0, {});
+  const mMarks = [], sMarks = [];
+  sp.panels.forEach(p => { mMarks.push.apply(mMarks, p.marks[2].x0); sMarks.push.apply(sMarks, p.marks[3].x0); });
+  ok('sparser series topped up to matching density', mMarks.length === sMarks.length && mMarks.length >= 5,
+    mMarks.length + ' vs ' + sMarks.length + ' (k=' + sp.data.marksPerSeries + ')');
+  // the outlier is still the tallest master mark
+  const outlierPanel = sp.panels.find(p => p.scales.x.domain[0] <= 60 && 60 < p.scales.x.domain[1]);
+  const oi = outlierPanel.marks[2].x0.indexOf(60);
+  ok('outlier narrow ring keeps the tallest (10) mark', oi >= 0 && outlierPanel.marks[2].y1[oi] === -10);
+}
+
 console.log('');
 if (fails) { console.log('SKEL: ' + fails + ' FAIL'); process.exit(1); }
 console.log('PASS: skeleton-plot maths + builder (dplR skel.plot port).');
