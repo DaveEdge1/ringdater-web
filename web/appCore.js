@@ -281,6 +281,37 @@
     out.header = s1 + ' vs ' + s2 + ' — lagged ' + (Number(lag) || 0) + ' years';
     return out;
   }
+  // Stats for a pair at ONE specified lag, computed on the comparison frame
+  // with the engine's conventions (leadLag.js): series 2 shifted by `lag`,
+  // First/Last ring = its shifted placement on the axis, overlap = complete
+  // pairs, r/p/t from the validated Pearson cor.test port (p uncorrected —
+  // single chosen lag, not a scan). Null r/p/t when the overlap is too thin.
+  function pairStats(frame, s1, s2, lag) {
+    if (!frame || !frame.names) return null;
+    var i1 = frame.names.indexOf(s1), i2 = frame.names.indexOf(s2);
+    if (i1 < 1 || i2 < 1) return null;
+    var bad = function (v) { return v == null || (typeof v === 'number' && isNaN(v)); };
+    var yrs = frame.cols[0], a = frame.cols[i1], b = frame.cols[i2];
+    var L = Number(lag) || 0;
+    var byYear = {};
+    for (var r = 0; r < yrs.length; r++) if (!bad(yrs[r])) byYear[Number(yrs[r])] = r;
+    var first = null, last = null, x = [], y = [];
+    for (var q = 0; q < yrs.length; q++) {
+      if (bad(yrs[q]) || bad(b[q])) continue;
+      var t = Number(yrs[q]) + L;
+      if (first == null || t < first) first = t;
+      if (last == null || t > last) last = t;
+      var ra = byYear[t];
+      if (ra != null && !bad(a[ra])) { x.push(Number(a[ra])); y.push(Number(b[q])); }
+    }
+    var out = { firstRing: first, lastRing: last, overlap: x.length, r: null, p: null, t: null };
+    if (x.length >= 3) {
+      var ct = RD.pearsonCorTest(x, y);
+      out.r = ct.r; out.p = ct.p; out.t = ct.t;
+    }
+    return out;
+  }
+
   // "mean_chronology" alone doesn't say WHICH chronology — prefix the source
   // file's base name when one is known: "ut585 mean_chronology".
   function masterLabel(chronName, s1) {
@@ -346,6 +377,7 @@
         ARmod: detrend.ARmod, logT: detrend.logT
       });
     });
+    out.stats = pairStats(compFrame, s1, s2, lag);
     return applyPlotTitles(out, masterLabel(result.chronName || o.chronName, s1), s2, lag);
   }
   function safe(fn) { try { return fn(); } catch (e) { return null; } }
@@ -390,7 +422,8 @@
         var rll = RD.heatmapAnalysis(cn, { s1: TARGET, s2: id, neg_lag: -20, pos_lag: 20, center: L, win: 21, complete: false });
         return RD.heatmapPlot(rll, { s1: TARGET, s2: id });
       }),
-      leadLagBar: safe(function () { return RD.leadLagBar(masterLeadLag, TARGET, id); })
+      leadLagBar: safe(function () { return RD.leadLagBar(masterLeadLag, TARGET, id); }),
+      stats: pairStats(cn, TARGET, id, L)
     }, masterLabel(chronName, TARGET), id, L);
   }
 
@@ -407,7 +440,7 @@
     var plots = builderPlots(cx.cn, cx.masterLeadLag, id, L, rawUndated, chronName);
     return {
       suggestions: suggestions, cn: cx.cn, masterLeadLag: cx.masterLeadLag,
-      bestLag: bestLag, lag: L, header: plots.header,
+      bestLag: bestLag, lag: L, header: plots.header, stats: plots.stats,
       line: plots.line, skeleton: plots.skeleton, heatmap: plots.heatmap, leadLagBar: plots.leadLagBar
     };
   }

@@ -520,18 +520,38 @@
     document.querySelectorAll('#explorePlots .pairCtl').forEach(function (d) { d.style.display = isDetrend ? 'none' : ''; });
     $('detrendCtl').style.display = isDetrend ? '' : 'none';
   }
-  // One bold header line above a plot stack, as an SVG strip so it is part of
-  // the saved composite image too: "series1 vs series2 — lag N".
-  function headerSvg(text, width) {
-    var w = width || 760;
-    return '<svg xmlns="http://www.w3.org/2000/svg" width="' + w + '" height="30" viewBox="0 0 ' + w + ' 30">' +
-      '<rect width="' + w + '" height="30" fill="white"/>' +
-      '<text x="6" y="20" font-family="sans-serif" font-size="15" font-weight="bold">' + esc(text) + '</text></svg>';
+  // One bold header line above a plot stack — plus an optional stats sub-line —
+  // as an SVG strip so both are part of the saved composite image too:
+  //   "series1 vs series2 — lagged N years"
+  //   "First ring … · Last ring … · overlap … · Pearson's r … · p … · Student's T …"
+  function headerSvg(text, sub, width) {
+    var w = width || 760, h = sub ? 52 : 30;
+    return '<svg xmlns="http://www.w3.org/2000/svg" width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '">' +
+      '<rect width="' + w + '" height="' + h + '" fill="white"/>' +
+      '<text x="6" y="20" font-family="sans-serif" font-size="15" font-weight="bold">' + esc(text) + '</text>' +
+      (sub ? '<text x="6" y="41" font-family="sans-serif" font-size="12" fill="#444">' + esc(sub) + '</text>' : '') +
+      '</svg>';
   }
-  function headerEl(text) {
+  // stats of the pair at the CHOSEN lag (AC pairStats) -> one display line
+  function statsLine(st) {
+    if (!st) return '';
+    var num = function (v, dp) { return v == null ? '—' : String(Math.round(v * Math.pow(10, dp)) / Math.pow(10, dp)); };
+    var parts = [
+      'First ring ' + (st.firstRing == null ? '—' : st.firstRing),
+      'Last ring ' + (st.lastRing == null ? '—' : st.lastRing),
+      'overlap ' + st.overlap,
+    ];
+    if (st.r != null) {
+      parts.push("Pearson's r " + num(st.r, 3), 'p ' + AC.fmtP(st.p), "Student's T " + num(st.t, 2));
+    } else {
+      parts.push('overlap too thin for correlation');
+    }
+    return parts.join('   ·   ');
+  }
+  function headerEl(text, sub) {
     var d = document.createElement('div');
     d.className = 'plot-header';
-    d.innerHTML = headerSvg(text);
+    d.innerHTML = headerSvg(text, sub);
     return d;
   }
 
@@ -563,7 +583,7 @@
     // zoom + pan with crisp, regenerating axes. Other plots stay static.
     if (which === 'line') {
       if (!plots.line) { setMsg('plotMsg', 'Line plot could not be built for ' + vs + '.', 'err'); return; }
-      area.appendChild(headerEl(plots.header));
+      area.appendChild(headerEl(plots.header, statsLine(plots.stats)));
       var zoomDiv = document.createElement('div');
       area.appendChild(zoomDiv);
       PlotZoom.attachDataZoom(zoomDiv, plots.line, AC.RD.renderSvg);
@@ -572,7 +592,7 @@
       return;
     }
     if (which === 'combined') {
-      area.appendChild(headerEl(plots.header));
+      area.appendChild(headerEl(plots.header, statsLine(plots.stats)));
       var lineDiv = document.createElement('div');
       area.appendChild(lineDiv);
       if (plots.line) PlotZoom.attachDataZoom(lineDiv, plots.line, AC.RD.renderSvg);
@@ -589,7 +609,7 @@
     }
     var svg = AC.renderPlot(plots[which]);
     if (!svg) { setMsg('plotMsg', 'That plot could not be built for the selected pair (insufficient overlap?).', 'err'); return; }
-    area.appendChild(headerEl(plots.header));
+    area.appendChild(headerEl(plots.header, statsLine(plots.stats)));
     var plotDiv = document.createElement('div');
     plotDiv.innerHTML = svg;
     area.appendChild(plotDiv);
@@ -914,7 +934,7 @@
   // current review. The zoomable line plot renders into an INNER div so the
   // save bar (and container listeners) survive zoom re-renders.
   function renderReviewPlots(specs) {
-    $('reviewHeader').innerHTML = specs.header ? headerSvg(specs.header) : '';
+    $('reviewHeader').innerHTML = specs.header ? headerSvg(specs.header, statsLine(specs.stats)) : '';
     var rl = $('reviewLine');
     rl.innerHTML = '';
     if (specs.line) {
