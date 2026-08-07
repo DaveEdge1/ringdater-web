@@ -164,6 +164,7 @@
     result.mode = mode;
     result.undated = undated;
     result.detrendOpts = detrend;
+    result.chronName = opts.chronName || null;
     return result;
   }
 
@@ -277,8 +278,15 @@
   }
   function applyPlotTitles(out, s1, s2, lag) {
     Object.keys(PLOT_TITLES).forEach(function (k) { setPlotTitle(out[k], PLOT_TITLES[k]); });
-    out.header = s1 + ' vs ' + s2 + ' — lag ' + (Number(lag) || 0);
+    out.header = s1 + ' vs ' + s2 + ' — lagged ' + (Number(lag) || 0) + ' years';
     return out;
+  }
+  // "mean_chronology" alone doesn't say WHICH chronology — prefix the source
+  // file's base name when one is known: "ut585 mean_chronology".
+  function masterLabel(chronName, s1) {
+    if (s1 !== TARGET || !chronName) return s1;
+    var base = String(chronName).replace(/\\/g, '/').split('/').pop().replace(/\.[A-Za-z0-9]+$/, '');
+    return base ? base + ' ' + TARGET : s1;
   }
 
   function buildPlots(result, o) {
@@ -338,7 +346,7 @@
         ARmod: detrend.ARmod, logT: detrend.logT
       });
     });
-    return applyPlotTitles(out, s1, s2, lag);
+    return applyPlotTitles(out, masterLabel(result.chronName || o.chronName, s1), s2, lag);
   }
   function safe(fn) { try { return fn(); } catch (e) { return null; } }
 
@@ -373,7 +381,7 @@
   // on thin overlap. leadLagBar is lag-independent; line + heatmap follow `lag`.
   // `rawUndated` (the un-detrended pool frame) feeds the skeleton plot its raw
   // ring widths — see skelFrame.
-  function builderPlots(cn, masterLeadLag, id, lag, rawUndated) {
+  function builderPlots(cn, masterLeadLag, id, lag, rawUndated, chronName) {
     var L = Number(lag) || 0;
     return applyPlotTitles({
       line: safe(function () { return RD.linePlot(cn, TARGET, id, L); }),
@@ -383,7 +391,7 @@
         return RD.heatmapPlot(rll, { s1: TARGET, s2: id });
       }),
       leadLagBar: safe(function () { return RD.leadLagBar(masterLeadLag, TARGET, id); })
-    }, TARGET, id, L);
+    }, masterLabel(chronName, TARGET), id, L);
   }
 
   // Crossdate `id` against the builder's current mean chronology and return the
@@ -391,12 +399,12 @@
   // (defaults to the best suggestion when `lag` is null/NaN). cn + masterLeadLag
   // are returned so the host can rebuild the plots on a lag change WITHOUT
   // re-crossdating (see builderPlots).
-  function builderReview(builder, id, lag, rawUndated) {
+  function builderReview(builder, id, lag, rawUndated, chronName) {
     var cx = builder.crossdate(id);
     var suggestions = cx.suggestions || [];
     var bestLag = suggestions.length ? Number(suggestions[0].lag) : 0;
     var L = (lag == null || isNaN(Number(lag))) ? bestLag : Number(lag);
-    var plots = builderPlots(cx.cn, cx.masterLeadLag, id, L, rawUndated);
+    var plots = builderPlots(cx.cn, cx.masterLeadLag, id, L, rawUndated, chronName);
     return {
       suggestions: suggestions, cn: cx.cn, masterLeadLag: cx.masterLeadLag,
       bestLag: bestLag, lag: L, header: plots.header,

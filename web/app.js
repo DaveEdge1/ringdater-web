@@ -379,6 +379,7 @@
         state.result = AC.runAnalysis({
           mode: mode,
           undated: state.undated, chron: state.chron,
+          chronName: state.chronName,
           detrend: detrendUI(),
           leadlag: leadlagUI(),
           filter: {
@@ -882,7 +883,7 @@
     var id = $('candSel').value;
     if (!id) return;
     try {
-      state.review = AC.builderReview(state.builder, id, null, state.undated);
+      state.review = AC.builderReview(state.builder, id, null, state.undated, state.chron ? state.chronName : null);
       var rv = state.review;
       paintSuggestions(rv.suggestions);
       $('candLag').value = rv.lag;
@@ -940,7 +941,7 @@
     if (!state.review) return;
     var id = $('candSel').value;
     var L = Number($('candLag').value) || 0;
-    renderReviewPlots(AC.builderPlots(state.review.cn, state.review.masterLeadLag, id, L, state.undated));
+    renderReviewPlots(AC.builderPlots(state.review.cn, state.review.masterLeadLag, id, L, state.undated, state.chron ? state.chronName : null));
   });
 
   Actions.approveCandidate = function () {
