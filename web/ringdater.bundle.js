@@ -7911,6 +7911,12 @@ module.exports = { detrendPlot, toSVG };
 //
 // Frame convention matches linePlot/heatmapPlot: col 0 is the year/position axis,
 // series columns by name; `lag` shifts series_2 onto the crossdate alignment.
+//
+// IMPORTANT: pass RAW measurements (ring widths, or a positive RWI chronology),
+// not detrended series — dplR's skeleton maths normalises internally by the
+// hanning-smoothed local mean and assumes positive values (see analysis/skel.js).
+// Callers holding only a detrended comparison frame should swap raw columns in
+// (see appCore.skelFrame).
 
 const C = require('../analysis/comb.js');
 const { skelValues } = require('../analysis/skel.js');
@@ -7980,6 +7986,12 @@ module.exports = { skelPlot, toSVG };
 //                         keep only negative (narrower-than-neighbours) values,
 //                         rescale so the narrowest -> 10 / least -> 1, drop < 3,
 //                         then ceiling() to integers (exactly dplR's steps).
+//
+// INPUT: raw ring widths (positive), as in dplR — the hanning division is the
+// algorithm's own normalisation and assumes a positive local mean. Detrended
+// series that cross zero (z-scores, first differences) make the divisor
+// nonpositive and flip the narrowness sign; rings where hanning[i] <= 0 are
+// therefore NaN'd (a no-op on faithful dplR inputs, which never produce them).
 
 function hanning(x, n = 9) {
   const win = [];
@@ -8009,6 +8021,7 @@ function skelValues(rw, filtWeight = 9) {
   for (let i = 1; i <= n - 2; i++) {
     const a = diff[i - 1], b = -diff[i];
     if (Number.isNaN(a) || Number.isNaN(b) || Number.isNaN(dt[i])) continue;
+    if (dt[i] <= 0) continue;                    // nonpositive divisor: sign is meaningless
     skel[i] = ((a + b) / 2) / dt[i];             // = (rw[i] - mean(neighbours)) / hanning[i]
   }
   for (let i = 0; i < n; i++) if (skel[i] > 0) skel[i] = NaN;   // keep narrower-than-neighbours

@@ -235,6 +235,30 @@
     return 0;
   }
 
+  // Skeleton plots must run on RAW measurements: dplR's skel.plot divides by the
+  // hanning-smoothed local mean as its own normalisation and assumes positive
+  // values. The detrended comparison frames (z-score+1, first differences) cross
+  // zero, which flips the narrowness sign and marks the wrong rings. Rebuild the
+  // comparison frame with raw columns wherever the raw frame carries the same
+  // series (row axes are positionally aligned: normalise/comb.NA keep undated
+  // series at rows 0..n-1). Columns without a raw source — mean_chronology,
+  // seeded chron members — keep their positive RWI values, which dplR's maths
+  // handles fine.
+  function skelFrame(compFrame, rawFrame) {
+    if (!compFrame || !rawFrame || !rawFrame.names) return compFrame;
+    var out = { names: compFrame.names.slice(), cols: compFrame.cols.slice() };
+    var n = out.cols[0].length;
+    for (var c = 1; c < out.names.length; c++) {
+      var ri = rawFrame.names.indexOf(out.names[c]);
+      if (ri < 1) continue;
+      var raw = rawFrame.cols[ri];
+      var col = new Array(n).fill(null);
+      for (var r = 0; r < n && r < raw.length; r++) col[r] = raw[r];
+      out.cols[c] = col;
+    }
+    return out;
+  }
+
   function buildPlots(result, o) {
     o = o || {};
     var mode = Number(result.mode) === 2 ? 2 : 1;
@@ -261,7 +285,7 @@
     var out = { line: null, skeleton: null, heatmap: null, leadLagBar: null, allSeries: null, detrend: null };
 
     out.line = safe(function () { return RD.linePlot(lineFrame, s1, s2, lag, { sel_col_pal: colScale }); });
-    out.skeleton = safe(function () { return RD.skelPlot(compFrame, s1, s2, lag, {}); });
+    out.skeleton = safe(function () { return RD.skelPlot(skelFrame(compFrame, undated), s1, s2, lag, {}); });
     out.leadLagBar = safe(function () { return RD.leadLagBar(result.masterLeadLag, s1, s2); });
     out.allSeries = safe(function () { return RD.allSeries(aligned); });
     // heatmap: running lead-lag between the two series on the comparison frame,
@@ -317,11 +341,13 @@
   // Build the three review plot specs for candidate `id` at lag `lag` from an
   // already-run crossdate (cn + masterLeadLag). Each is safe()-wrapped and null
   // on thin overlap. leadLagBar is lag-independent; line + heatmap follow `lag`.
-  function builderPlots(cn, masterLeadLag, id, lag) {
+  // `rawUndated` (the un-detrended pool frame) feeds the skeleton plot its raw
+  // ring widths — see skelFrame.
+  function builderPlots(cn, masterLeadLag, id, lag, rawUndated) {
     var L = Number(lag) || 0;
     return {
       line: safe(function () { return RD.linePlot(cn, TARGET, id, L); }),
-      skeleton: safe(function () { return RD.skelPlot(cn, TARGET, id, L, {}); }),
+      skeleton: safe(function () { return RD.skelPlot(skelFrame(cn, rawUndated), TARGET, id, L, {}); }),
       heatmap: safe(function () {
         var rll = RD.heatmapAnalysis(cn, { s1: TARGET, s2: id, neg_lag: -20, pos_lag: 20, center: L, win: 21, complete: false });
         return RD.heatmapPlot(rll, { s1: TARGET, s2: id });
@@ -335,12 +361,12 @@
   // (defaults to the best suggestion when `lag` is null/NaN). cn + masterLeadLag
   // are returned so the host can rebuild the plots on a lag change WITHOUT
   // re-crossdating (see builderPlots).
-  function builderReview(builder, id, lag) {
+  function builderReview(builder, id, lag, rawUndated) {
     var cx = builder.crossdate(id);
     var suggestions = cx.suggestions || [];
     var bestLag = suggestions.length ? Number(suggestions[0].lag) : 0;
     var L = (lag == null || isNaN(Number(lag))) ? bestLag : Number(lag);
-    var plots = builderPlots(cx.cn, cx.masterLeadLag, id, L);
+    var plots = builderPlots(cx.cn, cx.masterLeadLag, id, L, rawUndated);
     return {
       suggestions: suggestions, cn: cx.cn, masterLeadLag: cx.masterLeadLag,
       bestLag: bestLag, lag: L,

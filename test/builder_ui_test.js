@@ -53,7 +53,7 @@ ok('pool shrank by one after anchor', st1.poolIds.length === names.length - 1);
 
 // 3. review the second candidate: suggestions + three plot specs --------------
 const candId = st1.poolIds[0];
-const review = AC.builderReview(builder, candId);
+const review = AC.builderReview(builder, candId, null, undated);
 ok('suggestions non-empty', review.suggestions.length >= 1, review.suggestions.length + ' suggestions');
 const best = review.suggestions[0];
 ok('best lag is a finite number', typeof best.lag === 'number' && Number.isFinite(best.lag), 'lag=' + best.lag);
@@ -66,9 +66,27 @@ ok('heatmap spec renders SVG', isSvg(RD.renderSvg(review.heatmap)),
   review.heatmap ? 'ok' : 'null spec');
 ok('lead-lag bar spec renders SVG', isSvg(RD.renderSvg(review.leadLagBar)),
   review.leadLagBar ? 'ok' : 'null spec');
+ok('skeleton spec renders SVG', isSvg(RD.renderSvg(review.skeleton)),
+  review.skeleton ? 'ok' : 'null spec');
+
+// the skeleton must be computed from the RAW candidate values (skelFrame swap),
+// not the detrended cn column: skel_2 equals skelValues(raw column) exactly.
+{
+  const n = review.cn.cols[0].length;
+  const rawCol = undated.cols[undated.names.indexOf(candId)];
+  const padded = [];
+  for (let r = 0; r < n; r++) padded.push(r < rawCol.length && rawCol[r] != null ? +rawCol[r] : NaN);
+  const expect = RD.skelValues(padded, 9);
+  const got = review.skeleton && review.skeleton.data ? review.skeleton.data.skel_2 : [];
+  let same = got.length === expect.length;
+  for (let r = 0; same && r < expect.length; r++) {
+    same = (Number.isNaN(expect[r]) && Number.isNaN(got[r])) || expect[r] === got[r];
+  }
+  ok('skeleton marks come from raw ring widths', same, got.length + ' vs ' + expect.length);
+}
 
 // builderPlots re-renders at an alternate lag without re-crossdating -----------
-const alt = AC.builderPlots(review.cn, review.masterLeadLag, candId, review.bestLag + 1);
+const alt = AC.builderPlots(review.cn, review.masterLeadLag, candId, review.bestLag + 1, undated);
 ok('builderPlots(cached cn) rebuilds line SVG at alt lag', isSvg(RD.renderSvg(alt.line)));
 
 // suggestion P formats via the app convention --------------------------------

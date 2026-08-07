@@ -36,6 +36,24 @@ ok('narrowest ring (pos 20) gets the tallest mark (10)', sk[20] === 10, 'sk[20]=
 ok('first/last rings are NA (no neighbours)', Number.isNaN(sk[0]) && Number.isNaN(sk[sk.length - 1]));
 ok('a wide/average ring is not marked', Number.isNaN(sk[15]), 'sk[15]=' + sk[15]);
 
+// ---- divisor guard: zero-crossing (detrended-style) input must never mark a
+// ring that is not genuinely narrower than its neighbours. Where the hanning
+// divisor goes nonpositive the unguarded dplR formula flips sign and marks
+// locally WIDE rings (the spike at 30 below); the guard NaNs those instead. ----
+const zc = [];
+for (let i = 0; i < 20; i++) zc.push(1.2 + 0.1 * Math.sin(i));
+zc[10] = 0.3;                                   // true narrow ring
+for (let i = 20; i < 40; i++) zc.push(-1.0 + 0.05 * Math.sin(i));
+zc[30] = -0.2;                                  // locally WIDE ring, negative span
+for (let i = 40; i < 60; i++) zc.push(1.2 + 0.1 * Math.sin(i));
+const skz = skelValues(zc, 9);
+let flipped = 0;
+for (let i = 1; i < zc.length - 1; i++) {
+  if (!Number.isNaN(skz[i]) && !(zc[i] <= (zc[i - 1] + zc[i + 1]) / 2)) flipped++;
+}
+ok('no marks on non-narrow rings (nonpositive-divisor guard)', flipped === 0, flipped + ' flipped marks');
+ok('true narrow ring still marked on zero-crossing input', skz[10] === 10, 'skz[10]=' + skz[10]);
+
 // ---- skelPlot builder: valid spec + renderable SVG ----
 const frame = {
   names: ['year', 'A', 'B'],

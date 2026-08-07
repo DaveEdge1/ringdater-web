@@ -841,7 +841,7 @@
     var id = $('candSel').value;
     if (!id) return;
     try {
-      state.review = AC.builderReview(state.builder, id);
+      state.review = AC.builderReview(state.builder, id, null, state.undated);
       var rv = state.review;
       paintSuggestions(rv.suggestions);
       $('candLag').value = rv.lag;
@@ -883,7 +883,7 @@
     if (!state.review) return;
     var id = $('candSel').value;
     var L = Number($('candLag').value) || 0;
-    renderReviewPlots(AC.builderPlots(state.review.cn, state.review.masterLeadLag, id, L));
+    renderReviewPlots(AC.builderPlots(state.review.cn, state.review.masterLeadLag, id, L, state.undated));
   });
 
   Actions.approveCandidate = function () {

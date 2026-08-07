@@ -8,6 +8,12 @@
 //
 // Frame convention matches linePlot/heatmapPlot: col 0 is the year/position axis,
 // series columns by name; `lag` shifts series_2 onto the crossdate alignment.
+//
+// IMPORTANT: pass RAW measurements (ring widths, or a positive RWI chronology),
+// not detrended series — dplR's skeleton maths normalises internally by the
+// hanning-smoothed local mean and assumes positive values (see analysis/skel.js).
+// Callers holding only a detrended comparison frame should swap raw columns in
+// (see appCore.skelFrame).
 
 const C = require('../analysis/comb.js');
 const { skelValues } = require('../analysis/skel.js');
