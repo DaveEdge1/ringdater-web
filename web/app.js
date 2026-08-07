@@ -519,6 +519,21 @@
     document.querySelectorAll('#explorePlots .pairCtl').forEach(function (d) { d.style.display = isDetrend ? 'none' : ''; });
     $('detrendCtl').style.display = isDetrend ? '' : 'none';
   }
+  // One bold header line above a plot stack, as an SVG strip so it is part of
+  // the saved composite image too: "series1 vs series2 — lag N".
+  function headerSvg(text, width) {
+    var w = width || 760;
+    return '<svg xmlns="http://www.w3.org/2000/svg" width="' + w + '" height="30" viewBox="0 0 ' + w + ' 30">' +
+      '<rect width="' + w + '" height="30" fill="white"/>' +
+      '<text x="6" y="20" font-family="sans-serif" font-size="15" font-weight="bold">' + esc(text) + '</text></svg>';
+  }
+  function headerEl(text) {
+    var d = document.createElement('div');
+    d.className = 'plot-header';
+    d.innerHTML = headerSvg(text);
+    return d;
+  }
+
   function renderPlots() {
     if (!state.result) return;
     var which = $('p_which').value;
@@ -547,6 +562,7 @@
     // zoom + pan with crisp, regenerating axes. Other plots stay static.
     if (which === 'line') {
       if (!plots.line) { setMsg('plotMsg', 'Line plot could not be built for ' + vs + '.', 'err'); return; }
+      area.appendChild(headerEl(plots.header));
       var zoomDiv = document.createElement('div');
       area.appendChild(zoomDiv);
       PlotZoom.attachDataZoom(zoomDiv, plots.line, AC.RD.renderSvg);
@@ -555,6 +571,7 @@
       return;
     }
     if (which === 'combined') {
+      area.appendChild(headerEl(plots.header));
       var lineDiv = document.createElement('div');
       area.appendChild(lineDiv);
       if (plots.line) PlotZoom.attachDataZoom(lineDiv, plots.line, AC.RD.renderSvg);
@@ -571,7 +588,10 @@
     }
     var svg = AC.renderPlot(plots[which]);
     if (!svg) { setMsg('plotMsg', 'That plot could not be built for the selected pair (insufficient overlap?).', 'err'); return; }
-    area.innerHTML = svg;
+    area.appendChild(headerEl(plots.header));
+    var plotDiv = document.createElement('div');
+    plotDiv.innerHTML = svg;
+    area.appendChild(plotDiv);
     plotSaveBar(area, which + '_' + vs);
     setMsg('plotMsg', 'Showing ' + which + ' for ' + vs + '.', 'ok');
   }
@@ -699,7 +719,10 @@
     state.review = null;
     $('suggTable').innerHTML = '';
     $('candNote').value = '';
+    $('reviewHeader').innerHTML = '';
     $('reviewLine').innerHTML = ''; $('reviewSkel').innerHTML = ''; $('reviewHeat').innerHTML = ''; $('reviewBar').innerHTML = '';
+    var sb = $('reviewPlots').querySelector(':scope > .savebar');
+    if (sb) sb.remove();
     $('approveBtn').disabled = true;
   }
   // Entering the view: nothing auto-runs — the user clicks Start. But keep the
@@ -890,6 +913,7 @@
   // current review. The zoomable line plot renders into an INNER div so the
   // save bar (and container listeners) survive zoom re-renders.
   function renderReviewPlots(specs) {
+    $('reviewHeader').innerHTML = specs.header ? headerSvg(specs.header) : '';
     var rl = $('reviewLine');
     rl.innerHTML = '';
     if (specs.line) {
@@ -902,11 +926,10 @@
     $('reviewSkel').innerHTML = specs.skeleton ? AC.renderPlot(specs.skeleton) : '<p class="msg err">Skeleton plot unavailable (thin overlap).</p>';
     $('reviewHeat').innerHTML = specs.heatmap ? AC.renderPlot(specs.heatmap) : '<p class="msg err">Heatmap unavailable (thin overlap).</p>';
     $('reviewBar').innerHTML = specs.leadLagBar ? AC.renderPlot(specs.leadLagBar) : '<p class="msg err">Lead-lag bar unavailable.</p>';
+    // one save toolbar for the whole review block: SVG/PNG of ALL four plots
+    // stacked in a single image
     var cand = $('candSel').value || 'candidate';
-    plotSaveBar(rl, 'review_line_' + cand);
-    plotSaveBar($('reviewSkel'), 'review_skeleton_' + cand);
-    plotSaveBar($('reviewHeat'), 'review_heatmap_' + cand);
-    plotSaveBar($('reviewBar'), 'review_leadlag_' + cand);
+    plotSaveBar($('reviewPlots'), 'review_' + cand);
     // hover a year on the line plot -> highlighted on the skeleton rows, and back
     PlotLink.linkYearHover([rl, $('reviewSkel')]);
   }
@@ -1015,38 +1038,57 @@
     c.querySelectorAll('.rd-cursor, .rd-hot').forEach(function (n) { n.remove(); });
     return new XMLSerializer().serializeToString(c);
   }
+  // Stack every SVG in the container into ONE composite SVG (vertically, in DOM
+  // order). Each source is nested at its y offset with its ids namespaced so
+  // clipPath/gradient references never collide across sources.
+  function stackSvgXml(svgs) {
+    var parts = [], w = 0, h = 0;
+    Array.prototype.forEach.call(svgs, function (svg, i) {
+      var sw = Number(svg.getAttribute('width')) || svg.clientWidth || 760;
+      var sh = Number(svg.getAttribute('height')) || svg.clientHeight || 300;
+      var xml = cleanSvgXml(svg)
+        .replace(/id="([^"]+)"/g, 'id="s' + i + '_$1"')
+        .replace(/url\(#([^)]+)\)/g, 'url(#s' + i + '_$1)')
+        .replace(/^<svg /, '<svg y="' + h + '" ');
+      parts.push(xml);
+      if (sw > w) w = sw;
+      h += sh;
+    });
+    return {
+      xml: '<svg xmlns="http://www.w3.org/2000/svg" width="' + w + '" height="' + h +
+        '" viewBox="0 0 ' + w + ' ' + h + '">' +
+        '<rect width="' + w + '" height="' + h + '" fill="white"/>' + parts.join('') + '</svg>',
+      width: w, height: h,
+    };
+  }
+  // Save ALL plots currently shown in `el` as one image.
   function savePlotImages(el, base, fmt) {
     var svgs = el.querySelectorAll('svg');
-    var stamp = new Date().toISOString().slice(0, 10);
-    Array.prototype.forEach.call(svgs, function (svg, i) {
-      var name = base.replace(/[^A-Za-z0-9_-]+/g, '_') +
-        (svgs.length > 1 ? '_' + (i + 1) : '') + '-' + stamp;
-      var xml = cleanSvgXml(svg);
-      if (fmt === 'svg') {
-        triggerDownload({ content: xml, mime: 'image/svg+xml', filename: name + '.svg' });
-        return;
-      }
-      var w = Number(svg.getAttribute('width')) || svg.clientWidth || 760;
-      var h = Number(svg.getAttribute('height')) || svg.clientHeight || 300;
-      var img = new Image();
-      var url = URL.createObjectURL(new Blob([xml], { type: 'image/svg+xml' }));
-      img.onload = function () {
-        var cv = document.createElement('canvas');
-        cv.width = w * 2; cv.height = h * 2;                 // 2x for a crisp raster
-        var ctx = cv.getContext('2d');
-        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
-        ctx.scale(2, 2); ctx.drawImage(img, 0, 0);
-        URL.revokeObjectURL(url);
-        cv.toBlob(function (blob) {
-          var u = URL.createObjectURL(blob);
-          var a = document.createElement('a');
-          a.href = u; a.download = name + '.png';
-          document.body.appendChild(a); a.click(); document.body.removeChild(a);
-          setTimeout(function () { URL.revokeObjectURL(u); }, 1000);
-        }, 'image/png');
-      };
-      img.src = url;
-    });
+    if (!svgs.length) return;
+    var name = base.replace(/[^A-Za-z0-9_-]+/g, '_') + '-' + new Date().toISOString().slice(0, 10);
+    var st = stackSvgXml(svgs);
+    if (fmt === 'svg') {
+      triggerDownload({ content: st.xml, mime: 'image/svg+xml', filename: name + '.svg' });
+      return;
+    }
+    var img = new Image();
+    var url = URL.createObjectURL(new Blob([st.xml], { type: 'image/svg+xml' }));
+    img.onload = function () {
+      var cv = document.createElement('canvas');
+      cv.width = st.width * 2; cv.height = st.height * 2;    // 2x for a crisp raster
+      var ctx = cv.getContext('2d');
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
+      ctx.scale(2, 2); ctx.drawImage(img, 0, 0);
+      URL.revokeObjectURL(url);
+      cv.toBlob(function (blob) {
+        var u = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = u; a.download = name + '.png';
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        setTimeout(function () { URL.revokeObjectURL(u); }, 1000);
+      }, 'image/png');
+    };
+    img.src = url;
   }
   // Small overlay toolbar (top-right of a plot container). Re-call after each
   // render; PlotZoom re-renders must target an INNER div so the bar survives.

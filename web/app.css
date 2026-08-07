@@ -93,8 +93,9 @@ table.res tr.sep td { background: #fafbfc; height: 5px; padding: 0; }
 .plotwrap svg { max-width: 100%; height: auto; }
 /* per-plot SVG/PNG save buttons (plotSaveBar in app.js) */
 .savebar { position: absolute; top: 6px; right: 8px; display: flex; gap: 4px; z-index: 5; opacity: 0.35; transition: opacity .15s; }
-.plotwrap:hover .savebar, .savebar:hover { opacity: 1; }
+.plotwrap:hover .savebar, #reviewPlots:hover .savebar, .savebar:hover { opacity: 1; }
 .savebar .btn { padding: 1px 8px; font-size: 11px; line-height: 1.6; }
+.plot-header svg { display: block; max-width: 100%; height: auto; }
 .plot-controls { display: flex; flex-wrap: wrap; gap: 12px 18px; align-items: flex-end; margin-bottom: 12px; }
 .plot-controls > div { min-width: 150px; }
 

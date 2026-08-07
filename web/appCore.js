@@ -259,6 +259,28 @@
     return out;
   }
 
+  // Uniform titling for the pair plots: one HEADER line names the two series
+  // (or chronology and series) and the lag; each plot itself is titled by its
+  // TYPE. The header string rides on the plots object; the hosts render it once
+  // above the plots (app.js headerSvg) so screen and saved images match.
+  var PLOT_TITLES = {
+    line: 'Detrended time series',
+    skeleton: 'Skeleton plot',
+    leadLagBar: "Student's T test",
+    heatmap: 'Heat map'
+  };
+  function setPlotTitle(spec, t) {
+    if (!spec) return spec;
+    spec.title = t;
+    if (spec.panels && spec.panels.length) spec.panels[0].title = t;
+    return spec;
+  }
+  function applyPlotTitles(out, s1, s2, lag) {
+    Object.keys(PLOT_TITLES).forEach(function (k) { setPlotTitle(out[k], PLOT_TITLES[k]); });
+    out.header = s1 + ' vs ' + s2 + ' — lag ' + (Number(lag) || 0);
+    return out;
+  }
+
   function buildPlots(result, o) {
     o = o || {};
     var mode = Number(result.mode) === 2 ? 2 : 1;
@@ -288,17 +310,25 @@
     out.skeleton = safe(function () { return RD.skelPlot(skelFrame(compFrame, undated), s1, s2, lag, {}); });
     out.leadLagBar = safe(function () { return RD.leadLagBar(result.masterLeadLag, s1, s2); });
     out.allSeries = safe(function () { return RD.allSeries(aligned); });
-    // heatmap: running lead-lag between the two series on the comparison frame,
-    // with the lag (y) axis centered on the pair's best crossdate lag by default
-    // (e.g. best lag 98 -> lag axis ~78..118) so the match band is visible.
-    var hmCenter = o.heatmapCenter != null ? Number(o.heatmapCenter) : bestLagFor(result, s1, s2);
+    // heatmap: running lead-lag between the two series on the comparison frame.
+    // The lag (y) axis centers on the UI-chosen lag so adjusting the lag moves
+    // the heatmap window like the line/skeleton plots; when no lag is chosen
+    // (0), fall back to the pair's best crossdate lag so the match band is
+    // visible (e.g. best lag 98 -> lag axis ~78..118).
+    var hmCenter = o.heatmapCenter != null ? Number(o.heatmapCenter)
+      : (lag !== 0 ? lag : bestLagFor(result, s1, s2));
     var corWin = o.corWin != null ? Number(o.corWin) : 21;
-    out.heatmap = safe(function () {
-      var rll = RD.heatmapAnalysis(compFrame, {
-        s1: s1, s2: s2, neg_lag: -20, pos_lag: 20, center: hmCenter, win: corWin, complete: false
+    var heatAt = function (center) {
+      return safe(function () {
+        var rll = RD.heatmapAnalysis(compFrame, {
+          s1: s1, s2: s2, neg_lag: -20, pos_lag: 20, center: center, win: corWin, complete: false
+        });
+        return RD.heatmapPlot(rll, { s1: s1, s2: s2, sel_col_pal: colScale });
       });
-      return RD.heatmapPlot(rll, { s1: s1, s2: s2, sel_col_pal: colScale });
-    });
+    };
+    // a far-off best-lag center can leave too little overlap; fall back to the
+    // chosen lag rather than rendering nothing
+    out.heatmap = heatAt(hmCenter) || (hmCenter !== lag ? heatAt(lag) : null);
     // detrend diagnostic on the raw (un-detrended) undated data
     var dSeries = o.detrendSeries || (undated && undated.names[1]);
     out.detrend = safe(function () {
@@ -308,7 +338,7 @@
         ARmod: detrend.ARmod, logT: detrend.logT
       });
     });
-    return out;
+    return applyPlotTitles(out, s1, s2, lag);
   }
   function safe(fn) { try { return fn(); } catch (e) { return null; } }
 
@@ -345,7 +375,7 @@
   // ring widths — see skelFrame.
   function builderPlots(cn, masterLeadLag, id, lag, rawUndated) {
     var L = Number(lag) || 0;
-    return {
+    return applyPlotTitles({
       line: safe(function () { return RD.linePlot(cn, TARGET, id, L); }),
       skeleton: safe(function () { return RD.skelPlot(skelFrame(cn, rawUndated), TARGET, id, L, {}); }),
       heatmap: safe(function () {
@@ -353,7 +383,7 @@
         return RD.heatmapPlot(rll, { s1: TARGET, s2: id });
       }),
       leadLagBar: safe(function () { return RD.leadLagBar(masterLeadLag, TARGET, id); })
-    };
+    }, TARGET, id, L);
   }
 
   // Crossdate `id` against the builder's current mean chronology and return the
@@ -369,7 +399,7 @@
     var plots = builderPlots(cx.cn, cx.masterLeadLag, id, L, rawUndated);
     return {
       suggestions: suggestions, cn: cx.cn, masterLeadLag: cx.masterLeadLag,
-      bestLag: bestLag, lag: L,
+      bestLag: bestLag, lag: L, header: plots.header,
       line: plots.line, skeleton: plots.skeleton, heatmap: plots.heatmap, leadLagBar: plots.leadLagBar
     };
   }
