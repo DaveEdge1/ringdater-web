@@ -7,6 +7,7 @@ import RD from './index.js';
 export default RD;
 
 export const {
+  VERSION,
   Frame,
   frame,
   asFrame,

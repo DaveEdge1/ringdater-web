@@ -1,6 +1,6 @@
 {
   "name": "ringdater-js",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Dependency-free JS port of the numeric core + crossdating analysis of dplR/RingdateR, validated against R.",
   "keywords": [
     "dendrochronology",
@@ -45,6 +45,8 @@
     "test": "for t in test/*_test.js test/run.js; do echo \"# $t\"; node \"$t\" || exit 1; done",
     "build:esm": "node tools/gen-esm.js",
     "build:bundle": "node tools/bundle.js",
-    "prepublishOnly": "node tools/gen-esm.js && npm test"
+    "stamp": "node tools/stamp-version.js",
+    "version": "npm run stamp && npm run build:esm && npm run build:bundle && npm test && git add -A",
+    "prepublishOnly": "npm run stamp && node tools/gen-esm.js && npm test"
   }
 }

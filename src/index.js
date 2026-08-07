@@ -2,6 +2,9 @@
 // ringdater-js: JS port of the numeric core + analysis layer of dplR/ringdater
 // (crossdating). Every function is validated against R via tools/*.R + test/*.
 
+// single-source version (generated from package.json by tools/stamp-version.js)
+const { VERSION } = require('./version.js');
+
 // ---- dplR numeric core (bit-exact / bit-close vs R) ------------------------
 const { caps, detrendSpline } = require('./spline.js');
 const { whitenSeries } = require('./prewhiten.js');
@@ -68,6 +71,9 @@ const { skelValues, skelGrowth, hanning } = require('./analysis/skel.js');
 const renderSvg = require('./viz/render.js').toSVG;
 
 module.exports = {
+  // library version (matches package.json; see tools/stamp-version.js)
+  VERSION,
+
   // Frame data-shape contract (build/join/slice ring-width tables)
   Frame: comb,
   frame: comb.frame, asFrame: comb.asFrame, combNA: comb.combNA,

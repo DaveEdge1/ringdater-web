@@ -125,6 +125,24 @@ the complete R→JS port plan is in [`WORKPLAN.md`](WORKPLAN.md)):
 | Lead–lag crossdating engine, `cor.test` p-values | **≤~1e-11** |
 | `ModNegExp` / `ModHugershoff` (nonlinear fits) | matches when R's `nls` converges (divergences documented) |
 
+## Versioning & releases
+
+The library (`src/`) and the web app (`web/`) share one semantic version, with
+`package.json` as the single source of truth — stamped into `src/version.js`
+(`RD.VERSION`), the app's header badge, and cache-busting `?v=` query strings on
+every asset in `web/index.html`. `test/version_test.js` fails the suite if any
+copy drifts; changes are documented in [`CHANGELOG.md`](CHANGELOG.md).
+
+To release:
+
+```bash
+npm version patch|minor|major   # bump -> stamp -> rebuild esm+bundle -> test -> commit + vX.Y.Z tag
+git push --follow-tags
+```
+
+(Add the release's notes to `CHANGELOG.md` first — the version test checks the
+new version has an entry.)
+
 ## Repository layout
 
 ```
