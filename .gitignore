@@ -11,3 +11,6 @@ npm-debug.log*
 # Local scratch
 *.log
 tmp/
+
+# Local-only data (not for the repo)
+ut585/

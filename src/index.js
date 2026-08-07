@@ -29,7 +29,7 @@ const { alignSeries, alignToChron, ontoAlignDated } = require('./analysis/align.
 const { correlReplace } = require('./analysis/correlReplace.js');
 const { removeSeries } = require('./analysis/removeSeries.js');
 const { RingdateR_error_message } = require('./analysis/errorMessage.js');
-const { nameCheck, loadedDataCheck, pairwiseDataCheck } = require('./analysis/checks.js');
+const { nameCheck, nameCheckUnique, loadedDataCheck, pairwiseDataCheck } = require('./analysis/checks.js');
 
 // ---- chronology stats (wrappers over the dplR core) ------------------------
 const { probCheck } = require('./stats/probCheck.js');
@@ -89,7 +89,7 @@ module.exports = {
   probCheck, rBarEps,
 
   // validation / cleaning / messaging
-  nameCheck, loadedDataCheck, pairwiseDataCheck, RingdateR_error_message,
+  nameCheck, nameCheckUnique, loadedDataCheck, pairwiseDataCheck, RingdateR_error_message,
 
   // IO — loading (extension-dispatched), format parsers, writers
   loadUndated: io.loadUndated, loadChron: io.loadChron,

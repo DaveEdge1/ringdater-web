@@ -62,6 +62,14 @@ function splitLines(text) {
   return lines;
 }
 
+// File basename without its extension: the fallback series name for files whose
+// data lines carry no sample ID in cols 1-8 (common in single-series exports).
+function baseNameNoExt(fileName) {
+  const b = String(fileName).replace(/\\/g, '/').split('/').pop();
+  const dot = b.lastIndexOf('.');
+  return dot > 0 ? b.substring(0, dot) : b;
+}
+
 // ---------------------------------------------------------------------------
 // read.tucson header detection (is.head)  -- decides skip.lines (0 or 3)
 // ---------------------------------------------------------------------------
@@ -116,10 +124,13 @@ function detectHeader(hdr1) {
 // ---------------------------------------------------------------------------
 //
 // opts: { header: boolean|null (force header on/off; default null=auto),
-//         edgeZeros: boolean (default true) }
+//         edgeZeros: boolean (default true),
+//         fileName: string (names a blank-ID series after the file) }
 function readRwl(text, opts) {
   opts = opts || {};
   const edgeZeros = opts.edgeZeros !== false;
+  // series with no ID in cols 1-8 take the file's name (when one was given)
+  const noIdName = opts.fileName != null ? baseNameNoExt(opts.fileName) : '';
 
   // drop empty lines, then comment lines (first '#' within cols 1..78)
   let lines = splitLines(text).filter(l => l.length > 0);
@@ -200,14 +211,14 @@ function readRwl(text, opts) {
   const cols = [];
   if (!Number.isFinite(omin)) {                    // no good data anywhere
     cols.push([]);
-    for (const s of series) { names.push(s.id); cols.push([]); }
+    for (const s of series) { names.push(s.id || noIdName); cols.push([]); }
     return { names, cols };
   }
   const years = [];
   for (let y = omin; y <= omax; y++) years.push(y);
   cols.push(years);
   for (const s of series) {
-    names.push(s.id);
+    names.push(s.id || noIdName);
     const col = new Array(years.length);
     for (let i = 0; i < years.length; i++) {
       const y = years[i];
@@ -404,7 +415,7 @@ function formatFromName(fileName) {
 function readRWL(text, opts) {
   opts = opts || {};
   const format = opts.format || (opts.fileName ? formatFromName(opts.fileName) : 'tucson');
-  const readOpts = { edgeZeros: opts.edgeZeros };
+  const readOpts = { edgeZeros: opts.edgeZeros, fileName: opts.fileName };
   try {
     return readRwl(text, readOpts);
   } catch (e) {
@@ -416,4 +427,4 @@ function readRWL(text, opts) {
   }
 }
 
-module.exports = { readRwl, writeRwl, readRWL, locateID, readWOheader, fixNames };
+module.exports = { readRwl, writeRwl, readRWL, locateID, readWOheader, fixNames, baseNameNoExt };

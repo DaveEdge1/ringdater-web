@@ -69,7 +69,7 @@ const { alignSeries, alignToChron, ontoAlignDated } = require('./analysis/align.
 const { correlReplace } = require('./analysis/correlReplace.js');
 const { removeSeries } = require('./analysis/removeSeries.js');
 const { RingdateR_error_message } = require('./analysis/errorMessage.js');
-const { nameCheck, loadedDataCheck, pairwiseDataCheck } = require('./analysis/checks.js');
+const { nameCheck, nameCheckUnique, loadedDataCheck, pairwiseDataCheck } = require('./analysis/checks.js');
 
 // ---- chronology stats (wrappers over the dplR core) ------------------------
 const { probCheck } = require('./stats/probCheck.js');
@@ -129,7 +129,7 @@ module.exports = {
   probCheck, rBarEps,
 
   // validation / cleaning / messaging
-  nameCheck, loadedDataCheck, pairwiseDataCheck, RingdateR_error_message,
+  nameCheck, nameCheckUnique, loadedDataCheck, pairwiseDataCheck, RingdateR_error_message,
 
   // IO — loading (extension-dispatched), format parsers, writers
   loadUndated: io.loadUndated, loadChron: io.loadChron,
@@ -2698,6 +2698,31 @@ function nameCheck(frame) {
 }
 
 // ============================================================================
+// nameCheckUnique -- nameCheck + a guaranteed-uniqueness pass, with reporting
+// ============================================================================
+// nameCheck alone can leave duplicates in edge cases (its gsub(".","_") runs
+// AFTER make.unique, so e.g. "a.b" and "a_b" both end up "a_b"; its "pretty"
+// loop can truncate the disambiguating suffix off entirely). This wrapper runs
+// nameCheck, then re-applies makeUnique with "_" so the result NEVER contains
+// duplicate names, and reports every series whose final name differs from what
+// it would have been had there been no collision — i.e. exactly the names we
+// had to invent to keep them unique.
+// Returns { frame, renames: [{ index, from, to }] }.
+function nameCheckUnique(frame) {
+  const checked = nameCheck(frame);
+  const unique = makeUnique(checked.names, '_');
+  const renames = [];
+  for (let i = 0; i < frame.names.length; i++) {
+    // the name this column would get on its own (sanitised, but never suffixed)
+    const solo = nameCheck({ names: [frame.names[i]], cols: [[]] }).names[0];
+    if (unique[i] !== solo) {
+      renames.push({ index: i, from: String(frame.names[i]), to: unique[i] });
+    }
+  }
+  return { frame: { names: unique, cols: checked.cols }, renames };
+}
+
+// ============================================================================
 // loadedDataCheck -- port of loaded_data_check
 // ============================================================================
 // Returns an integer status code:
@@ -2794,7 +2819,7 @@ function pairwiseDataCheck(frame) {
 }
 
 module.exports = {
-  nameCheck, loadedDataCheck, pairwiseDataCheck,
+  nameCheck, nameCheckUnique, loadedDataCheck, pairwiseDataCheck,
   // exposed for testing / reuse
   makeNames, makeUnique, makeNameOne,
 };
@@ -3031,7 +3056,7 @@ module.exports = {
 // ============================================================================
 
 const C = require('../analysis/comb');
-const { nameCheck } = require('../analysis/checks');
+const { nameCheckUnique, makeUnique } = require('../analysis/checks');
 const { parseDelimited } = require('./csv');
 const { readXlsx } = require('./xlsx');
 const { normalise } = require('../detrend/normalise');
@@ -3050,6 +3075,25 @@ function needReader(readers, kind) {
     throw new Error('loaders: ' + kind + ' reader not provided (inject opts.readers.' + kind + ')');
   }
   return fn;
+}
+
+// Series names must always be unique; when a loader had to invent a name to
+// break a collision, tell the user which. The messages ride on the returned
+// frame as a NON-ENUMERABLE `warnings` array so the Frame data contract
+// ({names, cols}) and its serialisations are untouched.
+function attachRenameWarnings(frame, renames) {
+  if (!renames || !renames.length) return frame;
+  const msgs = renames.map(r =>
+    'Series name "' + r.from + '" was not unique; renamed to "' + r.to + '".');
+  Object.defineProperty(frame, 'warnings', {
+    value: msgs, enumerable: false, writable: true, configurable: true,
+  });
+  return frame;
+}
+// nameCheckUnique + warnings in one step (the common loader epilogue).
+function checkNamesWarn(frame) {
+  const res = nameCheckUnique(frame);
+  return attachRenameWarnings(res.frame, res.renames);
 }
 
 // ---- Tukey's biweight robust mean (dplR::tbrm, C = 9) & chron std -----------
@@ -3194,7 +3238,7 @@ function loadUndated(files, opts = {}) {
   const nr = C.nrow(undated);
   undated = { names: undated.names.slice(), cols: undated.cols.slice() };
   undated.cols[0] = seqFrom(undated.cols[0][0], nr);
-  return nameCheck(undated);
+  return checkNamesWarn(undated);
 }
 
 // ============================================================================
@@ -3221,7 +3265,7 @@ function loadChron(file, opts = {}) {
     // separator, so this branch errors in R too. Reproduced faithfully.
     df = parseDelimited(file.text, { sep: '/t', header: true, checkNames: true });
   }
-  return nameCheck(df);
+  return checkNamesWarn(df);
 }
 
 // ============================================================================
@@ -3317,7 +3361,14 @@ function ldUndatedChron(files, opts = {}) {
   }
   undated = { names: undated.names.slice(), cols: undated.cols.slice() };
   undated.cols[0] = seqFrom(undated.cols[0][0], C.nrow(undated));
-  return undated;
+  // per-file chronology names come from file names, which can repeat
+  const uniq = makeUnique(undated.names, '_');
+  const renames = [];
+  for (let i = 0; i < uniq.length; i++) {
+    if (uniq[i] !== undated.names[i]) renames.push({ index: i, from: undated.names[i], to: uniq[i] });
+  }
+  undated.names = uniq;
+  return attachRenameWarnings(undated, renames);
 }
 
 module.exports = {
@@ -4179,6 +4230,14 @@ function splitLines(text) {
   return lines;
 }
 
+// File basename without its extension: the fallback series name for files whose
+// data lines carry no sample ID in cols 1-8 (common in single-series exports).
+function baseNameNoExt(fileName) {
+  const b = String(fileName).replace(/\\/g, '/').split('/').pop();
+  const dot = b.lastIndexOf('.');
+  return dot > 0 ? b.substring(0, dot) : b;
+}
+
 // ---------------------------------------------------------------------------
 // read.tucson header detection (is.head)  -- decides skip.lines (0 or 3)
 // ---------------------------------------------------------------------------
@@ -4233,10 +4292,13 @@ function detectHeader(hdr1) {
 // ---------------------------------------------------------------------------
 //
 // opts: { header: boolean|null (force header on/off; default null=auto),
-//         edgeZeros: boolean (default true) }
+//         edgeZeros: boolean (default true),
+//         fileName: string (names a blank-ID series after the file) }
 function readRwl(text, opts) {
   opts = opts || {};
   const edgeZeros = opts.edgeZeros !== false;
+  // series with no ID in cols 1-8 take the file's name (when one was given)
+  const noIdName = opts.fileName != null ? baseNameNoExt(opts.fileName) : '';
 
   // drop empty lines, then comment lines (first '#' within cols 1..78)
   let lines = splitLines(text).filter(l => l.length > 0);
@@ -4317,14 +4379,14 @@ function readRwl(text, opts) {
   const cols = [];
   if (!Number.isFinite(omin)) {                    // no good data anywhere
     cols.push([]);
-    for (const s of series) { names.push(s.id); cols.push([]); }
+    for (const s of series) { names.push(s.id || noIdName); cols.push([]); }
     return { names, cols };
   }
   const years = [];
   for (let y = omin; y <= omax; y++) years.push(y);
   cols.push(years);
   for (const s of series) {
-    names.push(s.id);
+    names.push(s.id || noIdName);
     const col = new Array(years.length);
     for (let i = 0; i < years.length; i++) {
       const y = years[i];
@@ -4521,7 +4583,7 @@ function formatFromName(fileName) {
 function readRWL(text, opts) {
   opts = opts || {};
   const format = opts.format || (opts.fileName ? formatFromName(opts.fileName) : 'tucson');
-  const readOpts = { edgeZeros: opts.edgeZeros };
+  const readOpts = { edgeZeros: opts.edgeZeros, fileName: opts.fileName };
   try {
     return readRwl(text, readOpts);
   } catch (e) {
@@ -4533,7 +4595,7 @@ function readRWL(text, opts) {
   }
 }
 
-module.exports = { readRwl, writeRwl, readRWL, locateID, readWOheader, fixNames };
+module.exports = { readRwl, writeRwl, readRWL, locateID, readWOheader, fixNames, baseNameNoExt };
 
   });
   define("m35", {}, function(module, exports, require){
@@ -4567,6 +4629,11 @@ function splitLines(text) {
   if (lines.length && lines[lines.length - 1] === '') lines.pop();
   return lines;
 }
+function baseNameNoExt(fileName) {
+  const b = String(fileName).replace(/\\/g, '/').split('/').pop();
+  const dot = b.lastIndexOf('.');
+  return dot > 0 ? b.substring(0, dot) : b;
+}
 
 // A data line has a valid integer year in cols 7-10; anything else (the 3 ITRDB
 // header lines, blank/comment lines) is skipped.
@@ -4576,10 +4643,12 @@ function looksLikeDataLine(ln) {
   return !Number.isNaN(y) && isInt(y) && y >= -12000 && y <= 12000;
 }
 
-// readCrn(text, opts) -> Frame  (opts.stopMarker default 9990)
+// readCrn(text, opts) -> Frame  (opts.stopMarker default 9990;
+// opts.fileName names a blank-ID series after the file)
 function readCrn(text, opts) {
   opts = opts || {};
   const stop = opts.stopMarker != null ? opts.stopMarker : 9990;
+  const noIdName = opts.fileName != null ? baseNameNoExt(opts.fileName) : '';
 
   let lines = splitLines(text).filter(l => l.length > 0);
   lines = lines.filter(l => { const p = l.indexOf('#'); return !(p >= 0 && p <= 77); }); // strip comments
@@ -4613,7 +4682,7 @@ function readCrn(text, opts) {
   const cols = [];
   if (!Number.isFinite(omin)) {                       // no usable data
     cols.push([]);
-    for (const id of ids) { names.push(id); cols.push([]); }
+    for (const id of ids) { names.push(id || noIdName); cols.push([]); }
     return { names, cols };
   }
   const years = [];
@@ -4621,7 +4690,7 @@ function readCrn(text, opts) {
   cols.push(years);
   for (const id of ids) {
     const map = byId.get(id);
-    names.push(id);
+    names.push(id || noIdName);
     const col = new Array(years.length);
     for (let i = 0; i < years.length; i++) { const y = years[i]; col[i] = map.has(y) ? map.get(y) : null; }
     cols.push(col);

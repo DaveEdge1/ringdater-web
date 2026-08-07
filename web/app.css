@@ -76,6 +76,7 @@ button.btn.ghost:hover { background: #e2e8ec; }
 .msg { min-height: 20px; font-size: 13px; margin: 8px 0; }
 .msg.err { color: #c0392b; }
 .msg.ok { color: var(--green-d); }
+.msg.warn { color: #9a6400; }
 .badge { display: inline-block; background: #eef2f4; border: 1px solid var(--line); border-radius: 12px; padding: 1px 9px; font-size: 12px; margin: 2px 4px 2px 0; }
 .warn { background: #fff6e5; border: 1px solid #f0d9a8; color: #8a6300; border-radius: 6px; padding: 8px 12px; font-size: 13px; margin: 8px 0; }
 

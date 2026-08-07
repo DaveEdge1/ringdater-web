@@ -223,7 +223,12 @@
         }
         renderDataInfo();
         onDataChanged();
-        if (msgId) setMsg(msgId, 'Loaded ' + (state.undated ? AC.seriesNames(state.undated).length : 0) + ' undated series' + (state.chron ? ' + chronology' : '') + '.', 'ok');
+        if (msgId) {
+          var loadedMsg = 'Loaded ' + (state.undated ? AC.seriesNames(state.undated).length : 0) + ' undated series' + (state.chron ? ' + chronology' : '') + '.';
+          var warns = (state.undated && state.undated.warnings) || [];
+          if (warns.length) setMsg(msgId, loadedMsg + ' ' + warns.join(' '), 'warn');
+          else setMsg(msgId, loadedMsg, 'ok');
+        }
       } catch (err) {
         if (msgId) setMsg(msgId, err.message, 'err');
         $('undatedInfo').innerHTML = '<p class="msg err">' + esc(err.message) + '</p>';
@@ -251,7 +256,11 @@
         $('mode_select').value = '2';
         renderDataInfo();
         onDataChanged();
-        if (msgId) setMsg(msgId, 'Loaded chronology ' + state.chronName + '.', 'ok');
+        if (msgId) {
+          var cWarns = (state.chron && state.chron.warnings) || [];
+          if (cWarns.length) setMsg(msgId, 'Loaded chronology ' + state.chronName + '. ' + cWarns.join(' '), 'warn');
+          else setMsg(msgId, 'Loaded chronology ' + state.chronName + '.', 'ok');
+        }
         if (cb) cb(true);
       } catch (err) {
         if (msgId) setMsg(msgId, err.message, 'err');

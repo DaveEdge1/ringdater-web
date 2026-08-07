@@ -27,7 +27,7 @@
 // ============================================================================
 
 const C = require('../analysis/comb');
-const { nameCheck } = require('../analysis/checks');
+const { nameCheckUnique, makeUnique } = require('../analysis/checks');
 const { parseDelimited } = require('./csv');
 const { readXlsx } = require('./xlsx');
 const { normalise } = require('../detrend/normalise');
@@ -46,6 +46,25 @@ function needReader(readers, kind) {
     throw new Error('loaders: ' + kind + ' reader not provided (inject opts.readers.' + kind + ')');
   }
   return fn;
+}
+
+// Series names must always be unique; when a loader had to invent a name to
+// break a collision, tell the user which. The messages ride on the returned
+// frame as a NON-ENUMERABLE `warnings` array so the Frame data contract
+// ({names, cols}) and its serialisations are untouched.
+function attachRenameWarnings(frame, renames) {
+  if (!renames || !renames.length) return frame;
+  const msgs = renames.map(r =>
+    'Series name "' + r.from + '" was not unique; renamed to "' + r.to + '".');
+  Object.defineProperty(frame, 'warnings', {
+    value: msgs, enumerable: false, writable: true, configurable: true,
+  });
+  return frame;
+}
+// nameCheckUnique + warnings in one step (the common loader epilogue).
+function checkNamesWarn(frame) {
+  const res = nameCheckUnique(frame);
+  return attachRenameWarnings(res.frame, res.renames);
 }
 
 // ---- Tukey's biweight robust mean (dplR::tbrm, C = 9) & chron std -----------
@@ -190,7 +209,7 @@ function loadUndated(files, opts = {}) {
   const nr = C.nrow(undated);
   undated = { names: undated.names.slice(), cols: undated.cols.slice() };
   undated.cols[0] = seqFrom(undated.cols[0][0], nr);
-  return nameCheck(undated);
+  return checkNamesWarn(undated);
 }
 
 // ============================================================================
@@ -217,7 +236,7 @@ function loadChron(file, opts = {}) {
     // separator, so this branch errors in R too. Reproduced faithfully.
     df = parseDelimited(file.text, { sep: '/t', header: true, checkNames: true });
   }
-  return nameCheck(df);
+  return checkNamesWarn(df);
 }
 
 // ============================================================================
@@ -313,7 +332,14 @@ function ldUndatedChron(files, opts = {}) {
   }
   undated = { names: undated.names.slice(), cols: undated.cols.slice() };
   undated.cols[0] = seqFrom(undated.cols[0][0], C.nrow(undated));
-  return undated;
+  // per-file chronology names come from file names, which can repeat
+  const uniq = makeUnique(undated.names, '_');
+  const renames = [];
+  for (let i = 0; i < uniq.length; i++) {
+    if (uniq[i] !== undated.names[i]) renames.push({ index: i, from: undated.names[i], to: uniq[i] });
+  }
+  undated.names = uniq;
+  return attachRenameWarnings(undated, renames);
 }
 
 module.exports = {

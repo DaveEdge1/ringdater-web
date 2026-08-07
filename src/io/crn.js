@@ -28,6 +28,11 @@ function splitLines(text) {
   if (lines.length && lines[lines.length - 1] === '') lines.pop();
   return lines;
 }
+function baseNameNoExt(fileName) {
+  const b = String(fileName).replace(/\\/g, '/').split('/').pop();
+  const dot = b.lastIndexOf('.');
+  return dot > 0 ? b.substring(0, dot) : b;
+}
 
 // A data line has a valid integer year in cols 7-10; anything else (the 3 ITRDB
 // header lines, blank/comment lines) is skipped.
@@ -37,10 +42,12 @@ function looksLikeDataLine(ln) {
   return !Number.isNaN(y) && isInt(y) && y >= -12000 && y <= 12000;
 }
 
-// readCrn(text, opts) -> Frame  (opts.stopMarker default 9990)
+// readCrn(text, opts) -> Frame  (opts.stopMarker default 9990;
+// opts.fileName names a blank-ID series after the file)
 function readCrn(text, opts) {
   opts = opts || {};
   const stop = opts.stopMarker != null ? opts.stopMarker : 9990;
+  const noIdName = opts.fileName != null ? baseNameNoExt(opts.fileName) : '';
 
   let lines = splitLines(text).filter(l => l.length > 0);
   lines = lines.filter(l => { const p = l.indexOf('#'); return !(p >= 0 && p <= 77); }); // strip comments
@@ -74,7 +81,7 @@ function readCrn(text, opts) {
   const cols = [];
   if (!Number.isFinite(omin)) {                       // no usable data
     cols.push([]);
-    for (const id of ids) { names.push(id); cols.push([]); }
+    for (const id of ids) { names.push(id || noIdName); cols.push([]); }
     return { names, cols };
   }
   const years = [];
@@ -82,7 +89,7 @@ function readCrn(text, opts) {
   cols.push(years);
   for (const id of ids) {
     const map = byId.get(id);
-    names.push(id);
+    names.push(id || noIdName);
     const col = new Array(years.length);
     for (let i = 0; i < years.length; i++) { const y = years[i]; col[i] = map.has(y) ? map.get(y) : null; }
     cols.push(col);

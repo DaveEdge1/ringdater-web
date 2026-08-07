@@ -144,6 +144,31 @@ function nameCheck(frame) {
 }
 
 // ============================================================================
+// nameCheckUnique -- nameCheck + a guaranteed-uniqueness pass, with reporting
+// ============================================================================
+// nameCheck alone can leave duplicates in edge cases (its gsub(".","_") runs
+// AFTER make.unique, so e.g. "a.b" and "a_b" both end up "a_b"; its "pretty"
+// loop can truncate the disambiguating suffix off entirely). This wrapper runs
+// nameCheck, then re-applies makeUnique with "_" so the result NEVER contains
+// duplicate names, and reports every series whose final name differs from what
+// it would have been had there been no collision — i.e. exactly the names we
+// had to invent to keep them unique.
+// Returns { frame, renames: [{ index, from, to }] }.
+function nameCheckUnique(frame) {
+  const checked = nameCheck(frame);
+  const unique = makeUnique(checked.names, '_');
+  const renames = [];
+  for (let i = 0; i < frame.names.length; i++) {
+    // the name this column would get on its own (sanitised, but never suffixed)
+    const solo = nameCheck({ names: [frame.names[i]], cols: [[]] }).names[0];
+    if (unique[i] !== solo) {
+      renames.push({ index: i, from: String(frame.names[i]), to: unique[i] });
+    }
+  }
+  return { frame: { names: unique, cols: checked.cols }, renames };
+}
+
+// ============================================================================
 // loadedDataCheck -- port of loaded_data_check
 // ============================================================================
 // Returns an integer status code:
@@ -240,7 +265,7 @@ function pairwiseDataCheck(frame) {
 }
 
 module.exports = {
-  nameCheck, loadedDataCheck, pairwiseDataCheck,
+  nameCheck, nameCheckUnique, loadedDataCheck, pairwiseDataCheck,
   // exposed for testing / reuse
   makeNames, makeUnique, makeNameOne,
 };

@@ -37,6 +37,7 @@ export const {
   probCheck,
   rBarEps,
   nameCheck,
+  nameCheckUnique,
   loadedDataCheck,
   pairwiseDataCheck,
   RingdateR_error_message,
