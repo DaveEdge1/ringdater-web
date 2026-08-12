@@ -49,7 +49,7 @@ const { xScaleBar, yScaleBar, colPal, rDateRTheme } = require('./viz/chartUtils.
 // ---- orchestration engine (Phase 3): store + actions + workflows ----------
 const { createStore } = require('./engine/store.js');
 const engineActions = require('./engine/actions.js');
-const { pairwiseWorkflow, chronologyWorkflow } = require('./engine/workflows.js');
+const { pairwiseWorkflow, chronologyWorkflow, meanChronology } = require('./engine/workflows.js');
 const { createBuilder } = require('./engine/builder.js');
 
 // ---- downloads + report (Phase 5) ------------------------------------------
@@ -115,7 +115,7 @@ module.exports = {
   skelValues, skelGrowth, hanning,
 
   // orchestration engine: headless workflows + reactive store/actions (the "server")
-  pairwiseWorkflow, chronologyWorkflow, createStore, engineActions,
+  pairwiseWorkflow, chronologyWorkflow, meanChronology, createStore, engineActions,
   // interactive iterative chronology builder (manual, one-series-at-a-time)
   createBuilder,
 

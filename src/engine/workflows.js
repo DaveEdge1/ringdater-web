@@ -114,12 +114,14 @@ function pairwiseWorkflow(input) {
 function chronologyWorkflow(input) {
   const {
     undated, chron, detrend = {}, leadlag = {}, filter = {},
-    probWind = 20, rbarWindow = 25,
+    probWind = 20, rbarWindow = 25, chronIsDetrended = false,
   } = input;
 
-  // 1. detrend undated + chronology series
+  // 1. detrend undated + chronology series. A composite-of-chronologies frame
+  // arrives with its member columns ALREADY detrended (each is a chronology's
+  // detrended mean) — chronIsDetrended skips the second detrend pass for it.
   const detrended = normalise(undated, detrend);
-  const chronDetrended = normalise(chron, detrend);
+  const chronDetrended = chronIsDetrended ? chron : normalise(chron, detrend);
 
   // 2. arithmetic mean chronology, then combine with the undated series
   const target = filter.target != null ? filter.target : 'mean_chronology';

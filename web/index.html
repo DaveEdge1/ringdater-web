@@ -111,7 +111,7 @@
           <div class="setup-slot" id="slotChron">
             <label id="slotChronLabel" for="setupChronInput"></label>
             <div class="slot-status" id="slotChronStatus"></div>
-            <input type="file" id="setupChronInput" accept=".csv,.txt,.rwl,.crn,.xml">
+            <input type="file" id="setupChronInput" multiple accept=".csv,.txt,.rwl,.crn,.xml">
           </div>
         </div>
         <div class="warn" id="xlsxWarn" style="display:none"></div>
@@ -152,11 +152,30 @@
                 <label for="target_select">Target series</label>
                 <select id="target_select"><option value="">(load data first)</option></select>
               </div>
+              <div id="chronPickField" style="display:none">
+                <label for="chron_select">Compare against</label>
+                <select id="chron_select"></select>
+              </div>
               <div id="modeChronPrompt" style="display:none">
                 <p class="hint">Chronology mode needs a dated chronology.</p>
-                <label class="btn ghost filelabel" for="modeChronInput">Load chronology</label>
-                <input type="file" id="modeChronInput" accept=".csv,.txt,.rwl,.crn,.xml" style="display:none">
               </div>
+              <div id="modeChronAdd" style="display:none">
+                <label class="btn ghost filelabel" for="modeChronInput">Add chronology</label>
+                <input type="file" id="modeChronInput" multiple accept=".csv,.txt,.rwl,.crn,.xml" style="display:none">
+              </div>
+            </div>
+
+            <div class="rail-sec" id="railSegment">
+              <h3>Segments</h3>
+              <label class="inline"><input type="checkbox" id="seg_enable"> Break undated series into segments</label>
+              <label for="seg_len">Segment length (years)</label>
+              <input type="number" id="seg_len" value="60" min="20" step="1">
+              <label for="seg_keep">Keep best segments per series</label>
+              <input type="number" id="seg_keep" value="5" min="1" max="20" step="1">
+              <p class="hint">Every possible segment (a sliding window) of each series is scored against
+                 the other complete series — never against other segments — and the best few
+                 non-overlapping windows per series join the results. Segments of one series dating at
+                 inconsistent lags point to missing or false rings.</p>
             </div>
 
             <div class="rail-sec" id="railDetrend">
@@ -247,6 +266,22 @@
             </div>
             <div class="msg" id="plotMsg"></div>
             <div class="plotwrap" id="plotArea"></div>
+          </div>
+
+          <div class="card" id="ringTestCard" style="display:none">
+            <h2>Missing / false ring test</h2>
+            <p class="hint">Simulates every possible single-ring correction of one series: each measured ring
+               is split in two (as if a ring boundary was missed inside it) and each neighbouring pair is
+               merged (as if one ring was falsely counted as two). Every edit is re-detrended and fully
+               re-crossdated against the reference — edits that beat the unedited baseline bear fruit.</p>
+            <div class="plot-controls">
+              <div><label for="rt_series">Series to test</label><select id="rt_series"></select></div>
+              <div><label for="rt_ref">Reference</label><select id="rt_ref"></select></div>
+              <div><button class="btn" id="rt_run">Run ring test</button></div>
+            </div>
+            <div class="msg" id="rt_msg"></div>
+            <div id="rt_out"></div>
+            <div id="rt_plots" style="position:relative"></div>
           </div>
         </div>
       </div>

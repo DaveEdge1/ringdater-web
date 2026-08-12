@@ -18,6 +18,8 @@
   // ---- app state -----------------------------------------------------------
   var state = {
     undated: null, chron: null,
+    chrons: [],            // every loaded chronology: [{ name, frame }] (chron = the active one)
+    chronChoice: null,     // Explore "compare against" pick: a chronology name or COMPOSITE
     undatedName: null, chronName: null,
     meta: {},              // per-series metadata keyed by column name (src/io/meta.js); rides beside the Frames
     tridasLinks: {},       // imported derivedSeries provenance: { chronColumn: [memberSeriesId...] }
@@ -30,6 +32,7 @@
   };
 
   var Actions = {};        // named UI actions; published as window.AppUI below
+  var COMPOSITE = '__composite__';   // chron_select value for the chronology composite
 
   // ---- view router ---------------------------------------------------------
   var currentView = 'home';
@@ -69,8 +72,43 @@
   function syncModeUI() {
     var chronoMode = Number($('mode_select').value) === 2;
     $('targetField').style.display = chronoMode ? 'none' : '';
-    // Contextual chronology loader: only in chronology mode with none loaded.
-    $('modeChronPrompt').style.display = (chronoMode && !state.chron) ? '' : 'none';
+    // Contextual chronology controls: the "compare against" picker once
+    // chronologies are loaded, the load prompt when none are, and an
+    // Add-chronology button in either case.
+    $('chronPickField').style.display = (chronoMode && state.chrons.length) ? '' : 'none';
+    $('modeChronPrompt').style.display = (chronoMode && !state.chrons.length) ? '' : 'none';
+    $('modeChronAdd').style.display = chronoMode ? '' : 'none';
+    if (chronoMode && state.chrons.length) syncChronSelect();
+  }
+  // Populate the "compare against" picker: every loaded chronology by name,
+  // plus the composite (mean of the detrended chronologies) when there are >=2.
+  function syncChronSelect() {
+    var items = state.chrons.map(function (c) { return { v: c.name, l: c.name }; });
+    if (state.chrons.length >= 2) items.push({ v: COMPOSITE, l: 'Composite — mean of the detrended chronologies' });
+    fillSelect($('chron_select'), items, function (it) { return it.v; }, function (it) { return it.l; });
+    var want = state.chronChoice != null ? state.chronChoice : state.chronName;
+    if (want != null && items.some(function (it) { return it.v === want; })) $('chron_select').value = want;
+    state.chronChoice = $('chron_select').value;
+  }
+  $('chron_select').addEventListener('change', function () {
+    state.chronChoice = $('chron_select').value;
+    if (state.chronChoice !== COMPOSITE) {
+      var c = chronByName(state.chronChoice);
+      if (c) { state.chron = c.frame; state.chronName = c.name; }
+    }
+  });
+  function chronByName(name) {
+    for (var i = 0; i < state.chrons.length; i++) if (state.chrons[i].name === name) return state.chrons[i];
+    return null;
+  }
+  // Register a loaded chronology: replace a same-name reload, else append;
+  // it also becomes the ACTIVE chronology (state.chron — Build tab, sessions).
+  function addChron(name, frame) {
+    var existing = chronByName(name);
+    if (existing) existing.frame = frame;
+    else state.chrons.push({ name: name, frame: frame });
+    state.chron = frame; state.chronName = name;
+    if (state.chronChoice !== COMPOSITE) state.chronChoice = name;
   }
   $('mode_select').addEventListener('change', syncModeUI);
   syncModeUI();
@@ -117,9 +155,11 @@
   // The union of every loaded series name (undated pool + chronology members),
   // which is exactly the key set the metadata side-channel should cover.
   function allSeriesNames() {
-    var u = state.undated ? AC.seriesNames(state.undated) : [];
-    var c = state.chron ? AC.seriesNames(state.chron) : [];
-    return u.concat(c);
+    var out = state.undated ? AC.seriesNames(state.undated) : [];
+    state.chrons.forEach(function (c) {
+      AC.seriesNames(c.frame).forEach(function (n) { if (out.indexOf(n) < 0) out.push(n); });
+    });
+    return out;
   }
   // Keep state.meta in step with the loaded series: preserve existing entries
   // (imported TRiDaS fields / user edits), add empties for new series, drop stale.
@@ -186,16 +226,37 @@
     $('undatedInfo').innerHTML = state.undated
       ? '<p class="msg ok">' + un.length + ' undated series loaded.</p>' + seriesMetaTable(un)
       : '<p class="hint">No undated series loaded.</p>';
-    var cn = state.chron ? AC.seriesNames(state.chron) : [];
-    $('chronInfo').innerHTML = state.chron
-      ? '<p class="msg ok">Chronology: ' + cn.length + ' members.</p>' + seriesMetaTable(cn)
+    $('chronInfo').innerHTML = state.chrons.length
+      ? state.chrons.map(function (c) {
+          return '<p class="msg ok">Chronology ' + esc(c.name) + ': ' + AC.seriesNames(c.frame).length +
+            ' members. <button class="btn ghost chron-remove" data-name="' + escA(c.name) + '">Remove</button></p>' +
+            seriesMetaTable(AC.seriesNames(c.frame));
+        }).join('')
       : '<p class="hint">No chronology loaded.</p>';
+    $('chronInfo').querySelectorAll('.chron-remove').forEach(function (btn) {
+      btn.addEventListener('click', function () { Actions.removeChron(btn.getAttribute('data-name')); });
+    });
   }
+  // Drop one loaded chronology; the active chronology falls back to the last
+  // remaining one (or none).
+  Actions.removeChron = function (name) {
+    state.chrons = state.chrons.filter(function (c) { return c.name !== name; });
+    if (state.chronName === name || !state.chrons.length) {
+      var lastC = state.chrons[state.chrons.length - 1] || null;
+      state.chron = lastC ? lastC.frame : null;
+      state.chronName = lastC ? lastC.name : null;
+    }
+    if (state.chronChoice === name || (state.chronChoice === COMPOSITE && state.chrons.length < 2)) {
+      state.chronChoice = state.chronName;
+    }
+    renderDataInfo();
+    onDataChanged();
+  };
   // Merge a TRiDaS ingest ({undated,chron,meta,links}) into state, auto-routing
   // its content to the pool / chronology slots. Returns a short summary string.
   function absorbTridas(t, nameLabel) {
     if (t.undated) state.undated = state.undated ? AC.bindUndated(state.undated, t.undated) : t.undated;
-    if (t.chron) { state.chron = t.chron; state.chronName = nameLabel; }
+    if (t.chron) addChron(nameLabel, t.chron);
     state.meta = Object.assign({}, state.meta, t.meta);
     state.tridasLinks = Object.assign({}, state.tridasLinks, t.links || {});
     var parts = [];
@@ -235,31 +296,37 @@
       }
     });
   }
+  // Each selected file becomes its OWN chronology in state.chrons (reloading a
+  // same-named file replaces it), so several can be compared in the Explore rail.
   function loadChronFile(fileList, msgId, cb) {
     readFilesAsText(fileList, function (descriptors, xlsx) {
       xlsxWarn(xlsx);
       if (!descriptors.length) { renderDataInfo(); return; }
-      var d0 = descriptors[0];
       try {
-        if (AC.isTridas(d0.name)) {
-          var t = AC.loadTridas([d0]);
-          // Chronology input: prefer the file's dated content; if it holds only
-          // undated series, treat those as the chronology members.
-          if (!t.chron && t.undated) { t = { undated: null, chron: t.undated, meta: t.meta, links: t.links }; }
-          absorbTridas(t, d0.name);
-        } else {
-          state.chron = AC.loadChron(d0);
-          state.chronName = d0.name;
-        }
+        var warns = [];
+        descriptors.forEach(function (d) {
+          if (AC.isTridas(d.name)) {
+            var t = AC.loadTridas([d]);
+            // Chronology input: prefer the file's dated content; if it holds only
+            // undated series, treat those as the chronology members.
+            if (!t.chron && t.undated) { t = { undated: null, chron: t.undated, meta: t.meta, links: t.links }; }
+            absorbTridas(t, d.name);
+          } else {
+            addChron(d.name, AC.loadChron(d));
+          }
+          warns = warns.concat((state.chron && state.chron.warnings) || []);
+        });
         // A loaded chronology is almost always there to be crossdated against —
         // default the Explore analysis mode to chronology mode.
         $('mode_select').value = '2';
         renderDataInfo();
         onDataChanged();
         if (msgId) {
-          var cWarns = (state.chron && state.chron.warnings) || [];
-          if (cWarns.length) setMsg(msgId, 'Loaded chronology ' + state.chronName + '. ' + cWarns.join(' '), 'warn');
-          else setMsg(msgId, 'Loaded chronology ' + state.chronName + '.', 'ok');
+          var loaded = descriptors.length > 1
+            ? 'Loaded ' + descriptors.length + ' chronologies (' + state.chrons.length + ' total).'
+            : 'Loaded chronology ' + state.chronName + '.';
+          if (warns.length) setMsg(msgId, loaded + ' ' + warns.join(' '), 'warn');
+          else setMsg(msgId, loaded, 'ok');
         }
         if (cb) cb(true);
       } catch (err) {
@@ -285,7 +352,7 @@
     try {
       state.undated = AC.loadUndated([window.RD_EXAMPLE]);
       state.undatedName = window.RD_EXAMPLE.name;
-      state.chron = null; state.chronName = null;
+      state.chron = null; state.chronName = null; state.chrons = []; state.chronChoice = null;
       setMsg('startMsg', 'Example data loaded — ' + AC.seriesNames(state.undated).length + ' undated series.', 'ok');
       renderDataInfo();
       onDataChanged();
@@ -306,20 +373,23 @@
     refreshMeta();
     var names = state.undated ? AC.seriesNames(state.undated) : [];
     fillSelect($('target_select'), names, function (n) { return n; }, function (n) { return n; });
+    var chronLabel = state.chrons.length > 1 ? ' + ' + state.chrons.length + ' chronologies'
+      : (state.chrons.length ? ' + chronology' : '');
     $('statusBar').textContent = state.undated
-      ? (names.length + ' undated series' + (state.chron ? ' + chronology' : '') + ' loaded')
+      ? (names.length + ' undated series' + chronLabel + ' loaded')
       : 'No data loaded';
     $('runBtn').disabled = !state.undated;
     // Header Clear + Export appear only once there's data to act on.
     document.querySelector('.header-actions').style.display = state.undated ? '' : 'none';
     syncModeUI();
+    syncRingTest();
     refreshSetup();
     if (!state.result) updateExploreEmpty();
     syncNav();
   }
 
   Actions.clearAll = function () {
-    state = { undated: null, chron: null, undatedName: null, chronName: null, meta: {}, tridasLinks: {}, detrend: null, result: null, filteredTable: null, selectedPair: null, builder: null, review: null };
+    state = { undated: null, chron: null, chrons: [], chronChoice: null, undatedName: null, chronName: null, meta: {}, tridasLinks: {}, detrend: null, result: null, filteredTable: null, selectedPair: null, builder: null, review: null };
     $('setupUndatedInput').value = ''; $('setupChronInput').value = '';
     xlsxWarn([]);
     resetBuildUI();
@@ -354,7 +424,7 @@
     $('exploreEmptyReady').style.display = loaded ? '' : 'none';
     if (loaded) {
       $('exploreReadyMsg').innerHTML = AC.seriesNames(state.undated).length + ' undated series loaded' +
-        (state.chron ? ' + a chronology' : '') +
+        (state.chrons.length > 1 ? ' + ' + state.chrons.length + ' chronologies' : (state.chrons.length ? ' + a chronology' : '')) +
         '. Choose a detrending method and analysis mode in the settings rail, then <b>Run analysis</b> — the results table and plots appear here.';
     }
   }
@@ -371,15 +441,30 @@
   Actions.runAnalysis = function (done) {
     if (!state.undated) { setMsg('runMsg', 'Load undated data first.', 'err'); return; }
     var mode = Number($('mode_select').value);
-    if (mode === 2 && !state.chron) { setMsg('runMsg', 'Chronology mode needs a loaded chronology (Data section above).', 'err'); return; }
+    if (mode === 2 && !state.chrons.length) { setMsg('runMsg', 'Chronology mode needs a loaded chronology (Data section above).', 'err'); return; }
     var target = $('target_select').value || AC.seriesNames(state.undated)[0];
     setMsg('runMsg', 'Running analysis…');
     setTimeout(function () {
       try {
-        state.result = AC.runAnalysis({
+        // Chronology mode compares against the picked chronology, or the
+        // composite (mean of the detrended chronologies) built at run time
+        // from the current detrend settings.
+        var chronForRun = state.chron, chronNameForRun = state.chronName, chronIsDetrended = false;
+        if (mode === 2) {
+          if (state.chronChoice === COMPOSITE) {
+            chronForRun = AC.compositeChron(state.chrons, detrendUI());
+            chronNameForRun = 'composite of ' + state.chrons.length + ' chronologies';
+            chronIsDetrended = true;
+          } else {
+            var pick = chronByName(state.chronChoice) || state.chrons[state.chrons.length - 1];
+            chronForRun = pick.frame; chronNameForRun = pick.name;
+          }
+        }
+        var runOpts = {
           mode: mode,
-          undated: state.undated, chron: state.chron,
-          chronName: state.chronName,
+          undated: state.undated, chron: chronForRun,
+          chronName: chronNameForRun,
+          chronIsDetrended: chronIsDetrended,
           detrend: detrendUI(),
           leadlag: leadlagUI(),
           filter: {
@@ -388,10 +473,27 @@
           },
           probWind: Number($('rep_probs').value) || 30,
           rbarWindow: Number($('rep_eps').value) || 30
-        });
+        };
+        var segNote = '';
+        if ($('seg_enable').checked) {
+          // Sliding-window segmentation: every possible ~N-ring window of each
+          // series is scored against the other complete series; the best few
+          // non-overlapping windows per series join the run as extra series.
+          runOpts.segLen = Number($('seg_len').value) || 60;
+          runOpts.keepN = Number($('seg_keep').value) || 5;
+          state.result = AC.slidingSegmentAnalysis(runOpts);
+          var segCount = 0;
+          AC.seriesNames(state.undated).forEach(function (n) {
+            segCount += (state.result.segments[n] || []).length;
+          });
+          segNote = ' Kept the best ' + segCount + ' segments (' + state.result.segLength +
+            '-yr sliding windows, up to ' + state.result.keepN + ' per series).';
+        } else {
+          state.result = AC.runAnalysis(runOpts);
+        }
         state.filteredTable = state.result.crossDatRes;
         state.selectedPair = null;
-        setMsg('runMsg', 'Analysis complete (' + (mode === 2 ? 'chronology' : 'pairwise') + ' mode). ' +
+        setMsg('runMsg', 'Analysis complete (' + (mode === 2 ? 'chronology' : 'pairwise') + ' mode).' + segNote + ' ' +
           state.result.crossDatRes.cols[0].length + ' result rows; ' +
           (state.result.aligned.names.length - 1) + ' aligned series.', 'ok');
         setupResultControls();
@@ -405,23 +507,28 @@
 
   // ---- results table -------------------------------------------------------
   function setupResultControls() {
+    resSort = null;                  // a fresh run starts in the grouped view
     var mode = state.result.mode;
     $('resModeBadge').innerHTML = '<span class="pill mode' + mode + '">' + (mode === 2 ? 'Chronology' : 'Pairwise') + ' mode</span>';
-    var names = mode === 2 ? ['mean_chronology'].concat(AC.seriesNames(state.undated)) : AC.seriesNames(state.undated);
+    // result.undated is what the run actually crossdated (it differs from
+    // state.undated when segmentation was on) — every selector reads from it.
+    var runUndated = state.result.undated;
+    var names = mode === 2 ? ['mean_chronology'].concat(AC.seriesNames(runUndated)) : AC.seriesNames(runUndated);
     fillSelect($('f_target'), names, function (n) { return n; }, function (n) { return n; });
     $('f_target').value = state.result.target;
-    // Plot series selectors from the comparison frame: mode 2 (chronology) compares
-    // each undated series to the mean chronology, so list [mean_chronology, ...undated];
-    // mode 1 (pairwise) lists the aligned series. (Picking from `aligned` in mode 2
-    // gives the dated members, which aren't valid for the vs-chronology plots.)
-    var compFrame = mode === 2 ? state.result.chronNSeries : state.result.aligned;
+    // Plot series selectors from the comparison frame the plots draw from:
+    // mode 2 (chronology) compares each undated series to the mean chronology,
+    // so list [mean_chronology, ...undated]; mode 1 (pairwise) plots from the
+    // full detrended frame, so list every series — that way clicking ANY
+    // results row (e.g. a segment pair outside the aligned set) can plot it.
+    var compFrame = mode === 2 ? state.result.chronNSeries : state.result.detrended;
     var an = compFrame.names.slice(1);
     fillSelect($('p_series1'), an, function (n) { return n; }, function (n) { return n; });
     fillSelect($('p_series2'), an, function (n) { return n; }, function (n) { return n; });
     if (mode === 2) { $('p_series1').value = state.result.target; if (an[1]) $('p_series2').value = an[1]; }
     else if (an[1]) $('p_series2').value = an[1];
     $('p_lag').value = AC.bestLagFor(state.result, $('p_series1').value, $('p_series2').value);
-    fillSelect($('detrendSeriesSel'), AC.seriesNames(state.undated), function (n) { return n; }, function (n) { return n; });
+    fillSelect($('detrendSeriesSel'), AC.seriesNames(runUndated), function (n) { return n; }, function (n) { return n; });
     renderResults();
   }
   ['f_r', 'f_p', 'f_overlap', 'f_target', 'f_apply'].forEach(function (id) {
@@ -442,6 +549,36 @@
     state.filteredTable = frame;
     paintTable(AC.crossDatTable(frame));
   }
+  // Column sort for the results table: ▲/▼ in every header. Ascending, then
+  // descending, then back to the run's grouped best-3 blocks view. While
+  // sorted, header/separator rows are hidden and pair rows are ordered by the
+  // column's RAW value (numeric when numeric; blanks always last).
+  var resSort = null;               // { idx: original column index, dir: 1 | -1 }
+  Actions.sortResults = function (idx, dir) {
+    resSort = dir ? { idx: idx, dir: dir } : null;
+    renderResults();
+  };
+  function sortOrder(tbl) {
+    var idx = resSort.idx, dir = resSort.dir;
+    var bad = function (v) { return v == null || v === '' || (typeof v === 'number' && isNaN(v)); };
+    var rows = [];
+    tbl.raw.forEach(function (raw, r) {
+      var s1 = raw[0], s2 = raw[1];
+      if (bad(s1) || bad(s2) || s1 === s2) return;   // skip header/separator rows
+      rows.push(r);
+    });
+    rows.sort(function (a, b) {
+      var va = tbl.raw[a][idx], vb = tbl.raw[b][idx];
+      var na = bad(va), nb = bad(vb);
+      if (na || nb) return na === nb ? a - b : (na ? 1 : -1);       // blanks last either way
+      var cmp;
+      if (typeof va === 'number' && typeof vb === 'number') cmp = va - vb;
+      else cmp = String(va).toLowerCase() < String(vb).toLowerCase() ? -1
+        : (String(va).toLowerCase() > String(vb).toLowerCase() ? 1 : 0);
+      return (cmp * dir) || (a - b);                                 // stable
+    });
+    return rows;
+  }
   function paintTable(tbl) {
     var thead = $('resTable').querySelector('thead');
     var tbody = $('resTable').querySelector('tbody');
@@ -451,9 +588,32 @@
     var keep = function (arr) { return dropIdx < 0 ? arr : arr.filter(function (_, i) { return i !== dropIdx; }); };
     var pretty = function (c) { return String(c).replace(/_/g, ' '); };
     var span = keep(tbl.columns).length;
-    thead.innerHTML = '<tr>' + keep(tbl.columns).map(function (c) { return '<th>' + esc(pretty(c)) + '</th>'; }).join('') + '</tr>';
+    thead.innerHTML = '<tr>' + tbl.columns.map(function (c, i) {
+      if (i === dropIdx) return '';
+      var cur = resSort && resSort.idx === i ? resSort.dir : 0;
+      var arrow = function (dir, glyph) {
+        return '<span class="sort-arrow' + (cur === dir ? ' on' : '') + '" data-idx="' + i +
+          '" data-dir="' + dir + '" title="Sort ' + (dir === 1 ? 'ascending' : 'descending') + '">' + glyph + '</span>';
+      };
+      return '<th class="sortable" data-idx="' + i + '">' + esc(pretty(c)) +
+        '<span class="sort-arrows">' + arrow(1, '▲') + arrow(-1, '▼') + '</span></th>';
+    }).join('') + '</tr>';
+    // ▲ = ascending, ▼ = descending; the active arrow again (or the header
+    // cycling past descending) restores the grouped view.
+    thead.querySelectorAll('th.sortable').forEach(function (th) {
+      th.addEventListener('click', function (e) {
+        var idx = Number(th.getAttribute('data-idx'));
+        var arrowDir = e.target.classList && e.target.classList.contains('sort-arrow')
+          ? Number(e.target.getAttribute('data-dir')) : null;
+        var cur = resSort && resSort.idx === idx ? resSort.dir : 0;
+        var dir;
+        if (arrowDir != null) dir = (cur === arrowDir) ? 0 : arrowDir;
+        else dir = cur === 0 ? 1 : (cur === 1 ? -1 : 0);
+        Actions.sortResults(idx, dir);
+      });
+    });
     tbody.innerHTML = '';
-    tbl.rows.forEach(function (row) {
+    var paintRow = function (row) {
       var s1 = row[0], s2 = row[1];       // Series_1 / Series_2 stay at indices 0,1 ("col" is later)
       var isSep = row.every(function (c) { return c === ''; });
       var tr = document.createElement('tr');
@@ -467,7 +627,9 @@
         });
       }
       tbody.appendChild(tr);
-    });
+    };
+    if (resSort) sortOrder(tbl).forEach(function (r) { paintRow(tbl.rows[r]); });
+    else tbl.rows.forEach(paintRow);
   }
 
   // Select a pair and render its plots in place (no tab hop).
@@ -561,7 +723,7 @@
     var area = $('plotArea');
 
     if (which === 'detrend') {
-      var series = $('detrendSeriesSel').value || AC.seriesNames(state.undated)[0];
+      var series = $('detrendSeriesSel').value || AC.seriesNames(state.result.undated)[0];
       var dspec = AC.buildPlots(state.result, { detrendSeries: series }).detrend;
       area.innerHTML = dspec ? AC.renderPlot(dspec)
         : '<p class="msg err">Could not build the detrending plot for this series.</p>';
@@ -617,6 +779,152 @@
     setMsg('plotMsg', 'Showing ' + which + ' for ' + vs + '.', 'ok');
   }
 
+  // ---- missing / false ring test -------------------------------------------
+  // Exhaustive per-series edit simulation (AppCore.ringTest), batched through
+  // setTimeout so the progress line paints while ~2n experiments run.
+  var ringRunner = null;
+  function syncRingTest() {
+    $('ringTestCard').style.display = state.undated ? '' : 'none';
+    if (!state.undated) { $('rt_out').innerHTML = ''; $('rt_plots').innerHTML = ''; setMsg('rt_msg', ''); ringRunner = null; return; }
+    var names = AC.seriesNames(state.undated);
+    var curSeries = $('rt_series').value;
+    fillSelect($('rt_series'), names, function (n) { return n; }, function (n) { return n; });
+    if (names.indexOf(curSeries) >= 0) $('rt_series').value = curSeries;
+    fillRingRefs();
+  }
+  function fillRingRefs() {
+    var test = $('rt_series').value;
+    var items = [];
+    state.chrons.forEach(function (c) {
+      items.push({ v: 'chron:' + c.name, l: c.name + ' (mean chronology)' });
+    });
+    if (state.chrons.length >= 2) items.push({ v: 'chron:' + COMPOSITE, l: 'Composite of all chronologies' });
+    AC.seriesNames(state.undated).forEach(function (n) {
+      if (n !== test) items.push({ v: 'series:' + n, l: n });
+    });
+    var cur = $('rt_ref').value;
+    fillSelect($('rt_ref'), items, function (it) { return it.v; }, function (it) { return it.l; });
+    if (items.some(function (it) { return it.v === cur; })) $('rt_ref').value = cur;
+  }
+  $('rt_series').addEventListener('change', fillRingRefs);
+
+  Actions.runRingTest = function (done) {
+    if (!state.undated) return;
+    var series = $('rt_series').value;
+    var refV = $('rt_ref').value;
+    if (!series || !refV) { setMsg('rt_msg', 'Pick a series and a reference.', 'err'); return; }
+    var reference, refLabel;
+    try {
+      if (refV.indexOf('chron:') === 0) {
+        var cname = refV.slice(6);
+        if (cname === COMPOSITE) {
+          reference = { kind: 'chron', frame: AC.compositeChron(state.chrons, detrendUI()), isDetrended: true };
+          refLabel = 'composite mean chronology';
+        } else {
+          var c = chronByName(cname);
+          reference = { kind: 'chron', frame: c.frame };
+          refLabel = cname + ' mean chronology';
+        }
+      } else {
+        refLabel = refV.slice(7);
+        reference = { kind: 'series', name: refLabel };
+      }
+      ringRunner = AC.ringTest({
+        undated: state.undated, series: series, reference: reference,
+        detrend: detrendUI(), leadlag: leadlagUI()
+      });
+    } catch (err) { setMsg('rt_msg', 'Error: ' + err.message, 'err'); if (done) done(false); return; }
+    $('rt_out').innerHTML = '';
+    $('rt_plots').innerHTML = '';
+    $('rt_run').disabled = true;
+    var tick = function () {
+      var finished = ringRunner.step(24);
+      setMsg('rt_msg', 'Testing single-ring edits… ' + ringRunner.progress() + ' / ' + ringRunner.total);
+      if (!finished) { setTimeout(tick, 0); return; }
+      $('rt_run').disabled = false;
+      paintRingResults(series, refLabel);
+      if (done) done(true);
+    };
+    setTimeout(tick, 10);
+  };
+  $('rt_run').addEventListener('click', function () { Actions.runRingTest(); });
+
+  function num(v, dp) { return v == null ? '—' : String(Math.round(v * Math.pow(10, dp)) / Math.pow(10, dp)); }
+  function paintRingResults(series, refLabel) {
+    var base = ringRunner.baseline;
+    var res = ringRunner.results();
+    var top = res.experiments.slice(0, 20);
+    var editLabel = function (e) {
+      return e.type === 'split' ? 'Split ring ' + e.ring : 'Merge rings ' + e.ring + '–' + (e.ring + 1);
+    };
+    var verdict;
+    if (!res.fruitful.length) {
+      verdict = '<p class="msg ok">No single-ring edit meaningfully improves the crossdate — no evidence of a ' +
+        'missing or false ring in ' + esc(series) + ' against ' + esc(refLabel) + '.</p>';
+      setMsg('rt_msg', 'Done — ' + ringRunner.total + ' edits tested, none bear fruit.', 'ok');
+    } else {
+      var b = res.experiments[0];
+      verdict = '<p class="msg ok"><b>' + editLabel(b) + '</b> gives the biggest improvement ' +
+        '(T ' + num(base.t, 2) + ' → ' + num(b.t, 2) + ' at lag ' + esc(String(b.lag)) + ') — consistent with a ' +
+        (b.type === 'split' ? 'MISSING ring near ring ' + b.ring : 'FALSE ring near rings ' + b.ring + '–' + (b.ring + 1)) +
+        '. ' + res.fruitful.length + ' of ' + ringRunner.total + ' edits bear fruit; nearby edits usually improve too, ' +
+        'so read the top of the ranking as a neighbourhood.</p>';
+      setMsg('rt_msg', 'Done — ' + ringRunner.total + ' edits tested.', 'ok');
+    }
+    var baseLine = '<p class="hint">Baseline (unedited, ' + ringRunner.seriesLength + ' rings): lag ' +
+      esc(String(base.lag)) + ' · r ' + num(base.r, 3) + ' · p ' + AC.fmtP(base.p) + ' · overlap ' + base.overlap +
+      ' · T ' + num(base.t, 2) + ' <button class="btn ghost" id="rt_baseBtn">Plot baseline</button></p>';
+    var rows = top.map(function (e) {
+      return '<tr' + (e.fruitful ? ' class="rt-fruit"' : '') + ' data-type="' + e.type + '" data-ring="' + e.ring +
+        '"><td>' + esc(editLabel(e)) + '</td><td>' +
+        esc(String(e.lag == null ? '—' : e.lag)) + '</td><td>' + num(e.r, 3) + '</td><td>' + AC.fmtP(e.p) +
+        '</td><td>' + (e.overlap == null ? '—' : e.overlap) + '</td><td>' + num(e.t, 2) + '</td><td>' +
+        (e.dT == null ? '—' : (e.dT >= 0 ? '+' : '') + num(e.dT, 2)) + '</td></tr>';
+    }).join('');
+    $('rt_out').innerHTML = verdict + baseLine +
+      '<div class="tablewrap" style="max-height:320px"><table class="res"><thead><tr><th>Edit</th><th>Lag</th>' +
+      '<th>r</th><th>p</th><th>Overlap</th><th>T</th><th>ΔT</th></tr></thead><tbody>' + rows +
+      '</tbody></table></div>' +
+      '<p class="hint">Top 20 of ' + ringRunner.total + " edits, ranked by ΔT (improvement in Student's T over the " +
+      "baseline at each edit's best lag). Fruitful rows (ΔT ≥ 1 and r above baseline) are highlighted. " +
+      'Click a row to review that corrected series — stats and plots vs the reference appear below.</p>';
+    var trs = $('rt_out').querySelectorAll('tbody tr');
+    trs.forEach(function (tr) {
+      tr.addEventListener('click', function () {
+        trs.forEach(function (x) { x.classList.remove('sel'); });
+        tr.classList.add('sel');
+        renderRingReview({ type: tr.getAttribute('data-type'), ring: Number(tr.getAttribute('data-ring')) });
+      });
+    });
+    $('rt_baseBtn').addEventListener('click', function () {
+      trs.forEach(function (x) { x.classList.remove('sel'); });
+      renderRingReview(null);
+    });
+    // show the top-ranked experiment's plots straight away
+    if (trs.length) trs[0].click();
+  }
+  // The four standard pair plots + stats header for one experiment's corrected
+  // series (or the unedited baseline when exp is null), rendered like the
+  // Explore pair plots: zoomable line, linked year-hover, one save bar.
+  function renderRingReview(exp) {
+    if (!ringRunner) return;
+    var specs;
+    try { specs = ringRunner.review(exp); }
+    catch (err) { $('rt_plots').innerHTML = '<p class="msg err">' + esc(err.message) + '</p>'; return; }
+    var area = $('rt_plots');
+    area.innerHTML = '';
+    area.appendChild(headerEl(specs.header + (exp ? '' : ' (baseline, unedited)'), statsLine(specs.stats)));
+    var lineDiv = document.createElement('div');
+    area.appendChild(lineDiv);
+    if (specs.line) PlotZoom.attachDataZoom(lineDiv, specs.line, AC.RD.renderSvg);
+    else lineDiv.innerHTML = '<p class="msg err">Line plot unavailable (thin overlap).</p>';
+    var restDiv = document.createElement('div');
+    var restSvg = AC.combinedPlot([specs.skeleton, specs.leadLagBar, specs.heatmap]);
+    if (restSvg) { restDiv.innerHTML = restSvg; area.appendChild(restDiv); }
+    if (restSvg && specs.line) PlotLink.linkYearHover([lineDiv, restDiv]);
+    plotSaveBar(area, 'ringtest_' + (exp ? exp.type + exp.ring : 'baseline'));
+  }
+
   // ---- home task cards + per-task setup step -------------------------------
   // Task-first flow: a card opens a setup step that collects ONLY the data that
   // task requires (reusing anything already loaded); Continue enters the
@@ -627,7 +935,7 @@
       intro: 'Load the undated series you want to crossdate. A dated chronology is optional — you only need it for chronology mode.',
       slots: {
         undated: { show: true, required: true, order: 1, label: 'Undated series to crossdate' },
-        chron: { show: true, required: false, order: 2, label: 'Dated chronology (optional — for chronology mode)' }
+        chron: { show: true, required: false, order: 2, label: 'Dated chronology (optional — for chronology mode; load several to compare)' }
       },
       example: true,
       go: function () { showView('explore'); }
@@ -676,7 +984,9 @@
       if (ok) {
         var detail = name === 'Undated'
           ? AC.seriesNames(state.undated).length + ' series (' + esc(state.undatedName) + ')'
-          : AC.seriesNames(state.chron).length + ' members (' + esc(state.chronName) + ')';
+          : (state.chrons.length > 1
+              ? state.chrons.length + ' chronologies (' + esc(state.chrons.map(function (c) { return c.name; }).join(', ')) + ')'
+              : AC.seriesNames(state.chron).length + ' members (' + esc(state.chronName) + ')');
         st.innerHTML = '<span class="slot-ok">✓ Loaded: ' + detail + '</span>';
       } else {
         st.innerHTML = cfg.required ? '<span class="slot-need">Required</span>' : '<span class="slot-opt">Optional</span>';
@@ -1273,6 +1583,8 @@
       state.meta = r.seriesMeta || {};
       state.result = null; state.filteredTable = null; state.selectedPair = null;
       if (obj.meta) { state.undatedName = obj.meta.undatedName || 'session'; state.chronName = obj.meta.chronName || null; }
+      state.chrons = r.chron ? [{ name: state.chronName || 'chronology', frame: r.chron }] : [];
+      state.chronChoice = state.chronName;
       showExploreResults(false);
       renderDataInfo(); onDataChanged();
       clearReviewUI();

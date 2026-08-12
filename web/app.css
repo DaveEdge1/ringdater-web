@@ -85,9 +85,17 @@ table.res { border-collapse: collapse; font-size: 12px; width: 100%; }
 table.res th, table.res td { border: 1px solid #e7ebee; padding: 3px 7px; text-align: right; white-space: nowrap; }
 table.res th { position: sticky; top: 0; background: #eef2f4; z-index: 1; }
 table.res td:first-child, table.res td:nth-child(2), table.res th:first-child, table.res th:nth-child(2) { text-align: left; }
+table.res th.sortable { cursor: pointer; user-select: none; }
+table.res th.sortable:hover { background: #e3eae6; }
+.sort-arrows { display: inline-flex; flex-direction: column; vertical-align: middle; margin-left: 4px; line-height: 0.62; }
+.sort-arrow { font-size: 8px; color: #9aa7ad; }
+.sort-arrow:hover { color: #1f2933; }
+.sort-arrow.on { color: #006b3a; }
 table.res tbody tr:hover { background: #eef6ef; cursor: pointer; }
 table.res tbody tr.sel { background: #d7efd7; }
 table.res tr.sep td { background: #fafbfc; height: 5px; padding: 0; }
+#rt_out table.res tr.rt-fruit td { background: #eef6ef; font-weight: 600; }
+#rt_out table.res tbody tr.sel td { background: #d7efd7; }
 
 .plotwrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; padding: 8px; background: #fff; position: relative; }
 .plotwrap svg { max-width: 100%; height: auto; }

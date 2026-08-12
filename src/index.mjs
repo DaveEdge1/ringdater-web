@@ -82,6 +82,7 @@ export const {
   hanning,
   pairwiseWorkflow,
   chronologyWorkflow,
+  meanChronology,
   createStore,
   engineActions,
   createBuilder,

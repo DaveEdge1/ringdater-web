@@ -89,7 +89,7 @@ const { xScaleBar, yScaleBar, colPal, rDateRTheme } = require('./viz/chartUtils.
 // ---- orchestration engine (Phase 3): store + actions + workflows ----------
 const { createStore } = require('./engine/store.js');
 const engineActions = require('./engine/actions.js');
-const { pairwiseWorkflow, chronologyWorkflow } = require('./engine/workflows.js');
+const { pairwiseWorkflow, chronologyWorkflow, meanChronology } = require('./engine/workflows.js');
 const { createBuilder } = require('./engine/builder.js');
 
 // ---- downloads + report (Phase 5) ------------------------------------------
@@ -155,7 +155,7 @@ module.exports = {
   skelValues, skelGrowth, hanning,
 
   // orchestration engine: headless workflows + reactive store/actions (the "server")
-  pairwiseWorkflow, chronologyWorkflow, createStore, engineActions,
+  pairwiseWorkflow, chronologyWorkflow, meanChronology, createStore, engineActions,
   // interactive iterative chronology builder (manual, one-series-at-a-time)
   createBuilder,
 
@@ -5992,12 +5992,14 @@ function pairwiseWorkflow(input) {
 function chronologyWorkflow(input) {
   const {
     undated, chron, detrend = {}, leadlag = {}, filter = {},
-    probWind = 20, rbarWindow = 25,
+    probWind = 20, rbarWindow = 25, chronIsDetrended = false,
   } = input;
 
-  // 1. detrend undated + chronology series
+  // 1. detrend undated + chronology series. A composite-of-chronologies frame
+  // arrives with its member columns ALREADY detrended (each is a chronology's
+  // detrended mean) — chronIsDetrended skips the second detrend pass for it.
   const detrended = normalise(undated, detrend);
-  const chronDetrended = normalise(chron, detrend);
+  const chronDetrended = chronIsDetrended ? chron : normalise(chron, detrend);
 
   // 2. arithmetic mean chronology, then combine with the undated series
   const target = filter.target != null ? filter.target : 'mean_chronology';
