@@ -96,6 +96,10 @@ table.res tbody tr.sel { background: #d7efd7; }
 table.res tr.sep td { background: #fafbfc; height: 5px; padding: 0; }
 #rt_out table.res tr.rt-fruit td { background: #eef6ef; font-weight: 600; }
 #rt_out table.res tbody tr.sel td { background: #d7efd7; }
+td.segchk { width: 24px; text-align: center !important; }
+#segDiagOut table.res tbody tr { cursor: default; }
+#segDiagOut table.res tr.sd-whole td { background: #f4f6f8; font-style: italic; }
+#segDiagOut h3 { color: #006b3a; margin: 14px 0 4px; }
 
 .plotwrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; padding: 8px; background: #fff; position: relative; }
 .plotwrap svg { max-width: 100%; height: auto; }

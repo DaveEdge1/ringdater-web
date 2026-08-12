@@ -37,6 +37,23 @@ Then `git push --follow-tags`.
   heatmap) plus a stats line at its best lag, with a Plot-baseline button for
   side-by-side comparison against the unedited series. New `AppCore.ringTest`
   (batched stepwise runner with per-experiment `review`).
+- Explore: segment placement diagnosis — checkboxes on segment rows of the
+  results table select several placements of one series against one reference
+  (checking one auto-selects its siblings; Uncheck all clears the selection);
+  Diagnose tabulates, per segment,
+  the date each placement implies for ring 1 of the source series (best and
+  2nd/3rd-best lags), the offset from the previous segment (the raw
+  missing/false-ring count between neighbours), r/p/overlap, and the
+  whole-series placement as a context row — plus a ring-vs-dated-position
+  placement plot with the whole-series line as reference. Numbers only, no
+  thresholds or verdicts. New `AppCore.diagnoseSegments`.
+- Explore plots: "Review full series at this lag" — while a plotted series is
+  a segment, one click swaps in its complete series at the offset-corrected
+  lag, reproducing the segment's alignment over the whole series. New
+  `AppCore.fullSeriesLag`.
+- The frontend test suite no longer reads local sample-data files (ut585/);
+  chronology-mode and composite tests build synthetic dated chronologies from
+  the bundled example data.
 - Explore: multiple dated chronologies can be loaded (multi-select on Home, or
   Add chronology in the settings rail) and picked between via a new
   "Compare against" selector in chronology mode; each can be removed from the

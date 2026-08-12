@@ -508,6 +508,9 @@
   // ---- results table -------------------------------------------------------
   function setupResultControls() {
     resSort = null;                  // a fresh run starts in the grouped view
+    segChecks = {};                  // and with no segments selected for diagnosis
+    $('segDiagOut').innerHTML = '';
+    updateSegDiagBar();
     var mode = state.result.mode;
     $('resModeBadge').innerHTML = '<span class="pill mode' + mode + '">' + (mode === 2 ? 'Chronology' : 'Pairwise') + ' mode</span>';
     // result.undated is what the run actually crossdated (it differs from
@@ -588,7 +591,7 @@
     var keep = function (arr) { return dropIdx < 0 ? arr : arr.filter(function (_, i) { return i !== dropIdx; }); };
     var pretty = function (c) { return String(c).replace(/_/g, ' '); };
     var span = keep(tbl.columns).length;
-    thead.innerHTML = '<tr>' + tbl.columns.map(function (c, i) {
+    thead.innerHTML = '<tr><th></th>' + tbl.columns.map(function (c, i) {
       if (i === dropIdx) return '';
       var cur = resSort && resSort.idx === i ? resSort.dir : 0;
       var arrow = function (dir, glyph) {
@@ -613,14 +616,27 @@
       });
     });
     tbody.innerHTML = '';
+    // A row pairing ONE segment with a complete reference gets a checkbox so
+    // several placements of the same series can be diagnosed together.
+    var isSegName = function (n) { return /@\d+-\d+$/.test(String(n)); };
     var paintRow = function (row) {
       var s1 = row[0], s2 = row[1];       // Series_1 / Series_2 stay at indices 0,1 ("col" is later)
       var isSep = row.every(function (c) { return c === ''; });
       var tr = document.createElement('tr');
-      if (isSep) { tr.className = 'sep'; tr.innerHTML = '<td colspan="' + span + '"></td>'; tbody.appendChild(tr); return; }
-      tr.innerHTML = keep(row).map(function (c) { return '<td>' + esc(c) + '</td>'; }).join('');
+      if (isSep) { tr.className = 'sep'; tr.innerHTML = '<td colspan="' + (span + 1) + '"></td>'; tbody.appendChild(tr); return; }
+      var seg = null, ref = null;
+      if (s1 && s2 && s1 !== s2 && isSegName(s1) !== isSegName(s2)) {
+        seg = isSegName(s1) ? s1 : s2;
+        ref = isSegName(s1) ? s2 : s1;
+      }
+      var chk = seg
+        ? '<input type="checkbox" class="seg-check" data-seg="' + escA(seg) + '" data-ref="' + escA(ref) + '"' +
+          (segChecks[seg + '\u0000' + ref] ? ' checked' : '') + ' title="Select for segment diagnosis">'
+        : '';
+      tr.innerHTML = '<td class="segchk">' + chk + '</td>' + keep(row).map(function (c) { return '<td>' + esc(c) + '</td>'; }).join('');
       if (s1 && s2 && s1 !== s2) {
-        tr.addEventListener('click', function () {
+        tr.addEventListener('click', function (e) {
+          if (e.target && e.target.classList && e.target.classList.contains('seg-check')) return;
           tbody.querySelectorAll('tr').forEach(function (x) { x.classList.remove('sel'); });
           tr.classList.add('sel');
           Actions.selectPair(s1, s2);
@@ -630,6 +646,92 @@
     };
     if (resSort) sortOrder(tbl).forEach(function (r) { paintRow(tbl.rows[r]); });
     else tbl.rows.forEach(paintRow);
+    tbody.querySelectorAll('.seg-check').forEach(function (cb) {
+      cb.addEventListener('change', function () { onSegCheck(cb, tbody); });
+    });
+  }
+
+  // ---- segment diagnosis ----------------------------------------------------
+  // Checking one segment auto-selects its visible siblings (same series, same
+  // reference); unchecking removes just that one. The Diagnose button needs
+  // >= 2 selections of ONE series against ONE reference.
+  var segChecks = {};                // 'seg\u0000ref' -> true
+  function segParent(n) { return String(n).replace(/@\d+-\d+$/, ''); }
+  function onSegCheck(cb, tbody) {
+    var seg = cb.getAttribute('data-seg'), ref = cb.getAttribute('data-ref');
+    if (cb.checked) {
+      segChecks[seg + '\u0000' + ref] = true;
+      tbody.querySelectorAll('.seg-check').forEach(function (o) {
+        if (o !== cb && segParent(o.getAttribute('data-seg')) === segParent(seg) && o.getAttribute('data-ref') === ref) {
+          o.checked = true;
+          segChecks[o.getAttribute('data-seg') + '\u0000' + ref] = true;
+        }
+      });
+    } else {
+      delete segChecks[seg + '\u0000' + ref];
+    }
+    updateSegDiagBar();
+  }
+  function segSelection() {
+    var segs = [], refs = {}, parents = {};
+    Object.keys(segChecks).forEach(function (k) {
+      var parts = k.split('\u0000');
+      segs.push(parts[0]); refs[parts[1]] = true; parents[segParent(parts[0])] = true;
+    });
+    return { segs: segs, refs: Object.keys(refs), parents: Object.keys(parents) };
+  }
+  function updateSegDiagBar() {
+    var sel = segSelection();
+    $('segDiagBar').style.display = sel.segs.length ? '' : 'none';
+    var ok = sel.segs.length >= 2 && sel.refs.length === 1 && sel.parents.length === 1;
+    $('segDiagBtn').disabled = !ok;
+    if (!sel.segs.length) { setMsg('segDiagMsg', ''); return; }
+    if (sel.parents.length > 1) setMsg('segDiagMsg', 'Select segments of ONE series (currently: ' + sel.parents.join(', ') + ').', 'err');
+    else if (sel.refs.length > 1) setMsg('segDiagMsg', 'Select placements against ONE reference (currently: ' + sel.refs.join(', ') + ').', 'err');
+    else if (sel.segs.length < 2) setMsg('segDiagMsg', 'Select at least two segments of ' + sel.parents[0] + '.');
+    else setMsg('segDiagMsg', sel.segs.length + ' segments of ' + sel.parents[0] + ' vs ' + sel.refs[0] + ' selected.');
+  }
+  Actions.diagnoseSegments = function () {
+    var sel = segSelection();
+    if (!state.result || sel.segs.length < 2) return;
+    try {
+      renderSegDiag(AC.diagnoseSegments(state.result, sel.segs, sel.refs[0]));
+    } catch (err) {
+      $('segDiagOut').innerHTML = '<p class="msg err">' + esc(err.message) + '</p>';
+    }
+  };
+  $('segDiagBtn').addEventListener('click', function () { Actions.diagnoseSegments(); });
+  Actions.clearSegChecks = function () {
+    segChecks = {};
+    document.querySelectorAll('#resTable .seg-check').forEach(function (cb) { cb.checked = false; });
+    updateSegDiagBar();
+  };
+  $('segClearBtn').addEventListener('click', Actions.clearSegChecks);
+
+  // Data only — implied ring-1 placements (best + alternate lags), the offset
+  // from the previous segment, the whole-series row as context, and the
+  // placement plot. Interpretation is the technician's.
+  function renderSegDiag(diag) {
+    var signed = function (d) { return d == null ? '' : (d >= 0 ? '+' : '') + d; };
+    var altCell = function (a) { return a ? a.placement + ' · r ' + AC.fmtCell(a.r) : ''; };
+    var rows = diag.entries.map(function (e) {
+      return '<tr><td>' + esc(e.name) + '</td><td>' + e.datedStart + '–' + e.datedEnd +
+        '</td><td>' + e.placement + '</td><td>' + signed(e.dPrev) + '</td><td>' + AC.fmtCell(e.r) + '</td><td>' +
+        AC.fmtP(e.p) + '</td><td>' + e.overlap + '</td><td>' + altCell(e.alts[0]) + '</td><td>' + altCell(e.alts[1]) + '</td></tr>';
+    }).join('');
+    if (diag.whole) {
+      var w = diag.whole;
+      rows += '<tr class="sd-whole"><td>' + esc(diag.series) + '</td><td></td><td>' + w.placement +
+        '</td><td></td><td>' + AC.fmtCell(w.r) + '</td><td>' + AC.fmtP(w.p) + '</td><td>' + w.overlap + '</td><td></td><td></td></tr>';
+    }
+    var svg = AC.renderPlot(diag.plot);
+    $('segDiagOut').innerHTML =
+      '<h3>Segment placements — ' + esc(diag.series) + ' vs ' + esc(diag.reference) + '</h3>' +
+      '<div class="tablewrap" style="max-height:260px"><table class="res"><thead><tr><th>Segment</th><th>Dated span</th>' +
+      '<th>Ring 1</th><th>Δ prev</th><th>r</th><th>p</th><th>Overlap</th><th>Ring 1 (2nd lag)</th><th>Ring 1 (3rd lag)</th></tr></thead><tbody>' +
+      rows + '</tbody></table></div>' +
+      (svg ? '<div class="plotwrap" style="margin-top:8px">' + svg + '</div>' : '');
+    plotSaveBar($('segDiagOut'), 'segment_placements_' + diag.series);
   }
 
   // Select a pair and render its plots in place (no tab hop).
@@ -681,7 +783,37 @@
     var isDetrend = $('p_which').value === 'detrend';
     document.querySelectorAll('#explorePlots .pairCtl').forEach(function (d) { d.style.display = isDetrend ? 'none' : ''; });
     $('detrendCtl').style.display = isDetrend ? '' : 'none';
+    syncFullSeriesBtn();
   }
+  // "Review full series at this lag": shown while a plotted series is a
+  // segment — swaps in the complete series at the equivalent lag, so a
+  // promising segment alignment can be judged over the whole series in one
+  // click.
+  function isSegPlotName(n) { return /@\d+-\d+$/.test(String(n)); }
+  function syncFullSeriesBtn() {
+    var show = state.result && $('p_which').value !== 'detrend' &&
+      (isSegPlotName($('p_series1').value) || isSegPlotName($('p_series2').value));
+    $('fullSeriesWrap').style.display = show ? '' : 'none';
+  }
+  Actions.reviewFullSeries = function () {
+    if (!state.result) return;
+    var lag = Number($('p_lag').value) || 0;
+    try {
+      ['p_series1', 'p_series2'].forEach(function (id, i) {
+        var name = $(id).value;
+        if (!isSegPlotName(name)) return;
+        var conv = AC.fullSeriesLag(state.result, name, lag, i === 1);
+        if (!Array.prototype.some.call($(id).options, function (o) { return o.value === conv.series; })) {
+          throw new Error(conv.series + ' is not available in the plot selectors.');
+        }
+        $(id).value = conv.series;
+        lag = conv.lag;
+      });
+      $('p_lag').value = lag;
+      renderPlots();
+    } catch (err) { setMsg('plotMsg', 'Error: ' + err.message, 'err'); }
+  };
+  $('fullSeriesBtn').addEventListener('click', function () { Actions.reviewFullSeries(); });
   // One bold header line above a plot stack — plus an optional stats sub-line —
   // as an SVG strip so both are part of the saved composite image too:
   //   "series1 vs series2 — lagged N years"
@@ -719,6 +851,7 @@
 
   function renderPlots() {
     if (!state.result) return;
+    syncFullSeriesBtn();
     var which = $('p_which').value;
     var area = $('plotArea');
 

@@ -180,11 +180,25 @@ const segPlots = AppCore.buildPlots(segResult, { pair: [segName0, names[0]] });
 ok('segment-vs-whole plots render', isSvg(AppCore.renderPlot(segPlots.line)) && isSvg(AppCore.renderPlot(segPlots.heatmap)));
 
 // 9. multi-chronology composite: mean of the detrended chronologies -----------
-const rwl1 = fs.readFileSync(path.join(__dirname, '..', 'ut585', 'ut585.rwl'), 'utf8');
-const rwl2 = fs.readFileSync(path.join(__dirname, '..', 'ut585', 'CMP511.rwl'), 'utf8');
-const chronA = AppCore.loadChron({ name: 'ut585.rwl', text: rwl1 });
-const chronB = AppCore.loadChron({ name: 'CMP511.rwl', text: rwl2 });
-const comp = AppCore.compositeChron([{ name: 'ut585.rwl', frame: chronA }, { name: 'CMP511.rwl', frame: chronB }], detrendUI);
+// synthetic dated chronologies built from the example series, so the suite
+// carries no dependency on local sample-data files.
+function datedFrame(memberNames, startYear, offsetStep) {
+  const runs = memberNames.map(function (n) {
+    return undated.cols[undated.names.indexOf(n)].filter(function (v) { return v != null; });
+  });
+  const nrow = Math.max.apply(null, runs.map(function (v, i) { return i * offsetStep + v.length; }));
+  const years = [];
+  for (let y = 0; y < nrow; y++) years.push(startYear + y);
+  const cols = runs.map(function (vals, i) {
+    const col = new Array(nrow).fill(null);
+    vals.forEach(function (v, k) { col[i * offsetStep + k] = v; });
+    return col;
+  });
+  return { names: ['years'].concat(memberNames.map(function (n) { return n + '_c'; })), cols: [years].concat(cols) };
+}
+const chronA = datedFrame(['sample_a', 'sample_b', 'sample_c'], 1000, 25);
+const chronB = datedFrame(['sample_f'], 1200, 0);
+const comp = AppCore.compositeChron([{ name: 'chronA.rwl', frame: chronA }, { name: 'chronB.rwl', frame: chronB }], detrendUI);
 ok('compositeChron: one column per chronology', !!comp && comp.names.length === 3,
   comp ? comp.names.join(', ') : 'null');
 // each composite column equals that chronology's detrended mean on shared years
@@ -208,10 +222,9 @@ const compPlots = AppCore.buildPlots(compResult, {});
 ok('composite run plots render', isSvg(AppCore.renderPlot(compPlots.line)) && isSvg(AppCore.renderPlot(compPlots.leadLagBar)));
 
 // 10. sliding segments in chronology mode --------------------------------------
-const rwl3 = fs.readFileSync(path.join(__dirname, '..', 'ut585', 'CMP519A.rwl'), 'utf8');
-const chronC = AppCore.loadChron({ name: 'CMP519A.rwl', text: rwl3 });
+const chronC = datedFrame(['sample_g'], 1230, 0);
 const compSmall = AppCore.compositeChron(
-  [{ name: 'CMP511.rwl', frame: chronB }, { name: 'CMP519A.rwl', frame: chronC }], detrendUI);
+  [{ name: 'chronB.rwl', frame: chronB }, { name: 'chronC.rwl', frame: chronC }], detrendUI);
 const slide2 = AppCore.slidingSegmentAnalysis({
   mode: 2, undated: undated, chron: compSmall, chronIsDetrended: true,
   chronName: 'composite of 2 chronologies',
@@ -237,6 +250,7 @@ ok('sliding chronology-mode plots render', isSvg(AppCore.renderPlot(slide2Plots.
 // fabricate a missing ring: delete ring 90 of sample_h, test vs sample_i.
 const hVals = undated.cols[undated.names.indexOf('sample_h')].filter(function (v) { return v != null; });
 const defect = hVals.slice(0, 89).concat(hVals.slice(90));
+while (defect.length < undated.cols[0].length) defect.push(null);   // keep the frame rectangular
 const rtFrame = { names: undated.names.concat(['h_defect']), cols: undated.cols.concat([defect]) };
 const runner = AppCore.ringTest({
   undated: rtFrame, series: 'h_defect',
@@ -282,6 +296,55 @@ const chronRunner = AppCore.ringTest({
   leadlag: { neg_lag: -20, pos_lag: 20, complete: true }
 });
 ok('ringTest accepts a chronology reference', chronRunner.total > 0 && typeof chronRunner.step === 'function');
+
+// 12. segment placement diagnosis ----------------------------------------------
+// clean control: sample_c's kept windows all place consistently vs sample_a
+const cleanSegs = (segResult.segments['sample_c'] || []).map(function (w) { return w.name; });
+ok('control series has multiple kept segments', cleanSegs.length >= 2, cleanSegs.length + ' segments');
+const diagClean = AppCore.diagnoseSegments(segResult, cleanSegs, 'sample_a');
+ok('clean series: every neighbour offset is zero',
+  diagClean.entries.every(function (e, i) { return i === 0 ? e.dPrev == null : e.dPrev === 0; }),
+  diagClean.entries.map(function (e) { return e.dPrev; }).join(','));
+ok('whole-series context row matches the segment placements',
+  diagClean.whole && Math.abs(diagClean.whole.placement - diagClean.entries[0].placement) <= 2);
+ok('alternate-lag placements carried as data',
+  diagClean.entries.every(function (e) { return Array.isArray(e.alts); }));
+ok('placement plot spec renders', isSvg(AppCore.renderPlot(diagClean.plot)));
+// defect: sliding run on the frame with sample_h's ring 90 deleted (rtFrame)
+const diagRun = AppCore.slidingSegmentAnalysis({
+  mode: 1, undated: rtFrame,
+  detrend: detrendUI,
+  leadlag: { neg_lag: -20, pos_lag: 20, complete: true },
+  filter: { r_val: 0.5, p_val: 0.05, overlap: 30, target: names[0] },
+  segLen: 60, keepN: 5
+});
+const dSegs = (diagRun.segments['h_defect'] || []).map(function (w) { return w.name; });
+ok('defective series has multiple kept segments', dSegs.length >= 3, dSegs.length + ' segments');
+const diagDef = AppCore.diagnoseSegments(diagRun, dSegs, 'sample_i');
+ok('the +1 offset across the defect appears in the placements',
+  diagDef.entries.filter(function (e) { return e.dPrev === 1; }).length === 1 &&
+  diagDef.entries.every(function (e) { return e.dPrev == null || e.dPrev === 0 || e.dPrev === 1; }),
+  diagDef.entries.map(function (e) { return e.dPrev; }).join(','));
+// guard rails: mixed series and bad input throw
+let threw = false;
+try { AppCore.diagnoseSegments(segResult, [cleanSegs[0], dSegs[0]], 'sample_a'); } catch (e) { threw = true; }
+ok('mixing segments of two series throws', threw);
+
+// 13. full-series lag conversion ------------------------------------------------
+const wSeg = keptAll[0];
+const refW = names.find(function (n) { return n !== wSeg.series; });
+const segPlotLag = AppCore.bestLagFor(segResult, wSeg.name, refW);
+const conv = AppCore.fullSeriesLag(segResult, wSeg.name, segPlotLag, false);   // segment plotted as series 1
+ok('fullSeriesLag swaps in the parent at the offset-corrected lag',
+  conv.series === wSeg.series && conv.lag === segPlotLag + (wSeg.ringStart - 1),
+  wSeg.name + ' lag ' + segPlotLag + ' -> ' + conv.series + ' lag ' + conv.lag);
+const statsSeg = AppCore.buildPlots(segResult, { pair: [wSeg.name, refW], lag: segPlotLag }).stats;
+const statsFull = AppCore.buildPlots(segResult, { pair: [conv.series, refW], lag: conv.lag }).stats;
+ok('full series at the converted lag extends the segment alignment',
+  statsFull && statsSeg && statsFull.overlap >= statsSeg.overlap && statsFull.r != null,
+  'overlap ' + statsSeg.overlap + ' -> ' + statsFull.overlap + ', full r ' + (statsFull.r && statsFull.r.toFixed(3)));
+const convS2 = AppCore.fullSeriesLag(segResult, wSeg.name, segPlotLag, true);  // segment plotted as series 2
+ok('series-2 conversion subtracts the offset', convS2.lag === segPlotLag - (wSeg.ringStart - 1));
 
 // ---- done -------------------------------------------------------------------
 console.log('\n' + (fails ? fails + ' CHECK(S) FAILED' : 'PASS: web frontend runs end-to-end (load -> workflow -> table -> plots -> downloads -> report).'));

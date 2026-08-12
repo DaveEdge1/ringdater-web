@@ -359,6 +359,165 @@
     return result;
   }
 
+  // ---- segment placement diagnosis -----------------------------------------
+  // Convert several kept segments of ONE series into the date each placement
+  // implies for RING 1 of the source series (dated start minus rings before
+  // the segment) — for the best lag and the 2nd/3rd-best lags. A sound series
+  // implies the same ring-1 date everywhere; the offsets between neighbouring
+  // segments are the missing/false-ring counts. No thresholds or verdicts are
+  // applied — the numbers and the placement plot are the diagnosis.
+  //
+  // All placements are expressed on the reference's own (unshifted) axis, so
+  // they are directly comparable:
+  //   mode 2 rows (ref, seg):  seg is the shifted series -> First_ring is its
+  //     dated start on the chronology axis; alt lags shift it by (lag - bestLag).
+  //   mode 1 rows (seg, ref):  the reference is the shifted series, so the
+  //     segment (at axis row 0) sits at (axis0 - lag) on the ref's axis.
+  //   whole-series context row: at f(series) - lag or f(series) + lag
+  //     depending on row orientation (f = axis year of the series' first ring).
+  function segRowFor(cd, s1, s2) {
+    for (var r = 0; r < cd.cols[0].length; r++) {
+      if (cd.cols[0][r] === s1 && cd.cols[1][r] === s2) return r;
+    }
+    return -1;
+  }
+  // best-3 (lag, r, p, overlap) tuples from one crossDatRes row.
+  function rowLags(cd, r) {
+    var take = function (li, ri, pi, oi, rank) {
+      var lag = cd.cols[li][r];
+      if (bad(lag)) return null;
+      return { rank: rank, lag: Number(lag), r: cd.cols[ri][r], p: cd.cols[pi][r], overlap: cd.cols[oi][r] };
+    };
+    return [take(5, 6, 7, 8, 1), take(9, 10, 11, 12, 2), take(13, 14, 15, 16, 3)].filter(Boolean);
+  }
+  function diagnoseSegments(result, segNames, refName) {
+    var mode = Number(result.mode) === 2 ? 2 : 1;
+    var cd = result.crossDatRes;
+    if (mode === 2) refName = refName || result.target || 'mean_chronology';
+    if (!refName) throw new Error('Diagnosis needs a reference series.');
+    var det = mode === 2 ? result.chronNSeries : result.detrended;
+    var axis0 = Number(det.cols[0][0]);
+    var fOf = function (name) {                    // axis year of a column's first ring
+      var i = firstRowOf(det, name);
+      return i < 0 ? null : Number(det.cols[0][i]);
+    };
+
+    // resolve segment metadata + placements
+    var series = null;
+    var entries = [];
+    segNames.forEach(function (segName) {
+      var m = /^(.*)@(\d+)-(\d+)$/.exec(String(segName));
+      if (!m) throw new Error(segName + ' is not a segment.');
+      if (series == null) series = m[1];
+      else if (series !== m[1]) throw new Error('Diagnosis needs segments of ONE series (' + series + ' vs ' + m[1] + ').');
+      var ringStart = Number(m[2]), ringEnd = Number(m[3]);
+      var row = mode === 2 ? segRowFor(cd, refName, segName) : segRowFor(cd, segName, refName);
+      if (row < 0) return;                         // no placement vs this reference
+      var lags = rowLags(cd, row);
+      if (!lags.length) return;
+      var best = lags[0];
+      var datedStartAt = function (lag) {
+        if (mode === 2) return Number(cd.cols[2][row]) + (lag - best.lag);   // First_ring shifted to alt lag
+        return axis0 - lag;
+      };
+      var placements = lags.map(function (L) {
+        var ds = datedStartAt(L.lag);
+        return Object.assign({}, L, { datedStart: ds, placement: ds - (ringStart - 1) });
+      });
+      entries.push({
+        name: segName, ringStart: ringStart, ringEnd: ringEnd,
+        datedStart: placements[0].datedStart,
+        datedEnd: placements[0].datedStart + (ringEnd - ringStart),
+        r: best.r, p: best.p, overlap: best.overlap, lag: best.lag,
+        placement: placements[0].placement,
+        alts: placements.slice(1)
+      });
+    });
+    if (entries.length < 2) throw new Error('Need at least two placed segments of one series (vs ' + refName + ').');
+    entries.sort(function (a, b) { return a.ringStart - b.ringStart; });
+
+    // whole-series context placement, when the run has a row for it
+    var whole = null;
+    var rowWR = segRowFor(cd, series, refName), rowRW = segRowFor(cd, refName, series);
+    if (mode === 2 && rowRW >= 0) {
+      var lw = rowLags(cd, rowRW);
+      if (lw.length) whole = { placement: Number(cd.cols[2][rowRW]), lag: lw[0].lag, r: lw[0].r, p: lw[0].p, overlap: lw[0].overlap };
+    } else if (mode === 1) {
+      var f = fOf(series);
+      if (rowWR >= 0) { var l1 = rowLags(cd, rowWR); if (l1.length && f != null) whole = { placement: f - l1[0].lag, lag: l1[0].lag, r: l1[0].r, p: l1[0].p, overlap: l1[0].overlap }; }
+      else if (rowRW >= 0) { var l2 = rowLags(cd, rowRW); if (l2.length && f != null) whole = { placement: f + l2[0].lag, lag: l2[0].lag, r: l2[0].r, p: l2[0].p, overlap: l2[0].overlap }; }
+    }
+
+    // offset of each placement from the previous segment (in ring order) —
+    // the raw missing(+)/false(-) ring count between neighbours.
+    entries.forEach(function (e, i) {
+      e.dPrev = i ? e.placement - entries[i - 1].placement : null;
+    });
+
+    return {
+      series: series, reference: refName, mode: mode,
+      entries: entries, whole: whole,
+      plot: segmentPlacementSpec(series, refName, mode, entries, whole)
+    };
+  }
+
+  // Convert a segment's plot lag into the equivalent lag for its FULL series:
+  // the parent aligned at the returned lag reproduces the segment's alignment
+  // exactly over the segment's rings (segments are slices of the detrended
+  // parent, re-based to row 0). `segIsS2` says which side of the plot pair the
+  // segment sits on — the plots shift series 2, so replacing s2 subtracts the
+  // segment's offset while replacing s1 adds it.
+  function fullSeriesLag(result, segName, lag, segIsS2) {
+    var m = /^(.*)@(\d+)-(\d+)$/.exec(String(segName));
+    if (!m) throw new Error(segName + ' is not a segment.');
+    var series = m[1], ringStart = Number(m[2]);
+    var frame = Number(result.mode) === 2 ? result.chronNSeries : result.detrended;
+    var f = firstRowOf(frame, series);
+    if (f < 0) throw new Error(series + ' is not part of this run.');
+    var shift = f + ringStart - 1;
+    return { series: series, lag: (Number(lag) || 0) + (segIsS2 ? -shift : shift) };
+  }
+
+  // Placement plot: ring number (x) vs dated position (y); every segment is a
+  // slope-1 line — placements that agree are collinear, offsets and
+  // inversions stand apart. The whole-series placement (when the run has one)
+  // is the thin reference line.
+  function segmentPlacementSpec(series, refName, mode, entries, whole) {
+    var xMax = Math.max.apply(null, entries.map(function (e) { return e.ringEnd; }));
+    var yLo = Math.min.apply(null, entries.map(function (e) { return e.datedStart; }));
+    var yHi = Math.max.apply(null, entries.map(function (e) { return e.datedEnd; }));
+    if (whole) { yLo = Math.min(yLo, whole.placement); yHi = Math.max(yHi, whole.placement + xMax - 1); }
+    var pad = Math.max(5, Math.round((yHi - yLo) * 0.05));
+    var marks = [];
+    if (whole) {
+      marks.push({ type: 'segment', x0: [1], x1: [xMax], y0: [whole.placement], y1: [whole.placement + xMax - 1], color: '#8899a6', width: 1.5 });
+    }
+    marks.push({
+      type: 'segment',
+      x0: entries.map(function (e) { return e.ringStart; }),
+      x1: entries.map(function (e) { return e.ringEnd; }),
+      y0: entries.map(function (e) { return e.datedStart; }),
+      y1: entries.map(function (e) { return e.datedEnd; }),
+      color: '#1b7a3d', width: 4
+    });
+    var legend = [{ label: 'segments', color: '#1b7a3d' }];
+    if (whole) legend.push({ label: 'whole series', color: '#8899a6' });
+    return {
+      type: 'segmentPlacement',
+      width: 760, height: 320,
+      title: 'Segment placements — ' + series + ' vs ' + refName,
+      xLabel: 'Ring in ' + series,
+      yLabel: mode === 2 ? 'Dated year' : 'Position on ' + refName + ' axis',
+      scales: {
+        x: { domain: [1, xMax], breaks: RD.xScaleBar(1, xMax) },
+        y: { domain: [yLo - pad, yHi + pad], breaks: null }
+      },
+      marks: marks,
+      legend: { entries: legend },
+      colourbar: null
+    };
+  }
+
   // ---- missing / false ring test -------------------------------------------
   // Exhaustive single-ring edit experiments for ONE series against a reference:
   //   split i  — ring i divided into two half-width rings (simulates a missed
@@ -1245,6 +1404,7 @@
     loadUndated: loadUndated, loadChron: loadChron, seriesNames: seriesNames,
     loadTridas: loadTridas, bindUndated: bindUndated, bindDated: bindDated,
     slidingSegmentAnalysis: slidingSegmentAnalysis, ringTest: ringTest,
+    diagnoseSegments: diagnoseSegments, fullSeriesLag: fullSeriesLag,
     slidingSelectPairwise: slidingSelectPairwise, slidingSelectVsReference: slidingSelectVsReference,
     compositeChron: compositeChron,
     ensureMeta: RD.ensureMeta, META_EDITABLE: RD.META_EDITABLE,

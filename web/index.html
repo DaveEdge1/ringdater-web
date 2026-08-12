@@ -242,6 +242,12 @@
             </div>
             <div class="msg" id="resMsg"></div>
             <div class="tablewrap" id="resTableWrap"><table class="res" id="resTable"><thead></thead><tbody></tbody></table></div>
+            <div class="plot-controls" id="segDiagBar" style="display:none">
+              <div><button class="btn secondary" id="segDiagBtn" disabled>Diagnose selected segments</button></div>
+              <div><button class="btn ghost" id="segClearBtn">Uncheck all</button></div>
+              <div><span class="msg" id="segDiagMsg"></span></div>
+            </div>
+            <div id="segDiagOut" style="position:relative"></div>
           </div>
 
           <div class="card" id="explorePlots" style="display:none">
@@ -261,6 +267,9 @@
               <div class="pairCtl"><label for="p_series1">Series 1</label><select id="p_series1"></select></div>
               <div class="pairCtl"><label for="p_series2">Series 2</label><select id="p_series2"></select></div>
               <div class="pairCtl"><label for="p_lag">Line-plot lag</label><input type="number" id="p_lag" value="0" step="1"></div>
+              <div class="pairCtl" id="fullSeriesWrap" style="display:none">
+                <button class="btn secondary" id="fullSeriesBtn" title="Swap the segment for its complete series, keeping this alignment">Review full series at this lag</button>
+              </div>
               <div class="pairCtl"><label for="p_colscale">Colour scale</label><select id="p_colscale"></select></div>
               <div id="detrendCtl" style="display:none"><label for="detrendSeriesSel">Series</label><select id="detrendSeriesSel"></select></div>
             </div>
