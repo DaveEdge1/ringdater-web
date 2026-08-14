@@ -92,6 +92,14 @@ table.res th.sortable:hover { background: #e3eae6; }
 .sort-arrow:hover { color: #1f2933; }
 .sort-arrow.on { color: #006b3a; }
 table.res tbody tr:hover { background: #eef6ef; cursor: pointer; }
+table.res td.altlag:hover { text-decoration: underline dotted; }
+/* the lag group a click would select (best, 2nd or 3rd) lights up as a block —
+   a blue tint distinct from the green row hover / selection */
+table.res tbody td.lag-hover { background: #d9e8f5; }
+.seg-badge { display: inline-block; margin-left: 5px; padding: 0 5px; border-radius: 8px; font-size: 10px; font-weight: 600; cursor: help; }
+.seg-badge.promoted { background: #1b7a3d; color: #fff; }
+.seg-badge.confirmed { background: #dff1e2; color: #1b7a3d; border: 1px solid #9fceab; }
+.seg-badge.noted { background: #fff3d6; color: #8a6d1a; border: 1px solid #e3cf94; }
 table.res tbody tr.sel { background: #d7efd7; }
 table.res tr.sep td { background: #fafbfc; height: 5px; padding: 0; }
 #rt_out table.res tr.rt-fruit td { background: #eef6ef; font-weight: 600; }
@@ -145,6 +153,8 @@ td.segchk { width: 24px; text-align: center !important; }
 .setup-slot { border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; background: #fbfcfd; }
 .setup-slot label { margin-top: 0; }
 .slot-status { font-size: 12px; margin: 2px 0 7px; }
+.slot-dir { margin-top: 8px; display: flex; align-items: center; gap: 8px; }
+.slot-dir .hint { margin: 0; }
 .slot-ok { color: var(--green-d); font-weight: 600; }
 .slot-need { color: #8a4f47; font-weight: 600; }
 .slot-opt { color: var(--muted); }
@@ -181,6 +191,22 @@ header.app .export { position: relative; }
 .rail-toggle:hover { background: #e2e8ec; }
 .rail h3 { margin: 16px 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); border-top: 1px solid var(--line); padding-top: 10px; }
 .rail .rail-run { display: flex; gap: 8px; margin-top: 14px; }
+/* run-analysis progress: a centered overlay card above everything (tour sits
+   at z-index 90/95); the dimmed backdrop also blocks clicks while running */
+#runProgress {
+  position: fixed; inset: 0; z-index: 120;
+  background: rgba(31, 41, 51, .35);
+  display: flex; align-items: center; justify-content: center;
+}
+#runProgress .pbox {
+  background: var(--card); border-radius: 8px; padding: 20px 24px 16px;
+  width: 360px; max-width: calc(100vw - 32px);
+  box-shadow: 0 10px 34px rgba(0, 0, 0, .3);
+}
+#runProgress .pbox h3 { margin: 0 0 12px; font-size: 15px; color: var(--ink); }
+.pbar { height: 8px; background: #e3e9ec; border-radius: 4px; overflow: hidden; }
+.pbar-fill { height: 100%; width: 0; background: var(--green); border-radius: 4px; transition: width .15s ease; }
+.pbar-label { font-size: 12px; color: var(--muted); margin-top: 6px; min-height: 15px; }
 .workspace.rail-collapsed .rail { flex: 0 0 auto; padding: 8px; }
 .workspace.rail-collapsed .rail-body, .workspace.rail-collapsed .rail-head h2 { display: none; }
 .workmain { flex: 1 1 auto; min-width: 0; }
@@ -202,6 +228,7 @@ details summary:hover { color: var(--green); }
 .rail-adv > summary::-webkit-details-marker { display: none; }
 .rail-adv > summary::before { content: '▸ '; color: var(--muted); }
 .rail-adv[open] > summary::before { content: '▾ '; }
+.rail-adv h4 { margin: 14px 0 2px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
 
 /* per-series metadata table (Data rail: series details) */
 details.series-meta { border-top: none; margin-top: 4px; padding-top: 0; }

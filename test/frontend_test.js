@@ -296,6 +296,34 @@ const chronRunner = AppCore.ringTest({
   leadlag: { neg_lag: -20, pos_lag: 20, complete: true }
 });
 ok('ringTest accepts a chronology reference', chronRunner.total > 0 && typeof chronRunner.step === 'function');
+// corrected-series export: the best edit applied to the raw values, as .rwl
+const corr = runner.corrected(best);
+ok('corrected() applies the edit to the raw series',
+  corr.values.length === runner.seriesLength + (best.type === 'split' ? 1 : -1) &&
+  corr.name === 'h_defect' + (best.type === 'split' ? '+ring' : '-ring') + best.ring,
+  corr.name + ', ' + corr.values.length + ' rings');
+const dl = runner.correctedDownload(best);
+ok('correctedDownload() produces an .rwl descriptor',
+  /_corrected\.rwl$/.test(dl.filename) && dl.mime === 'text/plain' && dl.content.length > 200, dl.filename);
+const reload = AppCore.loadUndated([{ name: dl.filename, text: dl.content }]);
+const reloadVals = reload.cols[reload.names.length - 1].filter(function (v) { return v != null; });
+ok('the .rwl round-trips (length + first value)',
+  reloadVals.length === corr.values.length && Math.abs(reloadVals[0] - corr.values[0]) < 0.01,
+  reloadVals.length + ' rings');
+// iterative pass: re-test the corrected series via seriesValues — the defect is
+// gone, so the new baseline matches the edit's score and nothing bears fruit
+const runner2 = AppCore.ringTest({
+  undated: rtFrame, series: corr.name, seriesValues: corr.values,
+  reference: { kind: 'series', name: 'sample_i' },
+  detrend: detrendUI,
+  leadlag: { neg_lag: -20, pos_lag: 20, complete: true }
+});
+ok('iterative pass starts from the corrected baseline',
+  Math.abs(runner2.baseline.t - best.t) < 1e-9,
+  'T ' + runner2.baseline.t.toFixed(2) + ' vs edit T ' + best.t.toFixed(2));
+while (!runner2.step(100));
+ok('corrected series comes back clean (no further fruitful edits)',
+  runner2.results().fruitful.length === 0);
 
 // 12. segment placement diagnosis ----------------------------------------------
 // clean control: sample_c's kept windows all place consistently vs sample_a
@@ -345,6 +373,112 @@ ok('full series at the converted lag extends the segment alignment',
   'overlap ' + statsSeg.overlap + ' -> ' + statsFull.overlap + ', full r ' + (statsFull.r && statsFull.r.toFixed(3)));
 const convS2 = AppCore.fullSeriesLag(segResult, wSeg.name, segPlotLag, true);  // segment plotted as series 2
 ok('series-2 conversion subtracts the offset', convS2.lag === segPlotLag - (wSeg.ringStart - 1));
+
+// 14. segment-consensus lag ranking (chronology mode) ---------------------------
+// Every mode-2 run segments in the background; >=2 well-dated segments agreeing
+// on a series' implied placement out-rank the whole-series best lag.
+// Construction: sample_a with 3 deleted rings + 40% deterministic noise — the
+// full-series correlation is diluted at every lag (engine best goes elsewhere)
+// while 60-ring segments still date strongly at the true placement (lag 0).
+function lcg(seed) { let s = seed >>> 0; return function () { s = (1664525 * s + 1013904223) >>> 0; return s / 4294967296; }; }
+const aVals = undated.cols[undated.names.indexOf('sample_a')].filter(function (v) { return v != null; });
+const rnd = lcg(42);
+let consBroken = aVals.map(function (v) { return v * (0.6 + 0.8 * rnd()); });
+[180, 120, 60].forEach(function (d) { consBroken = consBroken.slice(0, d).concat(consBroken.slice(d + 1)); });
+const cVals = undated.cols[undated.names.indexOf('sample_c')].filter(function (v) { return v != null; });
+const consN = Math.max(consBroken.length, cVals.length);
+const consPad = function (v) { return v.concat(new Array(consN - v.length).fill(null)); };
+const consFrame = {
+  names: ['ring', 'a_broken', 'c_clean'],
+  cols: [Array.from({ length: consN }, function (_, i) { return i + 1; }), consPad(consBroken), consPad(cVals)]
+};
+const consRes = AppCore.runAnalysis({
+  mode: 2, undated: consFrame, chron: chronA, chronName: 'chronA',
+  detrend: detrendUI,
+  leadlag: { neg_lag: -20, pos_lag: 20, complete: true },
+  filter: { r_val: 0.5, p_val: 0.05, overlap: 30 },
+  segLen: 60, keepN: 5
+});
+const consBy = (consRes.consensus && consRes.consensus.bySeries) || {};
+ok('chronology run carries a consensus block', !!consRes.consensus && !!consRes.consensus.counts,
+  consRes.consensus ? JSON.stringify(consRes.consensus.counts) : 'missing');
+const cb = consBy.a_broken;
+ok('broken series: strong consensus at the true placement (lag 0)',
+  !!cb && cb.action === 'promoted' && cb.tier === 'strong' && Math.abs(cb.lag) <= 2 && cb.nSegs >= 2,
+  cb ? cb.action + '/' + cb.tier + ' lag ' + cb.lag + ', ' + cb.nSegs + ' segs, minP ' + cb.minP.toExponential(1) : 'none');
+ok('promotion out-ranked a wrong engine best (>tol away)',
+  !!cb && Math.abs(cb.engineLag - cb.lag) > AppCore.CONSENSUS.tol, cb ? 'engine ' + cb.engineLag : '');
+// the promoted row: consensus lag 1st, engine best demoted to 2nd
+const ccd = consRes.crossDatRes;
+let consRow = -1;
+for (let r = 0; r < ccd.cols[0].length; r++) if (ccd.cols[0][r] === 'mean_chronology' && ccd.cols[1][r] === 'a_broken') consRow = r;
+ok('table row shows consensus lag 1st, engine best 2nd',
+  consRow >= 0 && Number(ccd.cols[5][consRow]) === cb.lag && Number(ccd.cols[9][consRow]) === cb.engineLag,
+  consRow >= 0 ? '1st ' + ccd.cols[5][consRow] + ', 2nd ' + ccd.cols[9][consRow] : 'row missing');
+ok('promoted series joins the aligned output', consRes.aligned.names.indexOf('a_broken') >= 0);
+const cc = consBy.c_clean;
+ok('clean member series: consensus confirms the engine lag (50)',
+  !!cc && cc.action === 'confirmed' && cc.lag === 50 && cc.engineLag === 50,
+  cc ? cc.action + ' lag ' + cc.lag : 'none');
+// corrected p-values above 1 display as 1 (Bonferroni cap)
+ok('fmtP caps corrected p at 1', AppCore.fmtP(2300) === '1' && AppCore.fmtP(0.5) === '0.5');
+// unit: clustering gates on p and keeps drift chains together
+const CN = ['Series_1', 'Series_2', 'First_ring', 'Last_ring', 'col',
+  'First_lag', 'First_R', 'First_P', 'First_Overlap', 'Sec_lag', 'Sec_R', 'Sec_P', 'Sec_Overlap',
+  'Third_lag', 'Third_R', 'Third_P', 'Third_Overlap'];
+const segRows = [
+  ['ref', 's@1-61',    900, 960, 3, 100, 0.8, 1e-8, 61, 400, 0.5, 0.9, 61, null, null, null, null],
+  ['ref', 's@71-131',  970, 1030, 4, 173, 0.7, 1e-6, 61, 800, 0.4, 2.0, 61, null, null, null, null],
+  ['ref', 's@141-201', 1500, 1560, 5, 640, 0.6, 0.2, 61, null, null, null, null, null, null, null, null]
+];
+const segCross = { names: CN, cols: CN.map(function (_, i) { return segRows.map(function (r) { return r[i]; }); }) };
+const segMeta = { s: [
+  { name: 's@1-61', startRow: 0 }, { name: 's@71-131', startRow: 70 }, { name: 's@141-201', startRow: 140 }
+] };
+const unit = AppCore.consensusFromRows(segCross, segMeta, 'ref');
+ok('consensusFromRows: drift chain clusters (100 + 103), p-gated candidates dropped',
+  !!unit.s && unit.s.lag === 100 && unit.s.nSegs === 2 && unit.s.tier === 'strong',
+  unit.s ? 'lag ' + unit.s.lag + ', ' + unit.s.nSegs + ' segs, ' + unit.s.tier : 'none');
+
+// a custom consensus segment length flows through (windows forced odd: 80 -> 81)
+const consRes81 = AppCore.runAnalysis({
+  mode: 2, undated: consFrame, chron: chronA, chronName: 'chronA',
+  detrend: detrendUI,
+  leadlag: { neg_lag: -20, pos_lag: 20, complete: true },
+  filter: { r_val: 0.5, p_val: 0.05, overlap: 30 },
+  segLen: 80, keepN: 5
+});
+ok('consensus honours a custom segment length',
+  consRes81.consensus && consRes81.consensus.segLength === 81 &&
+  !!consRes81.consensus.bySeries.a_broken,
+  consRes81.consensus ? 'segLength ' + consRes81.consensus.segLength + ', a_broken ' +
+    (consRes81.consensus.bySeries.a_broken || {}).action : 'missing');
+
+// 15. stepwise analysis runner ---------------------------------------------------
+// The progress-bar host drives AppCore.analysisRunner step by step; it must
+// deliver the same bundle runAnalysis returns (runAnalysis IS the runner run
+// to completion), with one grid step per series and honest progress counters.
+const stepRunner = AppCore.analysisRunner({
+  mode: 2, undated: consFrame, chron: chronA, chronName: 'chronA',
+  detrend: detrendUI,
+  leadlag: { neg_lag: -20, pos_lag: 20, complete: true },
+  filter: { r_val: 0.5, p_val: 0.05, overlap: 30 },
+  segLen: 60, keepN: 5
+});
+const stepLabels = [];
+ok('runner: 1 workflow + per-series grids + consensus steps',
+  stepRunner.total() === 1 + 2 + 1 && stepRunner.progress() === 0 && !stepRunner.done(),
+  stepRunner.total() + ' steps');
+while (!stepRunner.done()) { stepLabels.push(stepRunner.label()); stepRunner.step(); }
+ok('runner: labels name the phases',
+  stepLabels[0] === 'Crossdating vs chronology' &&
+  stepLabels[1] === 'Scanning segments of a_broken' &&
+  stepLabels[stepLabels.length - 1] === 'Segment consensus', stepLabels.join(' | '));
+const stepRes = stepRunner.result();
+ok('runner result matches the synchronous run',
+  stepRes.crossDatRes.cols[0].length === consRes.crossDatRes.cols[0].length &&
+  stepRes.consensus.bySeries.a_broken.lag === consBy.a_broken.lag &&
+  stepRes.consensus.bySeries.a_broken.action === 'promoted');
 
 // ---- done -------------------------------------------------------------------
 console.log('\n' + (fails ? fails + ' CHECK(S) FAILED' : 'PASS: web frontend runs end-to-end (load -> workflow -> table -> plots -> downloads -> report).'));

@@ -188,35 +188,36 @@
     frame.cols[0].forEach(function (v, i) { if (!bad(v)) rowOf[Number(v)] = i; });
     return rowOf;
   }
+  // Selection state + one-grid step, so the stepwise analysis runner can score
+  // a single runningLeadLag grid per tick. foldGrid only records orientations
+  // whose series exist in st.best — so the same step serves pairwise grids
+  // (both sides kept) and vs-reference grids (the reference, absent from
+  // st.best, is never segmented).
+  function slidingSelectStart(frame, names) {
+    var best = {}; names.forEach(function (n) { best[n] = {}; });
+    return { best: best, rowOf: rowIndex(frame) };
+  }
+  function slidingSelectGridStep(st, frame, s1, s2, win) {
+    var grid = safe(function () {
+      return RD.runningLeadLag(frame, { s1: s1, s2: s2, win: win, complete: true });
+    });
+    foldGrid(st.best, grid, st.rowOf, s1, s2, win);
+  }
   // Pairwise selection: one grid per unordered pair of complete series serves
   // windows of BOTH. detFrame = detrended wholes.
   function slidingSelectPairwise(detFrame, win, keepN) {
     var names = seriesNames(detFrame);
-    var best = {}; names.forEach(function (n) { best[n] = {}; });
-    var rowOf = rowIndex(detFrame);
+    var st = slidingSelectStart(detFrame, names);
     for (var i = 0; i < names.length; i++) {
-      for (var j = i + 1; j < names.length; j++) {
-        var grid = safe(function () {
-          return RD.runningLeadLag(detFrame, { s1: names[i], s2: names[j], win: win, complete: true });
-        });
-        foldGrid(best, grid, rowOf, names[i], names[j], win);
-      }
+      for (var j = i + 1; j < names.length; j++) slidingSelectGridStep(st, detFrame, names[i], names[j], win);
     }
-    return pickWindows(best, detFrame, names, win, keepN);
+    return pickWindows(st.best, detFrame, names, win, keepN);
   }
   // Chronology-mode selection: windows of each series vs the reference column.
   function slidingSelectVsReference(frame, names, refName, win, keepN) {
-    var best = {}; names.forEach(function (n) { best[n] = {}; });
-    var rowOf = rowIndex(frame);
-    names.forEach(function (s) {
-      var grid = safe(function () {
-        return RD.runningLeadLag(frame, { s1: refName, s2: s, win: win, complete: true });
-      });
-      // best[refName] does not exist, so foldGrid only records the
-      // window-of-s orientation — the reference itself is never segmented.
-      foldGrid(best, grid, rowOf, refName, s, win);
-    });
-    return pickWindows(best, frame, names, win, keepN);
+    var st = slidingSelectStart(frame, names);
+    names.forEach(function (s) { slidingSelectGridStep(st, frame, refName, s, win); });
+    return pickWindows(st.best, frame, names, win, keepN);
   }
 
   // slice rings startRow..startRow+win-1 of column `name`, re-based to row 0,
@@ -254,109 +255,257 @@
   // The result bundle is shaped exactly like runAnalysis output, with
   // `segments` (kept-window metadata per series) riding on it.
   function slidingSegmentAnalysis(opts) {
+    var r = analysisRunner(Object.assign({}, opts, { segTool: true }));
+    while (!r.step());
+    return r.result();
+  }
+
+  // ---- stepwise analysis runner ---------------------------------------------
+  // One runner for all four run shapes (pairwise / chronology × segments
+  // on/off). Each step is a chunk of comparable cost — an engine workflow, one
+  // runningLeadLag grid, one segment crossdate — so a host can drive step()
+  // from a timeout loop and let a progress bar paint between chunks (the same
+  // batched pattern as ringTest). runAnalysis and slidingSegmentAnalysis run
+  // the runner to completion and stay synchronous.
+  // API: total() (may grow mid-run — mode-1 segment steps are only known after
+  // selection), progress(), label() (the NEXT step), done(), step() -> done,
+  // result().
+  function analysisRunner(opts) {
+    var segTool = !!opts.segTool;
     var mode = Number(opts.mode) === 2 ? 2 : 1;
     var undated = opts.undated;
     if (!undated) throw new Error('No undated data loaded.');
+    if (mode === 2 && !opts.chron) throw new Error('Chronology mode needs a loaded chronology.');
+    var names = seriesNames(undated);
     var detOpt = detrendOptions(opts.detrend);
     var leadlag = opts.leadlag || { neg_lag: -20, pos_lag: 20, complete: true };
     var filter = Object.assign({ r_val: 0.5, p_val: 0.05, overlap: 50 }, opts.filter || {});
     var probWind = opts.probWind != null ? opts.probWind : 20;
     var rbarWindow = opts.rbarWindow != null ? opts.rbarWindow : 25;
     var keepN = Math.max(1, Math.floor(Number(opts.keepN) || 5));
-    var win = oddWin(opts.segLen != null ? opts.segLen : 60);
+    var target2 = filter.target || 'mean_chronology';
+    var target1 = filter.target || names[0];
+    // The background consensus pass is best-effort: an unusable segment length
+    // only aborts the run when the Segments tool itself asked for it.
+    var win = null;
+    try { win = oddWin(opts.segLen != null ? opts.segLen : 60); }
+    catch (e) { if (segTool) throw e; }
 
-    var det = RD.normalise(undated, detOpt);
-    var names = seriesNames(undated);
-    var result;
+    var ctx = {};
+    var steps = [];
 
-    if (mode === 2) {
-      if (!opts.chron) throw new Error('Chronology mode needs a loaded chronology.');
-      var target2 = filter.target || 'mean_chronology';
-      var chronDetrended = opts.chronIsDetrended ? opts.chron : RD.normalise(opts.chron, detOpt);
-      var chronoMean = RD.meanChronology(chronDetrended, target2);
-      // wholes-only comparison frame for window selection
-      var baseFrame = RD.combNA(chronoMean, { names: det.names.slice(1), cols: det.cols.slice(1) });
-      baseFrame.names = ['year', target2].concat(det.names.slice(1));
-      var sel2 = slidingSelectVsReference(baseFrame, names, target2, win, keepN);
-      // comparison frame with each series' kept segments right after it
-      var cn = { names: baseFrame.names.slice(0, 2), cols: [baseFrame.cols[0], baseFrame.cols[1]] };
-      var nrow2 = baseFrame.cols[0].length;
-      names.forEach(function (s) {
-        cn.names.push(s); cn.cols.push(baseFrame.cols[baseFrame.names.indexOf(s)]);
-        (sel2[s] || []).forEach(function (w) {
-          cn.names.push(w.name);
-          cn.cols.push(windowColumn(baseFrame, s, w.startRow, win, nrow2));
+    if (mode === 2 && !segTool) {
+      steps.push({ label: 'Crossdating vs chronology', fn: function () {
+        var result = RD.chronologyWorkflow({
+          undated: undated, chron: opts.chron, detrend: detOpt,
+          leadlag: leadlag,
+          filter: Object.assign({}, filter, { target: target2 }),
+          probWind: probWind, rbarWindow: rbarWindow,
+          chronIsDetrended: !!opts.chronIsDetrended
         });
-      });
-      // raw wholes + raw segment slices (skeleton plots need raw ring widths)
-      var rawC2 = { names: undated.names.slice(), cols: undated.cols.slice() };
-      names.forEach(function (s) {
-        (sel2[s] || []).forEach(function (w) {
-          // startRow is on the chron-frame axis; undated series sit at rows 0..
-          // there, matching their rows in the raw frame.
-          rawC2.names.push(w.name);
-          rawC2.cols.push(windowColumn(undated, s, w.startRow, win, undated.cols[0].length));
-        });
-      });
-      var ll2 = RD.leadLag(cn, { mode: 2, neg_lag: leadlag.neg_lag, pos_lag: leadlag.pos_lag, complete: leadlag.complete });
-      var filtered2 = RD.filterCrossdates(ll2.crossDatRes, Object.assign({}, filter, { target: target2 }));
-      var alignedSeries = RD.alignSeries(cn, filtered2, target2);
-      var aligned2 = RD.alignToChron(alignedSeries, chronDetrended);
-      result = Object.assign({
-        detrended: det, chronDetrended: chronDetrended, chronNSeries: cn,
-        crossDatRes: ll2.crossDatRes, masterLeadLag: ll2.masterLeadLag,
-        filtered: filtered2, alignedSeries: alignedSeries, aligned: aligned2,
-        target: target2, segments: sel2
-      }, diagOn(aligned2, probWind, rbarWindow));
-      result.rawCombined = rawC2;
-    } else {
-      var target1 = filter.target || names[0];
-      var sel1 = slidingSelectPairwise(det, win, keepN);
-      var segs = [];
-      names.forEach(function (s) { (sel1[s] || []).forEach(function (w) { segs.push(w); }); });
-      var nrow1 = det.cols[0].length;
-      // combined frames (segments first, wholes after; segments re-based to row 0)
-      var detC = { names: [det.names[0]], cols: [det.cols[0]] };
-      var rawC = { names: [undated.names[0]], cols: [undated.cols[0]] };
-      segs.forEach(function (w) {
-        detC.names.push(w.name); detC.cols.push(windowColumn(det, w.series, w.startRow, win, nrow1));
-        rawC.names.push(w.name); rawC.cols.push(windowColumn(undated, w.series, w.startRow, win, undated.cols[0].length));
-      });
-      names.forEach(function (s) {
-        detC.names.push(s); detC.cols.push(det.cols[det.names.indexOf(s)]);
-        rawC.names.push(s); rawC.cols.push(undated.cols[undated.names.indexOf(s)]);
-      });
-      // one leadLag run per kept segment vs the OTHER complete series
-      var crossParts = [], masterParts = [];
-      segs.forEach(function (w) {
-        var f = { names: [det.names[0], w.name], cols: [det.cols[0], detC.cols[detC.names.indexOf(w.name)]] };
+        result.target = target2;
+        result.mode = mode; result.undated = undated;
+        result.detrendOpts = detOpt; result.chronName = opts.chronName || null;
+        ctx.result = result;
+        if (win) ctx.selState = slidingSelectStart(result.chronNSeries, names);
+      } });
+      if (win) {
         names.forEach(function (s) {
-          if (s === w.series) return;
-          f.names.push(s); f.cols.push(det.cols[det.names.indexOf(s)]);
+          steps.push({ label: 'Scanning segments of ' + s, fn: function () {
+            slidingSelectGridStep(ctx.selState, ctx.result.chronNSeries, target2, s, win);
+          } });
         });
-        var ll = RD.leadLag(f, { mode: 2, neg_lag: leadlag.neg_lag, pos_lag: leadlag.pos_lag, complete: leadlag.complete });
-        crossParts.push(ll.crossDatRes); masterParts.push(ll.masterLeadLag);
+        // segment-consensus ranking rides on every chronology run (see the
+        // CONSENSUS block above). safe(): a failed consensus pass must never
+        // break the primary analysis.
+        steps.push({ label: 'Segment consensus', fn: function () {
+          var result = ctx.result;
+          result.consensus = safe(function () {
+            var sel = pickWindows(ctx.selState.best, result.chronNSeries, names, win, keepN);
+            var cons = consensusFinish(result, names, sel, win, keepN);
+            cons.counts = applyConsensus(result, cons.bySeries,
+              Object.assign({}, filter, { target: target2 }), probWind, rbarWindow);
+            return cons;
+          });
+        } });
+      }
+    } else if (mode === 1 && !segTool) {
+      steps.push({ label: 'Pairwise crossdating', fn: function () {
+        var result = RD.pairwiseWorkflow({
+          undated: undated, detrend: detOpt,
+          leadlag: leadlag,
+          filter: Object.assign({}, filter, { target: target1 }),
+          probWind: probWind, rbarWindow: rbarWindow
+        });
+        result.target = target1;
+        result.mode = mode; result.undated = undated;
+        result.detrendOpts = detOpt; result.chronName = opts.chronName || null;
+        ctx.result = result;
+      } });
+    } else if (mode === 2) {
+      // Segments tool, chronology mode. Segments are windows of the DETRENDED
+      // whole series (slices, not re-detrended), so their scores match the
+      // selection grids; one chronology run whose comparison frame carries
+      // wholes + kept segments.
+      var segMeta = function (result) {
+        result.mode = mode;
+        result.undated = result.rawCombined;
+        result.detrendOpts = detOpt;
+        result.chronName = opts.chronName || null;
+        result.segLength = win;
+        result.keepN = keepN;
+        ctx.result = result;
+      };
+      steps.push({ label: 'Detrending', fn: function () {
+        ctx.det = RD.normalise(undated, detOpt);
+        ctx.chronDetrended = opts.chronIsDetrended ? opts.chron : RD.normalise(opts.chron, detOpt);
+        var chronoMean = RD.meanChronology(ctx.chronDetrended, target2);
+        // wholes-only comparison frame for window selection
+        ctx.baseFrame = RD.combNA(chronoMean, { names: ctx.det.names.slice(1), cols: ctx.det.cols.slice(1) });
+        ctx.baseFrame.names = ['year', target2].concat(ctx.det.names.slice(1));
+        ctx.selState = slidingSelectStart(ctx.baseFrame, names);
+      } });
+      names.forEach(function (s) {
+        steps.push({ label: 'Scanning segments of ' + s, fn: function () {
+          slidingSelectGridStep(ctx.selState, ctx.baseFrame, target2, s, win);
+        } });
       });
-      var llW = RD.leadLag(det, { mode: 1, neg_lag: leadlag.neg_lag, pos_lag: leadlag.pos_lag, complete: leadlag.complete });
-      crossParts.push(llW.crossDatRes); masterParts.push(llW.masterLeadLag);
-      var crossDatRes = concatCrossDat(crossParts);
-      var masterLeadLag = masterParts.reduce(function (a, b) { return RD.combNA(a, b); });
-      var filtered1 = RD.filterCrossdates(crossDatRes, Object.assign({}, filter, { target: target1 }));
-      var aligned1 = RD.alignSeries(detC, filtered1, target1);
-      result = Object.assign({
-        detrended: detC, crossDatRes: crossDatRes, masterLeadLag: masterLeadLag,
-        filtered: filtered1, aligned: aligned1,
-        target: target1, segments: sel1
-      }, diagOn(aligned1, probWind, rbarWindow));
-      result.rawCombined = rawC;
+      steps.push({ label: 'Crossdating wholes + segments', fn: function () {
+        var baseFrame = ctx.baseFrame;
+        var sel2 = pickWindows(ctx.selState.best, baseFrame, names, win, keepN);
+        // comparison frame with each series' kept segments right after it
+        var cn = { names: baseFrame.names.slice(0, 2), cols: [baseFrame.cols[0], baseFrame.cols[1]] };
+        var nrow2 = baseFrame.cols[0].length;
+        names.forEach(function (s) {
+          cn.names.push(s); cn.cols.push(baseFrame.cols[baseFrame.names.indexOf(s)]);
+          (sel2[s] || []).forEach(function (w) {
+            cn.names.push(w.name);
+            cn.cols.push(windowColumn(baseFrame, s, w.startRow, win, nrow2));
+          });
+        });
+        // raw wholes + raw segment slices (skeleton plots need raw ring widths)
+        var rawC2 = { names: undated.names.slice(), cols: undated.cols.slice() };
+        names.forEach(function (s) {
+          (sel2[s] || []).forEach(function (w) {
+            // startRow is on the chron-frame axis; undated series sit at rows 0..
+            // there, matching their rows in the raw frame.
+            rawC2.names.push(w.name);
+            rawC2.cols.push(windowColumn(undated, s, w.startRow, win, undated.cols[0].length));
+          });
+        });
+        ctx.sel2 = sel2; ctx.cn = cn; ctx.rawC2 = rawC2;
+        ctx.ll2 = RD.leadLag(cn, { mode: 2, neg_lag: leadlag.neg_lag, pos_lag: leadlag.pos_lag, complete: leadlag.complete });
+      } });
+      steps.push({ label: 'Aligning + segment consensus', fn: function () {
+        var filtered2 = RD.filterCrossdates(ctx.ll2.crossDatRes, Object.assign({}, filter, { target: target2 }));
+        var alignedSeries = RD.alignSeries(ctx.cn, filtered2, target2);
+        var aligned2 = RD.alignToChron(alignedSeries, ctx.chronDetrended);
+        var result = Object.assign({
+          detrended: ctx.det, chronDetrended: ctx.chronDetrended, chronNSeries: ctx.cn,
+          crossDatRes: ctx.ll2.crossDatRes, masterLeadLag: ctx.ll2.masterLeadLag,
+          filtered: filtered2, alignedSeries: alignedSeries, aligned: aligned2,
+          target: target2, segments: ctx.sel2
+        }, diagOn(aligned2, probWind, rbarWindow));
+        result.rawCombined = ctx.rawC2;
+        // consensus from the segment rows this run already computed
+        result.consensus = safe(function () {
+          var cons = { segments: ctx.sel2, segLength: win, keepN: keepN, bySeries: consensusFromRows(ctx.ll2.crossDatRes, ctx.sel2, target2) };
+          cons.counts = applyConsensus(result, cons.bySeries,
+            Object.assign({}, filter, { target: target2 }), probWind, rbarWindow);
+          return cons;
+        });
+        segMeta(result);
+      } });
+    } else {
+      // Segments tool, pairwise mode: each kept segment gets its own leadLag
+      // run vs the other complete series (mode-2 leadLag with the segment as
+      // master), stitched ahead of the standard whole-vs-whole pairwise run —
+      // so segment blocks lead the table and segments are valid filter targets.
+      var segMeta1 = function (result) {
+        result.mode = mode;
+        result.undated = result.rawCombined;
+        result.detrendOpts = detOpt;
+        result.chronName = opts.chronName || null;
+        result.segLength = win;
+        result.keepN = keepN;
+        ctx.result = result;
+      };
+      steps.push({ label: 'Detrending', fn: function () {
+        ctx.det = RD.normalise(undated, detOpt);
+        ctx.selState = slidingSelectStart(ctx.det, names);
+      } });
+      for (var pi = 0; pi < names.length; pi++) {
+        for (var pj = pi + 1; pj < names.length; pj++) {
+          (function (a, b) {
+            steps.push({ label: 'Scanning segments: ' + a + ' vs ' + b, fn: function () {
+              slidingSelectGridStep(ctx.selState, ctx.det, a, b, win);
+            } });
+          })(names[pi], names[pj]);
+        }
+      }
+      steps.push({ label: 'Selecting segments', fn: function () {
+        var det = ctx.det;
+        var sel1 = pickWindows(ctx.selState.best, det, names, win, keepN);
+        var segs = [];
+        names.forEach(function (s) { (sel1[s] || []).forEach(function (w) { segs.push(w); }); });
+        var nrow1 = det.cols[0].length;
+        // combined frames (segments first, wholes after; segments re-based to row 0)
+        var detC = { names: [det.names[0]], cols: [det.cols[0]] };
+        var rawC = { names: [undated.names[0]], cols: [undated.cols[0]] };
+        segs.forEach(function (w) {
+          detC.names.push(w.name); detC.cols.push(windowColumn(det, w.series, w.startRow, win, nrow1));
+          rawC.names.push(w.name); rawC.cols.push(windowColumn(undated, w.series, w.startRow, win, undated.cols[0].length));
+        });
+        names.forEach(function (s) {
+          detC.names.push(s); detC.cols.push(det.cols[det.names.indexOf(s)]);
+          rawC.names.push(s); rawC.cols.push(undated.cols[undated.names.indexOf(s)]);
+        });
+        ctx.sel1 = sel1; ctx.detC = detC; ctx.rawC = rawC;
+        ctx.crossParts = []; ctx.masterParts = [];
+        // one crossdating step per kept segment (count known only now)
+        segs.forEach(function (w) {
+          steps.push({ label: 'Crossdating segment ' + w.name, fn: function () {
+            var f = { names: [ctx.det.names[0], w.name], cols: [ctx.det.cols[0], ctx.detC.cols[ctx.detC.names.indexOf(w.name)]] };
+            names.forEach(function (s) {
+              if (s === w.series) return;
+              f.names.push(s); f.cols.push(ctx.det.cols[ctx.det.names.indexOf(s)]);
+            });
+            var ll = RD.leadLag(f, { mode: 2, neg_lag: leadlag.neg_lag, pos_lag: leadlag.pos_lag, complete: leadlag.complete });
+            ctx.crossParts.push(ll.crossDatRes); ctx.masterParts.push(ll.masterLeadLag);
+          } });
+        });
+        steps.push({ label: 'Pairwise crossdating', fn: function () {
+          var llW = RD.leadLag(ctx.det, { mode: 1, neg_lag: leadlag.neg_lag, pos_lag: leadlag.pos_lag, complete: leadlag.complete });
+          ctx.crossParts.push(llW.crossDatRes); ctx.masterParts.push(llW.masterLeadLag);
+        } });
+        steps.push({ label: 'Aligning', fn: function () {
+          var crossDatRes = concatCrossDat(ctx.crossParts);
+          var masterLeadLag = ctx.masterParts.reduce(function (a, b) { return RD.combNA(a, b); });
+          var filtered1 = RD.filterCrossdates(crossDatRes, Object.assign({}, filter, { target: target1 }));
+          var aligned1 = RD.alignSeries(ctx.detC, filtered1, target1);
+          var result = Object.assign({
+            detrended: ctx.detC, crossDatRes: crossDatRes, masterLeadLag: masterLeadLag,
+            filtered: filtered1, aligned: aligned1,
+            target: target1, segments: ctx.sel1
+          }, diagOn(aligned1, probWind, rbarWindow));
+          result.rawCombined = ctx.rawC;
+          segMeta1(result);
+        } });
+      } });
     }
-    result.mode = mode;
-    result.undated = result.rawCombined;
-    result.detrendOpts = detOpt;
-    result.chronName = opts.chronName || null;
-    result.segLength = win;
-    result.keepN = keepN;
-    return result;
+
+    var i = 0;
+    return {
+      total: function () { return steps.length; },
+      progress: function () { return i; },
+      label: function () { return i < steps.length ? steps[i].label : ''; },
+      done: function () { return i >= steps.length; },
+      step: function () {
+        if (i < steps.length) { steps[i].fn(); i++; }
+        return i >= steps.length;
+      },
+      result: function () { return ctx.result; }
+    };
   }
 
   // ---- segment placement diagnosis -----------------------------------------
@@ -461,6 +610,203 @@
     };
   }
 
+  // ---- segment-consensus lag ranking (chronology mode) ----------------------
+  // The whole-series best-3 lags rank full-series correlations, which a single
+  // missing or false ring dilutes at EVERY lag — the true dating then hides
+  // behind an unimpressive r/p while the "best" lag is noise. Kept segments are
+  // immune: each dates on its own, and independent segments that agree on the
+  // whole-series lag they imply are very unlikely to do so by chance — per-lag
+  // p-values arrive Bonferroni-corrected across the whole lag range, and a
+  // second segment landing within ±tol of the first is a ~(2·tol+1)/lag-range
+  // event even before the p gate.
+  //
+  // Every mode-2 run therefore runs the sliding-window segmentation in the
+  // background, projects each kept segment's best-3 placements onto the
+  // whole-series lag each implies (segment lag − startRow), clusters them by
+  // chained ±tol agreement (successive segments drift as missing/false rings
+  // accumulate), and tiers the winning cluster per series:
+  //   strong     ≥3 supporting segments, or ≥2 with min p ≤ strongP
+  //   tentative  ≥2 supporting segments at p ≤ pGate
+  // A STRONG consensus that disagrees with the engine's best lag is promoted
+  // into the displayed First_* slot (whole-series stats at that lag; the engine
+  // ranking shifts down) and the series joins the aligned output at the
+  // consensus lag — the cluster's earliest segment sets the lag, since ring 1
+  // predates any later missing/false ring. A consensus matching the engine
+  // confirms it; a tentative one is only flagged. The engine's own crossDatRes
+  // is never mutated — promotion happens on a copy in this app layer, keeping
+  // the R-parity contract intact.
+  var CONSENSUS = {
+    pGate: 0.05,     // corrected-p gate for a segment placement to count
+    tol: 5,          // implied-lag agreement tolerance between segments
+    strongP: 1e-6    // 2 segments at/below this = strong (≥3 segments always strong)
+  };
+
+  // Whole-series stats at an arbitrary lag, from the run's masterLeadLag grid.
+  // Returns null when the pair or the lag is outside the computed range.
+  function statsAtLag(master, s1, s2, lag) {
+    var pre = 'ser_1_' + s1 + '_ser_2_' + s2 + '_';
+    var iL = master.names.indexOf(pre + 'lag');
+    if (iL < 0) return null;
+    var f = function (name, i) { return master.cols[master.names.indexOf(pre + name)][i]; };
+    var L = master.cols[iL];
+    for (var i = 0; i < L.length; i++) {
+      if (Number(L[i]) === lag) {
+        return {
+          R: f('R_Val', i), P: f('P_Val', i), Overlap: f('Overlap', i),
+          First_ring: f('First_ring', i), Last_ring: f('Last_ring', i)
+        };
+      }
+    }
+    return null;
+  }
+
+  // segCross: crossDatRes rows holding (reference, segment) placements.
+  // segments: kept-window metadata per series. Returns
+  // { series: { lag, nSegs, minP, tier, members } } for every series whose
+  // winning cluster has ≥2 supporting segments.
+  function consensusFromRows(segCross, segments, refName) {
+    var out = {};
+    Object.keys(segments).forEach(function (s) {
+      var cands = [];
+      (segments[s] || []).forEach(function (w) {
+        var row = segRowFor(segCross, refName, w.name);
+        if (row < 0) return;
+        rowLags(segCross, row).forEach(function (t) {
+          if (bad(t.p) || t.p > CONSENSUS.pGate) return;
+          cands.push({ seg: w.name, startRow: w.startRow, lag: t.lag - w.startRow, r: t.r, p: t.p });
+        });
+      });
+      // chained clustering on ascending implied lag: a candidate joins a
+      // cluster when it is within tol of ANY member, so gradual drift chains
+      // (442, 446, 450, …) stay together.
+      cands.sort(function (a, b) { return a.lag - b.lag; });
+      var clusters = [];
+      cands.forEach(function (c) {
+        var cl = null;
+        for (var i = 0; i < clusters.length && !cl; i++) {
+          if (clusters[i].members.some(function (m) { return Math.abs(c.lag - m.lag) <= CONSENSUS.tol; })) cl = clusters[i];
+        }
+        if (cl) cl.members.push(c); else clusters.push({ members: [c] });
+      });
+      clusters.forEach(function (cl) {
+        var distinct = {};
+        cl.members.forEach(function (m) { distinct[m.seg] = true; });
+        cl.nSegs = Object.keys(distinct).length;
+        cl.minP = Math.min.apply(null, cl.members.map(function (m) { return m.p; }));
+        var first = cl.members.slice().sort(function (a, b) { return (a.startRow - b.startRow) || (a.p - b.p); })[0];
+        cl.lag = first.lag;
+      });
+      clusters.sort(function (a, b) { return (b.nSegs - a.nSegs) || (a.minP - b.minP); });
+      var win = clusters[0];
+      if (!win || win.nSegs < 2) return;
+      out[s] = {
+        lag: win.lag, nSegs: win.nSegs, minP: win.minP,
+        tier: (win.nSegs >= 3 || win.minP <= CONSENSUS.strongP) ? 'strong' : 'tentative',
+        members: win.members
+      };
+    });
+    return out;
+  }
+
+  // Promote strong consensus into the app-layer copy of crossDatRes, then
+  // re-run the filter → align → diagnostics tail of the mode-2 workflow so the
+  // whole pipeline (table, plots, aligned frame, report, exports) reflects the
+  // consensus ranking. Mutates `result`; annotates each consensus entry with
+  // engineLag + action (promoted | confirmed | noted) and returns counts.
+  function applyConsensus(result, consensus, filter, probWind, rbarWindow) {
+    var target = result.target;
+    var cross = {
+      names: result.crossDatRes.names.slice(),
+      cols: result.crossDatRes.cols.map(function (c) { return c.slice(); })
+    };
+    var col = function (n) { return cross.cols[cross.names.indexOf(n)]; };
+    var S1 = col('Series_1'), S2 = col('Series_2');
+    var counts = { promoted: 0, confirmed: 0, noted: 0 };
+    for (var r = 0; r < S1.length; r++) {
+      if (S1[r] !== target || S2[r] == null || S1[r] === S2[r]) continue;
+      var c = consensus[S2[r]];
+      if (!c) continue;
+      c.engineLag = bad(col('First_lag')[r]) ? null : Number(col('First_lag')[r]);
+      if (c.engineLag != null && Math.abs(c.lag - c.engineLag) <= CONSENSUS.tol) {
+        c.action = 'confirmed'; counts.confirmed++; continue;
+      }
+      var st = c.tier === 'strong' ? statsAtLag(result.masterLeadLag, target, S2[r], c.lag) : null;
+      if (!st) { c.action = 'noted'; counts.noted++; continue; }
+      // engine's 1st/2nd shift down a rank; its 3rd drops off
+      [['Sec_', 'Third_'], ['First_', 'Sec_']].forEach(function (mv) {
+        ['lag', 'R', 'P', 'Overlap'].forEach(function (fld) { col(mv[1] + fld)[r] = col(mv[0] + fld)[r]; });
+      });
+      col('First_lag')[r] = c.lag; col('First_R')[r] = st.R;
+      col('First_P')[r] = st.P; col('First_Overlap')[r] = st.Overlap;
+      col('First_ring')[r] = st.First_ring; col('Last_ring')[r] = st.Last_ring;
+      // the engine's old 2nd may BE the consensus lag (it lands in 3rd after
+      // the shift) — drop the duplicate rather than list one lag twice
+      if (Number(col('Third_lag')[r]) === c.lag) {
+        ['lag', 'R', 'P', 'Overlap'].forEach(function (fld) { col('Third_' + fld)[r] = null; });
+      }
+      c.action = 'promoted'; counts.promoted++;
+    }
+    var filtered = keepConsensusRows(cross,
+      RD.filterCrossdates(cross, Object.assign({}, filter, { target: target })),
+      consensus, target, true);
+    var alignedSeries = RD.alignSeries(result.chronNSeries, filtered, target);
+    var aligned = RD.alignToChron(alignedSeries, result.chronDetrended);
+    result.crossDatRes = cross;
+    result.filtered = filtered;
+    result.alignedSeries = alignedSeries;
+    result.aligned = aligned;
+    Object.assign(result, diagOn(aligned, probWind, rbarWindow));
+    return counts;
+  }
+
+  // The r/p filter judges whole-series stats, which are exactly what a
+  // missing/false-ring series can never deliver — so it drops the very rows
+  // the segment consensus rescued. Append each strong-consensus series' own
+  // (promoted) row from `cross` when the filter lost it; alignSeries and the
+  // filtered-table display both read these rows as-is. markInjected records
+  // which entries came back this way (pipeline call only).
+  function keepConsensusRows(cross, filtered, consensus, target, markInjected) {
+    if (!consensus) return filtered;
+    var have = {};
+    filtered.cols[1].forEach(function (v) { if (v != null) have[v] = true; });
+    Object.keys(consensus).forEach(function (s) {
+      var c = consensus[s];
+      if (c.tier !== 'strong' || have[s]) return;
+      if (c.action !== 'promoted' && c.action !== 'confirmed') return;
+      for (var r = 0; r < cross.cols[0].length; r++) {
+        if (cross.cols[0][r] === target && cross.cols[1][r] === s) {
+          cross.cols.forEach(function (col, i) { filtered.cols[i].push(col[r]); });
+          if (markInjected) c.injected = true;
+          filtered.consensusKept = (filtered.consensusKept || 0) + 1;
+          break;
+        }
+      }
+    });
+    return filtered;
+  }
+
+  // Finish a plain mode-2 run's background segmentation: the grids already
+  // folded (one runner step per series), pick the kept windows, then one
+  // segments-only leadLag vs the mean chronology (full lag range — placements
+  // need it, whatever the whole-series lag limits were). No segment rows enter
+  // the visible table.
+  function consensusFinish(result, names, sel, win, keep) {
+    var target = result.target;
+    var base = result.chronNSeries;
+    var segFrame = { names: base.names.slice(0, 2), cols: [base.cols[0], base.cols[1]] };
+    var nrow = base.cols[0].length;
+    var total = 0;
+    names.forEach(function (s) {
+      (sel[s] || []).forEach(function (w) {
+        segFrame.names.push(w.name);
+        segFrame.cols.push(windowColumn(base, s, w.startRow, win, nrow));
+        total++;
+      });
+    });
+    var bySeries = total ? consensusFromRows(RD.leadLag(segFrame, { mode: 2, complete: true }).crossDatRes, sel, target) : {};
+    return { segments: sel, bySeries: bySeries, segLength: win, keepN: keep };
+  }
+
   // Convert a segment's plot lag into the equivalent lag for its FULL series:
   // the parent aligned at the returned lag reproduces the segment's alignment
   // exactly over the segment's rings (segments are slices of the detrended
@@ -531,8 +877,13 @@
   //
   // ringTest(opts) returns a stepwise runner so the host can batch the work
   // and paint progress: { total, baseline, seriesLength, step(count)->done,
-  // progress(), results(), corrected(exp) }.
+  // progress(), results(), review(exp), corrected(exp) -> {name, values},
+  // correctedDownload(exp) -> {filename, mime, content} (.rwl, relative ring
+  // axis 1..n) }.
   //   opts: { undated, series, detrend, leadlag,
+  //           seriesValues,   // optional raw values override for `series` —
+  //                           // lets an already-corrected series be re-tested
+  //                           // (iterative testing) without touching the frame
   //           reference: { kind:'series', name }                       // another complete series
   //                    | { kind:'chron', frame, isDetrended, name } }  // chronology (mean of members)
   var FRUIT_DT = 1;
@@ -582,9 +933,25 @@
       refCol = detrendValues(trimSeries(undated, ref.name), ref.name, detOpt);
     }
 
-    var vals = trimSeries(undated, series);
+    var vals = opts.seriesValues ? opts.seriesValues.slice() : trimSeries(undated, series);
     var n = vals.length;
     if (n < 20) throw new Error('Series is too short to test.');
+    function editName(exp) {
+      return exp ? series + (exp.type === 'split' ? '+ring' : '-ring') + exp.ring : series;
+    }
+    function corrected(exp) {
+      return { name: editName(exp), values: exp ? applyRingEdit(vals, exp) : vals.slice() };
+    }
+    function correctedDownload(exp) {
+      var c = corrected(exp);
+      var ring = [];
+      for (var ri = 0; ri < c.values.length; ri++) ring.push(ri + 1);
+      return {
+        filename: String(c.name).replace(/[^\w.-]+/g, '_') + '_corrected.rwl',
+        mime: 'text/plain',
+        content: RD.writeRwl({ names: ['ring', c.name], cols: [ring, c.values] }, {})
+      };
+    }
     var exps = [];
     for (var i = 1; i <= n; i++) exps.push({ type: 'split', ring: i });
     for (var j = 1; j <= n - 1; j++) exps.push({ type: 'merge', ring: j });
@@ -623,7 +990,7 @@
     // output so the host renders them the same way.
     function review(exp) {
       var values = exp ? applyRingEdit(vals, exp) : vals;
-      var name = exp ? series + (exp.type === 'split' ? '+ring' : '-ring') + exp.ring : series;
+      var name = editName(exp);
       var detS = detrendValues(values, name, detOpt);
       var nrow = Math.max(refCol.length, detS.length);
       var axis = [], rc = [], tc = [], rawRc = [], rawTc = [];
@@ -686,7 +1053,9 @@
         });
         return { experiments: sorted, fruitful: sorted.filter(function (x) { return x.fruitful; }) };
       },
-      review: review
+      review: review,
+      corrected: corrected,
+      correctedDownload: correctedDownload
     };
   }
 
@@ -728,47 +1097,15 @@
   }
 
   // ---- run a full workflow -------------------------------------------------
-  // opts: { mode(1|2), undated, chron?, detrend, leadlag, filter, probWind, rbarWindow }
-  // Returns the workflow bundle, annotated with { mode, target, undated } so the
-  // downloads / report / plot helpers are self-sufficient.
+  // opts: { mode(1|2), undated, chron?, detrend, leadlag, filter, probWind,
+  // rbarWindow, segLen?, keepN? }. Returns the workflow bundle, annotated with
+  // { mode, target, undated } so the downloads / report / plot helpers are
+  // self-sufficient. Chronology-mode bundles also carry the segment-consensus
+  // block. Synchronous run-to-completion of analysisRunner (above).
   function runAnalysis(opts) {
-    var mode = Number(opts.mode) === 2 ? 2 : 1;
-    var undated = opts.undated;
-    if (!undated) throw new Error('No undated data loaded.');
-    var names = seriesNames(undated);
-    var filter = Object.assign({ r_val: 0.5, p_val: 0.05, overlap: 50 }, opts.filter || {});
-    var detrend = detrendOptions(opts.detrend);
-    var leadlag = opts.leadlag || { neg_lag: -20, pos_lag: 20, complete: true };
-    var probWind = opts.probWind != null ? opts.probWind : 20;
-    var rbarWindow = opts.rbarWindow != null ? opts.rbarWindow : 25;
-
-    var result;
-    if (mode === 2) {
-      if (!opts.chron) throw new Error('Chronology mode needs a loaded chronology.');
-      var target2 = filter.target || 'mean_chronology';
-      result = RD.chronologyWorkflow({
-        undated: undated, chron: opts.chron, detrend: detrend,
-        leadlag: leadlag,
-        filter: Object.assign({}, filter, { target: target2 }),
-        probWind: probWind, rbarWindow: rbarWindow,
-        chronIsDetrended: !!opts.chronIsDetrended
-      });
-      result.target = target2;
-    } else {
-      var target1 = filter.target || names[0];
-      result = RD.pairwiseWorkflow({
-        undated: undated, detrend: detrend,
-        leadlag: leadlag,
-        filter: Object.assign({}, filter, { target: target1 }),
-        probWind: probWind, rbarWindow: rbarWindow
-      });
-      result.target = target1;
-    }
-    result.mode = mode;
-    result.undated = undated;
-    result.detrendOpts = detrend;
-    result.chronName = opts.chronName || null;
-    return result;
+    var r = analysisRunner(opts);
+    while (!r.step());
+    return r.result();
   }
 
   // ---- crossDatRes table shaping (the 17-col interseries table) -------------
@@ -790,6 +1127,7 @@
     if (v == null || (typeof v === 'number' && isNaN(v))) return '';
     if (typeof v !== 'number') return String(v);
     if (v < P_FLOOR) return '< 1E-6';                 // includes 0 / underflow
+    if (v >= 1) return '1';                           // Bonferroni p caps at 1
     if (v < 0.001) return v.toExponential(2).replace('e', 'E');
     return String(Math.round(v * 1e5) / 1e5);
   }
@@ -813,9 +1151,12 @@
   function crossDatTable(crossDatRes) { return frameToTable(crossDatRes); }
 
   // re-filter an existing crossDatRes with new r/p/overlap/target (Step-1/2 of
-  // the pairwise results tab). Returns the filtered Frame (throws on bad target).
-  function refilter(crossDatRes, filter) {
-    return RD.filterCrossdates(crossDatRes, filter);
+  // the pairwise results tab). Returns the filtered Frame (throws on bad
+  // target). With `consensus`, rows the filter dropped but a strong segment
+  // consensus supports are appended back (frame.consensusKept counts them).
+  function refilter(crossDatRes, filter, consensus) {
+    var out = RD.filterCrossdates(crossDatRes, filter);
+    return keepConsensusRows(crossDatRes, out, consensus, filter.target, false);
   }
 
   // ---- plots ---------------------------------------------------------------
@@ -1405,11 +1746,12 @@
     loadTridas: loadTridas, bindUndated: bindUndated, bindDated: bindDated,
     slidingSegmentAnalysis: slidingSegmentAnalysis, ringTest: ringTest,
     diagnoseSegments: diagnoseSegments, fullSeriesLag: fullSeriesLag,
+    CONSENSUS: CONSENSUS, consensusFromRows: consensusFromRows, statsAtLag: statsAtLag,
     slidingSelectPairwise: slidingSelectPairwise, slidingSelectVsReference: slidingSelectVsReference,
     compositeChron: compositeChron,
     ensureMeta: RD.ensureMeta, META_EDITABLE: RD.META_EDITABLE,
     detrendOptions: detrendOptions,
-    runAnalysis: runAnalysis,
+    runAnalysis: runAnalysis, analysisRunner: analysisRunner,
     crossDatTable: crossDatTable, frameToTable: frameToTable, refilter: refilter,
     fmtCell: fmtCell,
     buildPlots: buildPlots, renderPlot: renderPlot, combinedPlot: combinedPlot,

@@ -107,6 +107,11 @@
             <label id="slotUndatedLabel" for="setupUndatedInput"></label>
             <div class="slot-status" id="slotUndatedStatus"></div>
             <input type="file" id="setupUndatedInput" multiple accept=".csv,.txt,.rwl,.pos,.lps,.xml">
+            <div class="slot-dir">
+              <span class="hint">or</span>
+              <button type="button" class="btn ghost" id="setupUndatedDirBtn">Load all series from a folder…</button>
+              <input type="file" id="setupUndatedDirInput" webkitdirectory style="display:none">
+            </div>
           </div>
           <div class="setup-slot" id="slotChron">
             <label id="slotChronLabel" for="setupChronInput"></label>
@@ -165,28 +170,40 @@
               </div>
             </div>
 
-            <div class="rail-sec" id="railSegment">
-              <h3>Segments</h3>
-              <label class="inline"><input type="checkbox" id="seg_enable"> Break undated series into segments</label>
-              <label for="seg_len">Segment length (years)</label>
-              <input type="number" id="seg_len" value="60" min="20" step="1">
-              <label for="seg_keep">Keep best segments per series</label>
-              <input type="number" id="seg_keep" value="5" min="1" max="20" step="1">
-              <p class="hint">Every possible segment (a sliding window) of each series is scored against
-                 the other complete series — never against other segments — and the best few
-                 non-overlapping windows per series join the results. Segments of one series dating at
-                 inconsistent lags point to missing or false rings.</p>
-            </div>
-
-            <div class="rail-sec" id="railDetrend">
-              <h3>Detrending</h3>
-              <label for="detrending_select">Method</label>
-              <select id="detrending_select"></select>
-              <label for="splinewindow">Spline window (years, spline method only)</label>
-              <input type="number" id="splinewindow" value="11" min="5" max="200" step="1">
-              <label class="inline"><input type="checkbox" id="ARmod"> AR1 pre-whitening</label>
-              <label class="inline"><input type="checkbox" id="logT"> Log transform</label>
-            </div>
+            <details class="rail-sec rail-adv" id="railExtra">
+              <summary>Additional settings</summary>
+              <div id="railDetrend">
+                <h4>Detrending</h4>
+                <label for="detrending_select">Method</label>
+                <select id="detrending_select"></select>
+                <label for="splinewindow">Spline window (years, spline method only)</label>
+                <input type="number" id="splinewindow" value="11" min="5" max="200" step="1">
+                <label class="inline"><input type="checkbox" id="ARmod"> AR1 pre-whitening</label>
+                <label class="inline"><input type="checkbox" id="logT"> Log transform</label>
+              </div>
+              <div id="railSegment">
+                <h4>Segments</h4>
+                <label class="inline"><input type="checkbox" id="seg_enable"> Break undated series into segments</label>
+                <label for="seg_len">Segment length (years)</label>
+                <input type="number" id="seg_len" value="60" min="20" step="1">
+                <label for="seg_keep">Keep best segments per series</label>
+                <input type="number" id="seg_keep" value="5" min="1" max="20" step="1">
+                <p class="hint">Every possible segment (a sliding window) of each series is scored against
+                   the other complete series — never against other segments — and the best few
+                   non-overlapping windows per series join the results. Segments of one series dating at
+                   inconsistent lags point to missing or false rings.</p>
+              </div>
+              <div id="railConsensus">
+                <h4>Segment consensus (chronology mode)</h4>
+                <label for="cons_len">Consensus segment length (years)</label>
+                <input type="number" id="cons_len" value="60" min="20" step="1">
+                <p class="hint">Every chronology-mode run also segments each series in the background,
+                   using windows of this length: when two or more well-dated segments agree on a
+                   series' placement, that consensus lag is promoted to 1st in the results — badged,
+                   with the evidence in the tooltip. With the Segments tool above enabled, consensus
+                   reads that run's segments instead (its own length setting).</p>
+              </div>
+            </details>
 
             <details class="rail-sec rail-adv" id="railLags">
               <summary>Lead / lag</summary>
@@ -282,7 +299,9 @@
             <p class="hint">Simulates every possible single-ring correction of one series: each measured ring
                is split in two (as if a ring boundary was missed inside it) and each neighbouring pair is
                merged (as if one ring was falsely counted as two). Every edit is re-detrended and fully
-               re-crossdated against the reference — edits that beat the unedited baseline bear fruit.</p>
+               re-crossdated against the reference — edits that beat the unedited baseline bear fruit.
+               Fruitful corrections can be applied and the test re-run iteratively (each pass hunts the
+               next missing / false ring), and any corrected series can be downloaded as .rwl.</p>
             <div class="plot-controls">
               <div><label for="rt_series">Series to test</label><select id="rt_series"></select></div>
               <div><label for="rt_ref">Reference</label><select id="rt_ref"></select></div>
@@ -398,6 +417,15 @@
       </div>
     </section>
   </main>
+</div>
+
+<!-- run-analysis progress overlay: centered over the page while a run grinds -->
+<div id="runProgress" style="display:none" role="status" aria-live="polite">
+  <div class="pbox">
+    <h3>Running analysis…</h3>
+    <div class="pbar"><div class="pbar-fill" id="runBarFill"></div></div>
+    <div class="pbar-label" id="runBarLabel"></div>
+  </div>
 </div>
 
 <script src="./ringdater.bundle.js?v=0.2.0"></script>

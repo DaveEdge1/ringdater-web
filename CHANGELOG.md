@@ -68,6 +68,72 @@ Then `git push --follow-tags`.
   arrows in the headers (ascending, descending, and back to the grouped
   best-3-blocks view; sorting hides the block header/separator rows and orders
   by raw values, blanks last). Row-click plotting keeps working while sorted.
+- Home: "Load all series from a folder…" on the undated slot — a directory
+  picker (recursive) that loads every readable data file it finds, names the
+  pool after the folder, and reports how many non-data files were ignored.
+- Explore: the 2nd- and 3rd-best lags in the results table are selectable —
+  clicking a cell in the Sec/Third column groups plots the pair at that
+  alternate lag (tooltip + hover affordance on those cells); clicking anywhere
+  else in the row keeps the best lag. `AppUI.selectPair` takes an optional lag.
+  Hovering previews the pick: on top of the green row highlight, the four
+  cells of the lag group a click would select (best, 2nd or 3rd — including
+  the fallback to best when an alternate lag is blank) light up in blue.
+- Explore, chronology mode: **segment-consensus lag ranking**. Every
+  chronology-mode run now also runs the sliding-window segmentation in the
+  background (using the Segments length/keep settings; segLen 60 / keep 5 by
+  default), projects each kept segment's best-3 placements onto the
+  whole-series lag each implies, and clusters them by chained ±5-lag agreement
+  — two or more independently well-dated segments (corrected p ≤ 0.05)
+  agreeing on a placement is very unlikely by chance, and catches series whose
+  missing/false rings dilute the full-series correlation at every lag. A
+  STRONG consensus (≥3 segments, or ≥2 with min p ≤ 1E-6) that disagrees with
+  the engine's best lag is promoted to 1st in the results (whole-series stats
+  shown at that lag; the engine ranking shifts down) and the series joins the
+  aligned output — and the report/exports — at the consensus lag, kept through
+  the r/p filters the diluted whole-series stats would fail. A consensus
+  matching the engine's lag is marked as confirmation; a 2-segment tentative
+  one is flagged without re-ranking. Badges on the First-lag cells carry the
+  evidence (segment count, min p) in their tooltips. The engine's own
+  `crossDatRes` is never mutated — promotion happens on an app-layer copy, so
+  the R-parity contract stands. New `AppCore.consensusFromRows`,
+  `AppCore.statsAtLag`, `AppCore.CONSENSUS` (thresholds), a `consensus` option
+  on `AppCore.refilter`, and a `consensus` block on mode-2 result bundles.
+
+- Explore, missing / false ring test: iterative correction. A fruitful pass
+  offers "Apply best edit & test again" (or apply the reviewed edit) and
+  "Auto-iterate until clean" — each pass applies the correction to the raw
+  series and re-tests it hunting the NEXT missing / false ring (ring numbers
+  then refer to the corrected series; capped at 8 corrections). The applied
+  corrections are summarised above the results, and the corrected series can
+  be downloaded as .rwl at any point — both the cumulative iterated series and
+  any single reviewed edit (relative ring axis 1..n). New runner API:
+  `corrected(exp)`, `correctedDownload(exp)`, and a `seriesValues` option on
+  `AppCore.ringTest` to test in-memory (already-corrected) values.
+- Explore: a run-analysis progress overlay — the run is now a stepwise
+  `AppCore.analysisRunner` (one engine workflow / runningLeadLag grid / segment
+  crossdate per step, all four run shapes) driven through a timeout loop, so a
+  centered floating card with a progress bar and step label ("Scanning
+  segments of cmp504 (7/14)") paints over a dimmed page while long runs grind
+  instead of freezing the UI. `runAnalysis` and `slidingSegmentAnalysis` are
+  unchanged synchronous wrappers around it.
+
+### Changed (UI layout)
+- Explore rail: the Detrending and Segments sections moved into a collapsed
+  "Additional settings" section (same controls and defaults; the guided tour
+  opens it when it reaches the detrending step), leaving Data, Analysis mode,
+  Lead/lag, Diagnostics and Run in the main rail. A new "Segment consensus"
+  block there holds its own consensus segment length (years, default 60,
+  forced odd) for the background pass of plain chronology runs; with the
+  Segments tool enabled, consensus reads that run's segments and the tool's
+  own length applies. New read-only `AppUI.result()` exposes the current run
+  bundle for headless testing.
+
+### Changed
+- Explore, chronology mode: the displayed best-lag ranking is no longer always
+  the engine's full-series p-value order — a strong segment consensus
+  out-ranks it (see Added). Pairwise mode is unchanged.
+- p-value display: Bonferroni-corrected p-values ≥ 1 now display as "1"
+  (raw values are preserved in frames and CSV exports).
 
 ## [0.2.0] — 2026-08-07
 

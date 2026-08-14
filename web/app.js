@@ -264,7 +264,9 @@
     if (t.chron) parts.push(AC.seriesNames(t.chron).length + '-series chronology');
     return parts.join(' + ');
   }
-  function loadUndatedFiles(fileList, msgId) {
+  // opts (optional): { label, note } — label replaces the joined-filenames pool
+  // name (e.g. a folder name), note is appended to the success message.
+  function loadUndatedFiles(fileList, msgId, opts) {
     readFilesAsText(fileList, function (descriptors, xlsx) {
       xlsxWarn(xlsx);
       if (xlsx.length && msgId) setMsg(msgId, '.xlsx files skipped — see the warning above.', 'err');
@@ -274,7 +276,7 @@
       try {
         if (others.length) {
           state.undated = AC.loadUndated(others);
-          state.undatedName = others.map(function (d) { return d.name; }).join(', ');
+          state.undatedName = (opts && opts.label) || others.map(function (d) { return d.name; }).join(', ');
         }
         if (xmls.length) {
           var label = xmls.map(function (d) { return d.name; }).join(', ');
@@ -286,6 +288,7 @@
         onDataChanged();
         if (msgId) {
           var loadedMsg = 'Loaded ' + (state.undated ? AC.seriesNames(state.undated).length : 0) + ' undated series' + (state.chron ? ' + chronology' : '') + '.';
+          if (opts && opts.note) loadedMsg += ' ' + opts.note;
           var warns = (state.undated && state.undated.warnings) || [];
           if (warns.length) setMsg(msgId, loadedMsg + ' ' + warns.join(' '), 'warn');
           else setMsg(msgId, loadedMsg, 'ok');
@@ -340,6 +343,28 @@
   // contextual chronology loader is the one exception (chronology mode with
   // none loaded).
   $('setupUndatedInput').addEventListener('change', function (e) { loadUndatedFiles(e.target.files, 'startMsg'); });
+  // Folder loading: a webkitdirectory input returns every file in the tree
+  // (recursively) and ignores `accept`, so filter to the undated formats here —
+  // keeping .xlsx so the existing warning explains why those were skipped.
+  var UNDATED_EXT = ['csv', 'txt', 'rwl', 'pos', 'lps', 'xml'];
+  $('setupUndatedDirBtn').addEventListener('click', function () { $('setupUndatedDirInput').click(); });
+  $('setupUndatedDirInput').addEventListener('change', function (e) {
+    var all = Array.prototype.slice.call(e.target.files);
+    var files = all.filter(function (f) {
+      return f.name.charAt(0) !== '.' && (UNDATED_EXT.indexOf(AC.ext(f.name)) >= 0 || AC.isXlsx(f.name));
+    });
+    var folder = all.length && all[0].webkitRelativePath ? all[0].webkitRelativePath.split('/')[0] : '';
+    e.target.value = '';   // so re-picking the same folder fires change again
+    if (!files.length) {
+      setMsg('startMsg', 'No data files (.csv, .txt, .rwl, .pos, .lps, .xml) found in ' + (folder ? '"' + folder + '"' : 'that folder') + '.', 'err');
+      return;
+    }
+    var ignored = all.length - files.length;
+    loadUndatedFiles(files, 'startMsg', {
+      label: folder || null,
+      note: ignored ? '(' + ignored + ' non-data file' + (ignored === 1 ? '' : 's') + ' ignored.)' : ''
+    });
+  });
   $('setupChronInput').addEventListener('change', function (e) { loadChronFile(e.target.files, 'startMsg'); });
   $('modeChronInput').addEventListener('change', function (e) {
     loadChronFile(e.target.files, 'runMsg', function () { e.target.value = ''; });
@@ -438,70 +463,101 @@
   });
 
   // ---- run analysis --------------------------------------------------------
+  // The run is a stepwise AppCore.analysisRunner driven through setTimeout —
+  // one workflow / grid / segment chunk per tick — so the progress bar under
+  // the Run button paints while the crossdating and the background
+  // segment-consensus pass grind (same batched pattern as the ring test).
   Actions.runAnalysis = function (done) {
     if (!state.undated) { setMsg('runMsg', 'Load undated data first.', 'err'); return; }
     var mode = Number($('mode_select').value);
     if (mode === 2 && !state.chrons.length) { setMsg('runMsg', 'Chronology mode needs a loaded chronology (Data section above).', 'err'); return; }
     var target = $('target_select').value || AC.seriesNames(state.undated)[0];
-    setMsg('runMsg', 'Running analysis…');
-    setTimeout(function () {
-      try {
-        // Chronology mode compares against the picked chronology, or the
-        // composite (mean of the detrended chronologies) built at run time
-        // from the current detrend settings.
-        var chronForRun = state.chron, chronNameForRun = state.chronName, chronIsDetrended = false;
-        if (mode === 2) {
-          if (state.chronChoice === COMPOSITE) {
-            chronForRun = AC.compositeChron(state.chrons, detrendUI());
-            chronNameForRun = 'composite of ' + state.chrons.length + ' chronologies';
-            chronIsDetrended = true;
-          } else {
-            var pick = chronByName(state.chronChoice) || state.chrons[state.chrons.length - 1];
-            chronForRun = pick.frame; chronNameForRun = pick.name;
-          }
+    var runner, segTool = $('seg_enable').checked;
+    var fail = function (err) {
+      $('runBtn').disabled = false;
+      $('runProgress').style.display = 'none';
+      setMsg('runMsg', 'Error: ' + err.message, 'err');
+      if (done) done(false);
+    };
+    try {
+      // Chronology mode compares against the picked chronology, or the
+      // composite (mean of the detrended chronologies) built at run time
+      // from the current detrend settings.
+      var chronForRun = state.chron, chronNameForRun = state.chronName, chronIsDetrended = false;
+      if (mode === 2) {
+        if (state.chronChoice === COMPOSITE) {
+          chronForRun = AC.compositeChron(state.chrons, detrendUI());
+          chronNameForRun = 'composite of ' + state.chrons.length + ' chronologies';
+          chronIsDetrended = true;
+        } else {
+          var pick = chronByName(state.chronChoice) || state.chrons[state.chrons.length - 1];
+          chronForRun = pick.frame; chronNameForRun = pick.name;
         }
-        var runOpts = {
-          mode: mode,
-          undated: state.undated, chron: chronForRun,
-          chronName: chronNameForRun,
-          chronIsDetrended: chronIsDetrended,
-          detrend: detrendUI(),
-          leadlag: leadlagUI(),
-          filter: {
-            r_val: 0.5, p_val: 0.05, overlap: 30,
-            target: mode === 2 ? 'mean_chronology' : target
-          },
-          probWind: Number($('rep_probs').value) || 30,
-          rbarWindow: Number($('rep_eps').value) || 30
-        };
+      }
+      runner = AC.analysisRunner({
+        mode: mode,
+        undated: state.undated, chron: chronForRun,
+        chronName: chronNameForRun,
+        chronIsDetrended: chronIsDetrended,
+        detrend: detrendUI(),
+        leadlag: leadlagUI(),
+        filter: {
+          r_val: 0.5, p_val: 0.05, overlap: 30,
+          target: mode === 2 ? 'mean_chronology' : target
+        },
+        probWind: Number($('rep_probs').value) || 30,
+        rbarWindow: Number($('rep_eps').value) || 30,
+        // window length: the Segments tool uses its own; the background
+        // segment-consensus pass of a plain chronology run has a separate one
+        segLen: segTool ? (Number($('seg_len').value) || 60) : (Number($('cons_len').value) || 60),
+        keepN: Number($('seg_keep').value) || 5,
+        segTool: segTool
+      });
+    } catch (err) { fail(err); return; }
+    $('runBtn').disabled = true;
+    $('runProgress').style.display = '';
+    $('runBarFill').style.width = '0';
+    setMsg('runMsg', '');
+    var tick = function () {
+      if (!runner.done()) {
+        $('runBarLabel').textContent = runner.label() + ' (' + (runner.progress() + 1) + '/' + runner.total() + ')';
+        $('runBarFill').style.width = Math.round(100 * runner.progress() / runner.total()) + '%';
+        setTimeout(function () {
+          try { runner.step(); } catch (err) { fail(err); return; }
+          tick();
+        }, 15);
+        return;
+      }
+      try {
+        $('runBtn').disabled = false;
+        $('runProgress').style.display = 'none';
+        state.result = runner.result();
         var segNote = '';
-        if ($('seg_enable').checked) {
-          // Sliding-window segmentation: every possible ~N-ring window of each
-          // series is scored against the other complete series; the best few
-          // non-overlapping windows per series join the run as extra series.
-          runOpts.segLen = Number($('seg_len').value) || 60;
-          runOpts.keepN = Number($('seg_keep').value) || 5;
-          state.result = AC.slidingSegmentAnalysis(runOpts);
+        if (segTool) {
           var segCount = 0;
           AC.seriesNames(state.undated).forEach(function (n) {
             segCount += (state.result.segments[n] || []).length;
           });
           segNote = ' Kept the best ' + segCount + ' segments (' + state.result.segLength +
             '-yr sliding windows, up to ' + state.result.keepN + ' per series).';
-        } else {
-          state.result = AC.runAnalysis(runOpts);
         }
         state.filteredTable = state.result.crossDatRes;
         state.selectedPair = null;
-        setMsg('runMsg', 'Analysis complete (' + (mode === 2 ? 'chronology' : 'pairwise') + ' mode).' + segNote + ' ' +
+        var cc = state.result.consensus && state.result.consensus.counts;
+        var consNote = cc && (cc.promoted || cc.confirmed || cc.noted)
+          ? ' Segment consensus: ' + cc.promoted + ' re-ranked, ' + cc.confirmed + ' confirmed' +
+            (cc.noted ? ', ' + cc.noted + ' tentative' : '') + '.'
+          : '';
+        setMsg('runMsg', 'Analysis complete (' + (mode === 2 ? 'chronology' : 'pairwise') + ' mode).' + segNote + consNote + ' ' +
           state.result.crossDatRes.cols[0].length + ' result rows; ' +
           (state.result.aligned.names.length - 1) + ' aligned series.', 'ok');
         setupResultControls();
         showExploreResults(true);
         renderPlots();
         if (done) done(true);
-      } catch (err) { setMsg('runMsg', 'Error: ' + err.message, 'err'); if (done) done(false); }
-    }, 20);
+      } catch (err) { fail(err); }
+    };
+    setTimeout(tick, 10);
   };
   $('runBtn').addEventListener('click', function () { Actions.runAnalysis(); });
 
@@ -545,8 +601,9 @@
         frame = AC.refilter(state.result.crossDatRes, {
           r_val: Number($('f_r').value), p_val: Number($('f_p').value),
           overlap: Number($('f_overlap').value), target: $('f_target').value
-        });
-        setMsg('resMsg', frame.cols[0].length + ' rows pass the filter.', 'ok');
+        }, state.result.consensus && state.result.consensus.bySeries);
+        var keptNote = frame.consensusKept ? ' (' + frame.consensusKept + ' kept by segment consensus)' : '';
+        setMsg('resMsg', frame.cols[0].length + ' rows pass the filter' + keptNote + '.', 'ok');
       } catch (err) { setMsg('resMsg', 'Filter error: ' + err.message, 'err'); return; }
     } else { setMsg('resMsg', 'Showing full crossDatRes (' + frame.cols[0].length + ' rows).'); }
     state.filteredTable = frame;
@@ -619,7 +676,43 @@
     // A row pairing ONE segment with a complete reference gets a checkbox so
     // several placements of the same series can be diagnosed together.
     var isSegName = function (n) { return /@\d+-\d+$/.test(String(n)); };
-    var paintRow = function (row) {
+    // Alternate-lag selection: cells in the Sec_* / Third_* column groups pick
+    // that lag when clicked; anywhere else in the row picks the best (First_lag).
+    var lagGroupOf = function (colName) {
+      return /^Sec_/.test(String(colName)) ? 'Sec_' : (/^Third_/.test(String(colName)) ? 'Third_' : 'First_');
+    };
+    var dispCols = tbl.columns.map(function (_, i) { return i; }).filter(function (i) { return i !== dropIdx; });
+    var rawLag = function (rIdx, group) {
+      var li = tbl.columns.indexOf(group + 'lag');
+      var v = li >= 0 ? tbl.raw[rIdx][li] : null;
+      return (typeof v === 'number' && !isNaN(v)) ? v : null;
+    };
+    // Segment-consensus badge on the First-lag cell (chronology runs): the
+    // run's background segmentation either re-ranked, confirmed, or tentatively
+    // questioned this row's best lag — the badge says which, the tooltip why.
+    var consBy = (state.result && state.result.consensus && state.result.consensus.bySeries) || {};
+    var consFor = function (s1, s2) {
+      var t = state.result && state.result.target;
+      var s = s1 === t ? s2 : (s2 === t ? s1 : null);
+      return (s && consBy[s]) || null;
+    };
+    var consBadge = function (c) {
+      if (!c || !c.action) return '';
+      var minP = AC.fmtP(c.minP);
+      if (c.action === 'promoted') {
+        return ' <span class="seg-badge promoted" title="Ranked by segment consensus: ' + c.nSegs +
+          ' segments independently date this series here (min p ' + escA(minP) +
+          '). The r / p shown are the whole-series stats at this lag; the full-series best lag (' + c.engineLag + ') is now 2nd.">' +
+          c.nSegs + ' segs</span>';
+      }
+      if (c.action === 'confirmed') {
+        return ' <span class="seg-badge confirmed" title="Segment consensus (' + c.nSegs + ' segments, min p ' + escA(minP) +
+          ') independently confirms this lag.">✓ segs</span>';
+      }
+      return ' <span class="seg-badge noted" title="' + c.nSegs + ' segments tentatively support lag ' + c.lag +
+        ' instead (min p ' + escA(minP) + ') — not promoted. Enable the Segments tool to inspect the placements.">? ' + c.lag + '</span>';
+    };
+    var paintRow = function (row, rIdx) {
       var s1 = row[0], s2 = row[1];       // Series_1 / Series_2 stay at indices 0,1 ("col" is later)
       var isSep = row.every(function (c) { return c === ''; });
       var tr = document.createElement('tr');
@@ -633,23 +726,69 @@
         ? '<input type="checkbox" class="seg-check" data-seg="' + escA(seg) + '" data-ref="' + escA(ref) + '"' +
           (segChecks[seg + '\u0000' + ref] ? ' checked' : '') + ' title="Select for segment diagnosis">'
         : '';
-      tr.innerHTML = '<td class="segchk">' + chk + '</td>' + keep(row).map(function (c) { return '<td>' + esc(c) + '</td>'; }).join('');
-      if (s1 && s2 && s1 !== s2) {
+      var isPair = !!(s1 && s2 && s1 !== s2);
+      // Hover model: every pair-row cell knows its own lag-stat group (data-lg,
+      // only the lag/R/P/Overlap columns) and the group a CLICK on it would
+      // select (data-eff — its own group when it has a valid alternate lag,
+      // the best-lag group otherwise). The delegated hover handler below
+      // highlights the whole effective group so the pick is visible before the
+      // click.
+      var lgToken = { First_: 'first', Sec_: 'sec', Third_: 'third' };
+      var cells = row.map(function (c, ci) {
+        if (ci === dropIdx) return '';
+        var attr = '', extra = '';
+        if (isPair) {
+          var col = String(tbl.columns[ci]);
+          var g = lagGroupOf(col);
+          var ownGroup = /^(First|Sec|Third)_(lag|R|P|Overlap)$/.test(col) ? g : null;
+          var eff = (g !== 'First_' && rawLag(rIdx, g) != null) ? g : 'First_';
+          if (g !== 'First_' && rawLag(rIdx, g) != null) {
+            attr = ' class="altlag" title="Click: view this pair at its ' + (g === 'Sec_' ? '2nd' : '3rd') + '-best lag"';
+          }
+          attr += ' data-lg="' + (ownGroup ? lgToken[ownGroup] : '') + '" data-eff="' + lgToken[eff] + '"';
+          if (col === 'First_lag') extra = consBadge(consFor(s1, s2));
+        }
+        return '<td' + attr + '>' + esc(c) + extra + '</td>';
+      }).join('');
+      tr.innerHTML = '<td class="segchk">' + chk + '</td>' + cells;
+      if (isPair) {
         tr.addEventListener('click', function (e) {
           if (e.target && e.target.classList && e.target.classList.contains('seg-check')) return;
           tbody.querySelectorAll('tr').forEach(function (x) { x.classList.remove('sel'); });
           tr.classList.add('sel');
-          Actions.selectPair(s1, s2);
+          var lag = null;
+          var td = e.target && e.target.closest ? e.target.closest('td') : null;
+          if (td && td.cellIndex > 0) {
+            var orig = dispCols[td.cellIndex - 1];
+            lag = rawLag(rIdx, lagGroupOf(tbl.columns[orig]));
+          }
+          Actions.selectPair(s1, s2, lag);
         });
       }
       tbody.appendChild(tr);
     };
-    if (resSort) sortOrder(tbl).forEach(function (r) { paintRow(tbl.rows[r]); });
+    if (resSort) sortOrder(tbl).forEach(function (r) { paintRow(tbl.rows[r], r); });
     else tbl.rows.forEach(paintRow);
     tbody.querySelectorAll('.seg-check').forEach(function (cb) {
       cb.addEventListener('change', function () { onSegCheck(cb, tbody); });
     });
   }
+  // Delegated once on the (persistent) tbody: hovering a cell highlights every
+  // cell of the lag group that clicking there would select (see data-eff above).
+  (function () {
+    var tbody = $('resTable').querySelector('tbody');
+    var mark = function (target, on) {
+      var td = target && target.closest ? target.closest('td') : null;
+      if (!td || !td.parentElement) return;
+      var eff = td.getAttribute('data-eff');
+      if (!eff) return;
+      Array.prototype.forEach.call(td.parentElement.cells, function (c) {
+        if (c.getAttribute('data-lg') === eff) c.classList.toggle('lag-hover', on);
+      });
+    };
+    tbody.addEventListener('mouseover', function (e) { mark(e.target, true); });
+    tbody.addEventListener('mouseout', function (e) { mark(e.target, false); });
+  })();
 
   // ---- segment diagnosis ----------------------------------------------------
   // Checking one segment auto-selects its visible siblings (same series, same
@@ -734,19 +873,22 @@
     plotSaveBar($('segDiagOut'), 'segment_placements_' + diag.series);
   }
 
-  // Select a pair and render its plots in place (no tab hop).
-  Actions.selectPair = function (s1, s2) {
+  // Select a pair and render its plots in place (no tab hop). Optional lag
+  // overrides the pair's best lag (used by the 2nd/3rd-best-lag table cells).
+  Actions.selectPair = function (s1, s2, lag) {
     if (!state.result) return;
     state.selectedPair = [s1, s2];
     if ($('p_series1')) $('p_series1').value = s1;
     if ($('p_series2') && Array.prototype.some.call($('p_series2').options, function (o) { return o.value === s2; })) $('p_series2').value = s2;
-    $('p_lag').value = AC.bestLagFor(state.result, s1, s2);
+    $('p_lag').value = (lag == null) ? AC.bestLagFor(state.result, s1, s2) : lag;
     renderPlots();
     $('explorePlots').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   };
   // First selectable pair in the painted table (tour fallback for "click a row").
   // Skips separator rows and diagonal self-pairs (s1 === s2), which carry no
   // click handler.
+  // Read-only handle on the current run bundle (headless tests / debugging).
+  Actions.result = function () { return state.result; };
   Actions.selectFirstPair = function () {
     var rows = $('resTable').querySelectorAll('tbody tr:not(.sep)');
     for (var i = 0; i < rows.length; i++) {
@@ -918,7 +1060,7 @@
   var ringRunner = null;
   function syncRingTest() {
     $('ringTestCard').style.display = state.undated ? '' : 'none';
-    if (!state.undated) { $('rt_out').innerHTML = ''; $('rt_plots').innerHTML = ''; setMsg('rt_msg', ''); ringRunner = null; return; }
+    if (!state.undated) { $('rt_out').innerHTML = ''; $('rt_plots').innerHTML = ''; setMsg('rt_msg', ''); ringRunner = null; ringIter = null; return; }
     var names = AC.seriesNames(state.undated);
     var curSeries = $('rt_series').value;
     fillSelect($('rt_series'), names, function (n) { return n; }, function (n) { return n; });
@@ -941,46 +1083,77 @@
   }
   $('rt_series').addEventListener('change', fillRingRefs);
 
-  Actions.runRingTest = function (done) {
-    if (!state.undated) return;
-    var series = $('rt_series').value;
+  // Iteration state across "apply & test again" passes: the original series,
+  // the current (corrected) name/values, and every edit applied so far. Ring
+  // numbers in each pass refer to the series as corrected by the previous
+  // passes.
+  var ringIter = null;               // { base, series, values, edits: [{type, ring}] }
+  var RING_ITER_CAP = 8;
+  function buildRingReference() {
     var refV = $('rt_ref').value;
-    if (!series || !refV) { setMsg('rt_msg', 'Pick a series and a reference.', 'err'); return; }
-    var reference, refLabel;
-    try {
-      if (refV.indexOf('chron:') === 0) {
-        var cname = refV.slice(6);
-        if (cname === COMPOSITE) {
-          reference = { kind: 'chron', frame: AC.compositeChron(state.chrons, detrendUI()), isDetrended: true };
-          refLabel = 'composite mean chronology';
-        } else {
-          var c = chronByName(cname);
-          reference = { kind: 'chron', frame: c.frame };
-          refLabel = cname + ' mean chronology';
-        }
-      } else {
-        refLabel = refV.slice(7);
-        reference = { kind: 'series', name: refLabel };
+    if (refV.indexOf('chron:') === 0) {
+      var cname = refV.slice(6);
+      if (cname === COMPOSITE) {
+        return { reference: { kind: 'chron', frame: AC.compositeChron(state.chrons, detrendUI()), isDetrended: true }, label: 'composite mean chronology' };
       }
+      var c = chronByName(cname);
+      return { reference: { kind: 'chron', frame: c.frame }, label: cname + ' mean chronology' };
+    }
+    var rn = refV.slice(7);
+    return { reference: { kind: 'series', name: rn }, label: rn };
+  }
+  // One test pass over the current iteration state (fresh series, or the
+  // corrected values of previous passes).
+  function startRingRun(done) {
+    var built;
+    try {
+      built = buildRingReference();
       ringRunner = AC.ringTest({
-        undated: state.undated, series: series, reference: reference,
-        detrend: detrendUI(), leadlag: leadlagUI()
+        undated: state.undated, series: ringIter.series, seriesValues: ringIter.values,
+        reference: built.reference, detrend: detrendUI(), leadlag: leadlagUI()
       });
     } catch (err) { setMsg('rt_msg', 'Error: ' + err.message, 'err'); if (done) done(false); return; }
     $('rt_out').innerHTML = '';
     $('rt_plots').innerHTML = '';
     $('rt_run').disabled = true;
+    var passNote = ringIter.edits.length ? 'Pass ' + (ringIter.edits.length + 1) + ' — t' : 'T';
     var tick = function () {
       var finished = ringRunner.step(24);
-      setMsg('rt_msg', 'Testing single-ring edits… ' + ringRunner.progress() + ' / ' + ringRunner.total);
+      setMsg('rt_msg', passNote + 'esting single-ring edits… ' + ringRunner.progress() + ' / ' + ringRunner.total);
       if (!finished) { setTimeout(tick, 0); return; }
       $('rt_run').disabled = false;
-      paintRingResults(series, refLabel);
+      paintRingResults(ringIter.series, built.label);
       if (done) done(true);
     };
     setTimeout(tick, 10);
+  }
+  Actions.runRingTest = function (done) {
+    if (!state.undated) { if (done) done(false); return; }
+    var series = $('rt_series').value;
+    if (!series || !$('rt_ref').value) { setMsg('rt_msg', 'Pick a series and a reference.', 'err'); if (done) done(false); return; }
+    ringIter = { base: series, series: series, values: null, edits: [] };
+    startRingRun(done);
   };
   $('rt_run').addEventListener('click', function () { Actions.runRingTest(); });
+  // Apply one edit to the iteration state and re-test the corrected series.
+  function applyAndRerun(exp, done) {
+    var c = ringRunner.corrected(exp);
+    ringIter.edits.push({ type: exp.type, ring: exp.ring });
+    ringIter.series = c.name;
+    ringIter.values = c.values;
+    startRingRun(done);
+  }
+  // Auto-iterate: apply the top fruitful edit and re-test, until a pass bears
+  // no fruit (or the cap is reached).
+  Actions.autoIterateRingTest = function (done) {
+    var step = function (ok) {
+      if (!ok) { if (done) done(false); return; }
+      var top = ringRunner.results().fruitful[0];
+      if (!top || ringIter.edits.length >= RING_ITER_CAP) { if (done) done(true); return; }
+      applyAndRerun(top, step);
+    };
+    step(true);
+  };
 
   function num(v, dp) { return v == null ? '—' : String(Math.round(v * Math.pow(10, dp)) / Math.pow(10, dp)); }
   function paintRingResults(series, refLabel) {
@@ -990,11 +1163,22 @@
     var editLabel = function (e) {
       return e.type === 'split' ? 'Split ring ' + e.ring : 'Merge rings ' + e.ring + '–' + (e.ring + 1);
     };
+    // iteration history: what has been applied so far + the corrected download
+    var iterLabel = function (e) {
+      return e.type === 'split' ? 'split ring ' + e.ring : 'merge rings ' + e.ring + '–' + (e.ring + 1);
+    };
+    var history = ringIter && ringIter.edits.length
+      ? '<p class="msg ok">' + ringIter.edits.length + ' correction' + (ringIter.edits.length === 1 ? '' : 's') +
+        ' applied to ' + esc(ringIter.base) + ' (' + ringIter.edits.map(iterLabel).join(', ') +
+        ') — now testing the corrected series, ' + ringRunner.seriesLength + ' rings. Ring numbers below refer to ' +
+        'the corrected series. <button class="btn ghost" id="rt_dlIterBtn">Download corrected .rwl</button></p>'
+      : '';
     var verdict;
     if (!res.fruitful.length) {
       verdict = '<p class="msg ok">No single-ring edit meaningfully improves the crossdate — no evidence of a ' +
         'missing or false ring in ' + esc(series) + ' against ' + esc(refLabel) + '.</p>';
-      setMsg('rt_msg', 'Done — ' + ringRunner.total + ' edits tested, none bear fruit.', 'ok');
+      setMsg('rt_msg', 'Done — ' + ringRunner.total + ' edits tested, none bear fruit.' +
+        (ringIter && ringIter.edits.length ? ' Iteration complete after ' + ringIter.edits.length + ' correction' + (ringIter.edits.length === 1 ? '' : 's') + '.' : ''), 'ok');
     } else {
       var b = res.experiments[0];
       verdict = '<p class="msg ok"><b>' + editLabel(b) + '</b> gives the biggest improvement ' +
@@ -1002,8 +1186,13 @@
         (b.type === 'split' ? 'MISSING ring near ring ' + b.ring : 'FALSE ring near rings ' + b.ring + '–' + (b.ring + 1)) +
         '. ' + res.fruitful.length + ' of ' + ringRunner.total + ' edits bear fruit; nearby edits usually improve too, ' +
         'so read the top of the ranking as a neighbourhood.</p>';
+      verdict += ringIter && ringIter.edits.length >= RING_ITER_CAP
+        ? '<p class="hint">Iteration cap (' + RING_ITER_CAP + ' corrections) reached — download the corrected series and inspect it manually.</p>'
+        : '<p><button class="btn" id="rt_applyBtn">Apply best edit &amp; test again</button> ' +
+          '<button class="btn secondary" id="rt_autoBtn">Auto-iterate until clean</button></p>';
       setMsg('rt_msg', 'Done — ' + ringRunner.total + ' edits tested.', 'ok');
     }
+    verdict = history + verdict;
     var baseLine = '<p class="hint">Baseline (unedited, ' + ringRunner.seriesLength + ' rings): lag ' +
       esc(String(base.lag)) + ' · r ' + num(base.r, 3) + ' · p ' + AC.fmtP(base.p) + ' · overlap ' + base.overlap +
       ' · T ' + num(base.t, 2) + ' <button class="btn ghost" id="rt_baseBtn">Plot baseline</button></p>';
@@ -1033,6 +1222,12 @@
       trs.forEach(function (x) { x.classList.remove('sel'); });
       renderRingReview(null);
     });
+    var applyBtn = $('rt_applyBtn');
+    if (applyBtn) applyBtn.addEventListener('click', function () { applyAndRerun(res.fruitful[0]); });
+    var autoBtn = $('rt_autoBtn');
+    if (autoBtn) autoBtn.addEventListener('click', function () { Actions.autoIterateRingTest(); });
+    var dlIterBtn = $('rt_dlIterBtn');
+    if (dlIterBtn) dlIterBtn.addEventListener('click', function () { triggerDownload(ringRunner.correctedDownload(null)); });
     // show the top-ranked experiment's plots straight away
     if (trs.length) trs[0].click();
   }
@@ -1047,6 +1242,17 @@
     var area = $('rt_plots');
     area.innerHTML = '';
     area.appendChild(headerEl(specs.header + (exp ? '' : ' (baseline, unedited)'), statsLine(specs.stats)));
+    // download the reviewed corrected series; apply-and-retest for fruitful edits
+    var row = exp ? ringRunner.results().experiments.filter(function (x) {
+      return x.type === exp.type && x.ring === exp.ring;
+    })[0] : null;
+    var bar = document.createElement('p');
+    bar.innerHTML = '<button class="btn ghost" id="rt_dlBtn">Download ' + esc(ringRunner.corrected(exp).name) + '.rwl</button>' +
+      (row && row.fruitful ? ' <button class="btn ghost" id="rt_applyThisBtn">Apply this edit &amp; test again</button>' : '');
+    area.appendChild(bar);
+    $('rt_dlBtn').addEventListener('click', function () { triggerDownload(ringRunner.correctedDownload(exp)); });
+    var applyThis = $('rt_applyThisBtn');
+    if (applyThis) applyThis.addEventListener('click', function () { applyAndRerun(exp); });
     var lineDiv = document.createElement('div');
     area.appendChild(lineDiv);
     if (specs.line) PlotZoom.attachDataZoom(lineDiv, specs.line, AC.RD.renderSvg);
