@@ -20,6 +20,7 @@ const { pearsonCorTest } = require('./stats/cortest.js');   // Pearson cor.test
 // ---- detrending -------------------------------------------------------------
 const { normalise } = require('./detrend/normalise.js');
 const { detcurves } = require('./detrend/detcurves.js');
+const { detectDetrended } = require('./detrend/detect.js');
 
 // ---- analysis (ringdater's own crossdating logic) --------------------------
 const { autoCorrel } = require('./analysis/autoCorrel.js');
@@ -28,7 +29,7 @@ const { leadLag } = require('./analysis/leadLag.js');
 const { runningLeadLag } = require('./analysis/runningLeadLag.js');
 const { heatmapAnalysis } = require('./analysis/heatmap.js');
 const { filterCrossdates } = require('./analysis/filterCrossdates.js');
-const { alignSeries, alignToChron, ontoAlignDated } = require('./analysis/align.js');
+const { alignSeries, alignToChron, ontoAlignDated, rawAligned } = require('./analysis/align.js');
 const { correlReplace } = require('./analysis/correlReplace.js');
 const { removeSeries } = require('./analysis/removeSeries.js');
 const { RingdateR_error_message } = require('./analysis/errorMessage.js');
@@ -60,6 +61,11 @@ const { renderReport } = require('./report.js');
 const { chron } = require('./stats/chron.js');
 const { chronoCheck } = require('./engine/chronoChecker.js');
 
+// ---- measuring: Velmex VRO stage acquisition -------------------------------
+// Protocol + series state only; the Web Serial transport lives in web/measure.js.
+const vro = require('./measure/vro.js');
+const { createMeasureSeries } = require('./measure/series.js');
+
 const { linePlot } = require('./viz/linePlot.js');
 const { datedLinePlot } = require('./viz/datedLinePlot.js');
 const { allSeries } = require('./viz/allSeries.js');
@@ -83,12 +89,12 @@ module.exports = {
   supsmu, friedman, rwiStatsRunning, corrRwlSeg,
 
   // detrending
-  normalise, detcurves,
+  normalise, detcurves, detectDetrended,
 
   // crossdating analysis
   pearsonCorTest, autoCorrel, rollcor,
   leadLag, runningLeadLag, heatmapAnalysis,
-  filterCrossdates, alignSeries, alignToChron, ontoAlignDated,
+  filterCrossdates, alignSeries, alignToChron, ontoAlignDated, rawAligned,
   correlReplace, removeSeries,
 
   // chronology stats
@@ -102,7 +108,7 @@ module.exports = {
   loadDataTabs: io.loadDataTabs, ldUndatedChron: io.ldUndatedChron,
   loadPos: io.loadPos, loadLps: io.loadLps, readRWL: io.readRWL, readCrn: io.readCrn,
   loadRingMeasurer: io.loadRingMeasurer, combineRMFiles: io.combineRMFiles,
-  parseDelimited, readXlsx, writeRwl: io.writeRwl, writeCsv: io.writeCsv,
+  parseDelimited, readXlsx, writeRwl: io.writeRwl, writeCsv: io.writeCsv, fixNames: io.fixNames,
   // per-series metadata side-channel + calendar (AD/BC, no year 0)
   emptySeriesMeta: io.emptySeriesMeta, normalizeSeriesMeta: io.normalizeSeriesMeta,
   ensureMeta: io.ensureMeta, META_EDITABLE: io.META_EDITABLE,
@@ -124,4 +130,8 @@ module.exports = {
 
   // chrono_checker second app + dplR::chron
   chron, chronoCheck,
+
+  // measuring: Velmex VRO protocol (framing/parsing/mode detection) + the
+  // ring-width series state machine a measuring UI drives
+  vro, createMeasureSeries,
 };

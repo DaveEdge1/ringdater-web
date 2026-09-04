@@ -114,6 +114,34 @@ ok('meanChronology returns [year, mean_chronology]', mean && mean.names.indexOf(
 
 // 6. builderDownloads -> CSV + RWL descriptors --------------------------------
 const dls = AC.builderDownloads(chr, '2026-08-04');
+
+// The builder crossdates on detrended indices, so its working frame holds
+// indices — but the chronology anyone takes away is RING WIDTHS, and a .rwl of
+// values near 1.0 would be read as 1 mm rings. Given the raw frames the members
+// were measured from, the CSV and the .rwl are written in widths at the
+// placement the build found, and the indices keep a CSV of their own.
+const dlsRaw = AC.builderDownloads(chr, { date: '2026-08-04', sources: [undated] });
+const rawChr = RD.rawAligned(chr, [undated]);
+ok('builderDownloads: ring widths by default', dlsRaw.chronologyCsv.content === RD.writeCsv(rawChr.frame) &&
+  dlsRaw.chronologyCsv.content !== dls.chronologyCsv.content,
+  rawChr.substituted.length + ' of ' + (chr.names.length - 1) + ' columns re-valued');
+ok('builderDownloads: the .rwl carries widths too',
+  dlsRaw.chronologyRwl.content === RD.writeRwl(rawChr.frame, {}));
+ok('builderDownloads: the detrended frame keeps a CSV of its own',
+  dlsRaw.chronologyDetrendedCsv && dlsRaw.chronologyDetrendedCsv.content === RD.writeCsv(chr) &&
+  /_detrended_/.test(dlsRaw.chronologyDetrendedCsv.filename),
+  dlsRaw.chronologyDetrendedCsv && dlsRaw.chronologyDetrendedCsv.filename);
+ok('builderDownloads: with no raw sources it still writes what it has',
+  dls.chronologyCsv.content === RD.writeCsv(chr) && !dls.chronologyDetrendedCsv);
+
+// The generated name carries the date and says what the file is; it is not the
+// name anyone wants on disk, so the export panel lets it be typed over.
+ok('downloadName keeps a typed name', AC.downloadName('Site UT585 master', 'fallback') === 'Site UT585 master');
+ok('downloadName strips what a file system will not take',
+  AC.downloadName('a/b:c*?<>|d', 'fallback') === 'a_b_c_d', AC.downloadName('a/b:c*?<>|d', 'fallback'));
+ok('downloadName falls back rather than saving as a bare extension',
+  AC.downloadName('   ', 'built_chronology') === 'built_chronology' &&
+  AC.downloadName('...', 'built_chronology') === 'built_chronology');
 ok('CSV download descriptor well-formed',
   dls.chronologyCsv && dls.chronologyCsv.mime === 'text/csv' &&
   /\.csv$/.test(dls.chronologyCsv.filename) && dls.chronologyCsv.content.length > 0,

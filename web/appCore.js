@@ -129,6 +129,7 @@
     if (!isFinite(L) || L < 20) throw new Error('Segment length must be at least 20 years.');
     return L % 2 ? L : L + 1;                     // runningLeadLag forces odd windows
   }
+  var SEG_NAME = /@\d+-\d+$/;                  // "series@a-b" — a kept window
   function firstRowOf(frame, name) {
     var col = frame.cols[frame.names.indexOf(name)];
     for (var i = 0; i < col.length; i++) if (!bad(col[i])) return i;
@@ -277,13 +278,33 @@
     if (!undated) throw new Error('No undated data loaded.');
     if (mode === 2 && !opts.chron) throw new Error('Chronology mode needs a loaded chronology.');
     var names = seriesNames(undated);
-    var detOpt = detrendOptions(opts.detrend);
+    // Detrending a series that is already an index degrades it, so series that
+    // are already indices are detected and carried through un-detrended
+    // (opts.autoSkip === false turns the detection off). Separately, the
+    // chronology can be given its own detrend settings via opts.detrendChron —
+    // "detrend the pool but not the chronology" is the ordinary case of a .crn
+    // read against raw measurements, and is a user decision, not an inference.
+    var autoOn = opts.autoSkip !== false;
+    var willDetrend = function (o) { return detrendOptions(o).detrending_select !== 1; };
+    var skipU = (autoOn && willDetrend(opts.detrend))
+      ? detectDetrended(undated, opts.undatedName) : NO_SKIP;
+    var skipC = (autoOn && mode === 2 && !opts.chronIsDetrended &&
+      willDetrend(opts.detrendChron || opts.detrend))
+      ? detectDetrended(opts.chron, opts.chronName) : NO_SKIP;
+    var detOpt = detrendOptions(opts.detrend, skipU.names);
+    var detChronOpt = detrendOptions(opts.detrendChron || opts.detrend, skipC.names);
+    // Reported to the user: what was skipped, and on what evidence.
+    var skipInfo = { undated: skipU, chron: skipC, chronOpts: detChronOpt, auto: autoOn };
     var leadlag = opts.leadlag || { neg_lag: -20, pos_lag: 20, complete: true };
     var filter = Object.assign({ r_val: 0.5, p_val: 0.05, overlap: 50 }, opts.filter || {});
     var probWind = opts.probWind != null ? opts.probWind : 20;
     var rbarWindow = opts.rbarWindow != null ? opts.rbarWindow : 25;
     var keepN = Math.max(1, Math.floor(Number(opts.keepN) || 5));
     var target2 = filter.target || 'mean_chronology';
+    // The RAW chronology behind the run, kept so exports can be written in ring
+    // widths rather than in the indices the crossdate is computed on. A
+    // composite of chronologies arrives already detrended and has no raw form.
+    var chronRaw = (mode === 2 && !opts.chronIsDetrended) ? (opts.chron || null) : null;
     var target1 = filter.target || names[0];
     // The background consensus pass is best-effort: an unusable segment length
     // only aborts the run when the Segments tool itself asked for it.
@@ -301,11 +322,12 @@
           leadlag: leadlag,
           filter: Object.assign({}, filter, { target: target2 }),
           probWind: probWind, rbarWindow: rbarWindow,
+          detrendChron: detChronOpt,
           chronIsDetrended: !!opts.chronIsDetrended
         });
         result.target = target2;
-        result.mode = mode; result.undated = undated;
-        result.detrendOpts = detOpt; result.chronName = opts.chronName || null;
+        result.mode = mode; result.undated = undated; result.chronRaw = chronRaw;
+        result.detrendOpts = detOpt; result.detrendSkipped = skipInfo; result.chronName = opts.chronName || null;
         ctx.result = result;
         if (win) ctx.selState = slidingSelectStart(result.chronNSeries, names);
       } });
@@ -330,6 +352,12 @@
         } });
       }
     } else if (mode === 1 && !segTool) {
+      // Pairwise mode has no mean chronology to date against, so the run's
+      // TARGET series takes that part — it is the series the filter, the
+      // alignment and the table are already organised around. Only segments of
+      // the others, only against the target: every pair would be a grid per
+      // pair, and a consensus vs a series nobody is dating against says nothing.
+      var consNames = names.filter(function (n) { return n !== target1; });
       steps.push({ label: 'Pairwise crossdating', fn: function () {
         var result = RD.pairwiseWorkflow({
           undated: undated, detrend: detOpt,
@@ -338,10 +366,28 @@
           probWind: probWind, rbarWindow: rbarWindow
         });
         result.target = target1;
-        result.mode = mode; result.undated = undated;
-        result.detrendOpts = detOpt; result.chronName = opts.chronName || null;
+        result.mode = mode; result.undated = undated; result.chronRaw = chronRaw;
+        result.detrendOpts = detOpt; result.detrendSkipped = skipInfo; result.chronName = opts.chronName || null;
         ctx.result = result;
+        if (win && consNames.length) ctx.selState = slidingSelectStart(result.detrended, consNames);
       } });
+      if (win && consNames.length) {
+        consNames.forEach(function (s) {
+          steps.push({ label: 'Scanning segments of ' + s, fn: function () {
+            slidingSelectGridStep(ctx.selState, ctx.result.detrended, target1, s, win);
+          } });
+        });
+        steps.push({ label: 'Segment consensus', fn: function () {
+          var result = ctx.result;
+          result.consensus = safe(function () {
+            var sel = pickWindows(ctx.selState.best, result.detrended, consNames, win, keepN);
+            var cons = consensusFinish(result, consNames, sel, win, keepN);
+            cons.counts = applyConsensus(result, cons.bySeries,
+              Object.assign({}, filter, { target: target1 }), probWind, rbarWindow);
+            return cons;
+          });
+        } });
+      }
     } else if (mode === 2) {
       // Segments tool, chronology mode. Segments are windows of the DETRENDED
       // whole series (slices, not re-detrended), so their scores match the
@@ -350,7 +396,8 @@
       var segMeta = function (result) {
         result.mode = mode;
         result.undated = result.rawCombined;
-        result.detrendOpts = detOpt;
+        result.chronRaw = chronRaw;
+        result.detrendOpts = detOpt; result.detrendSkipped = skipInfo;
         result.chronName = opts.chronName || null;
         result.segLength = win;
         result.keepN = keepN;
@@ -358,7 +405,7 @@
       };
       steps.push({ label: 'Detrending', fn: function () {
         ctx.det = RD.normalise(undated, detOpt);
-        ctx.chronDetrended = opts.chronIsDetrended ? opts.chron : RD.normalise(opts.chron, detOpt);
+        ctx.chronDetrended = opts.chronIsDetrended ? opts.chron : RD.normalise(opts.chron, detChronOpt);
         var chronoMean = RD.meanChronology(ctx.chronDetrended, target2);
         // wholes-only comparison frame for window selection
         ctx.baseFrame = RD.combNA(chronoMean, { names: ctx.det.names.slice(1), cols: ctx.det.cols.slice(1) });
@@ -424,7 +471,8 @@
       var segMeta1 = function (result) {
         result.mode = mode;
         result.undated = result.rawCombined;
-        result.detrendOpts = detOpt;
+        result.chronRaw = chronRaw;
+        result.detrendOpts = detOpt; result.detrendSkipped = skipInfo;
         result.chronName = opts.chronName || null;
         result.segLength = win;
         result.keepN = keepN;
@@ -490,6 +538,24 @@
           }, diagOn(aligned1, probWind, rbarWindow));
           result.rawCombined = ctx.rawC;
           segMeta1(result);
+        } });
+        // Same consensus pass as a plain pairwise run: the segments this branch
+        // already picked, read against the target series. The rows it computed
+        // cannot be reused — each segment was crossdated AS the master, so they
+        // carry (segment, series) placements — so this is one more leadLag over
+        // a segments-vs-target frame, exactly as the background pass does.
+        steps.push({ label: 'Segment consensus', fn: function () {
+          var result = ctx.result;
+          if (SEG_NAME.test(String(target1))) return;    // a 60-ring master dates nothing
+          result.consensus = safe(function () {
+            var cn = names.filter(function (n) { return n !== target1; });
+            var sel = {};
+            cn.forEach(function (s) { sel[s] = (ctx.sel1 && ctx.sel1[s]) || []; });
+            var cons = consensusFinish(result, cn, sel, win, keepN);
+            cons.counts = applyConsensus(result, cons.bySeries,
+              Object.assign({}, filter, { target: target1 }), probWind, rbarWindow);
+            return cons;
+          });
         } });
       } });
     }
@@ -723,25 +789,34 @@
     var S1 = col('Series_1'), S2 = col('Series_2');
     var counts = { promoted: 0, confirmed: 0, noted: 0 };
     for (var r = 0; r < S1.length; r++) {
-      if (S1[r] !== target || S2[r] == null || S1[r] === S2[r]) continue;
-      var c = consensus[S2[r]];
+      if (S1[r] == null || S2[r] == null || S1[r] === S2[r]) continue;
+      // Mode 2 always lists the mean chronology first; mode 1 lists each pair
+      // in column order, so the target is Series_2 in the rows for series that
+      // precede it. The consensus lag is in (target, series) orientation —
+      // reading it into a reversed row means the opposite shift.
+      var flip = S1[r] !== target;
+      var other = flip ? S1[r] : S2[r];
+      if (flip && S2[r] !== target) continue;
+      var c = consensus[other];
       if (!c) continue;
-      c.engineLag = bad(col('First_lag')[r]) ? null : Number(col('First_lag')[r]);
+      var rowLag = flip ? -c.lag : c.lag;
+      var eng = bad(col('First_lag')[r]) ? null : Number(col('First_lag')[r]);
+      c.engineLag = eng == null ? null : (flip ? -eng : eng);      // kept in target orientation
       if (c.engineLag != null && Math.abs(c.lag - c.engineLag) <= CONSENSUS.tol) {
         c.action = 'confirmed'; counts.confirmed++; continue;
       }
-      var st = c.tier === 'strong' ? statsAtLag(result.masterLeadLag, target, S2[r], c.lag) : null;
+      var st = c.tier === 'strong' ? statsAtLag(result.masterLeadLag, S1[r], S2[r], rowLag) : null;
       if (!st) { c.action = 'noted'; counts.noted++; continue; }
       // engine's 1st/2nd shift down a rank; its 3rd drops off
       [['Sec_', 'Third_'], ['First_', 'Sec_']].forEach(function (mv) {
         ['lag', 'R', 'P', 'Overlap'].forEach(function (fld) { col(mv[1] + fld)[r] = col(mv[0] + fld)[r]; });
       });
-      col('First_lag')[r] = c.lag; col('First_R')[r] = st.R;
+      col('First_lag')[r] = rowLag; col('First_R')[r] = st.R;
       col('First_P')[r] = st.P; col('First_Overlap')[r] = st.Overlap;
       col('First_ring')[r] = st.First_ring; col('Last_ring')[r] = st.Last_ring;
       // the engine's old 2nd may BE the consensus lag (it lands in 3rd after
       // the shift) — drop the duplicate rather than list one lag twice
-      if (Number(col('Third_lag')[r]) === c.lag) {
+      if (Number(col('Third_lag')[r]) === rowLag) {
         ['lag', 'R', 'P', 'Overlap'].forEach(function (fld) { col('Third_' + fld)[r] = null; });
       }
       c.action = 'promoted'; counts.promoted++;
@@ -749,11 +824,15 @@
     var filtered = keepConsensusRows(cross,
       RD.filterCrossdates(cross, Object.assign({}, filter, { target: target })),
       consensus, target, true);
-    var alignedSeries = RD.alignSeries(result.chronNSeries, filtered, target);
-    var aligned = RD.alignToChron(alignedSeries, result.chronDetrended);
+    // Re-run each mode's own alignment tail: mode 2 places the series about the
+    // mean chronology and then back onto the dated members; mode 1 places them
+    // about the target series and stops there (pairwiseWorkflow step 4).
+    var mode2 = Number(result.mode) === 2;
+    var alignedSeries = RD.alignSeries(mode2 ? result.chronNSeries : result.detrended, filtered, target);
+    var aligned = mode2 ? RD.alignToChron(alignedSeries, result.chronDetrended) : alignedSeries;
     result.crossDatRes = cross;
     result.filtered = filtered;
-    result.alignedSeries = alignedSeries;
+    if (mode2) result.alignedSeries = alignedSeries;
     result.aligned = aligned;
     Object.assign(result, diagOn(aligned, probWind, rbarWindow));
     return counts;
@@ -767,14 +846,24 @@
   // which entries came back this way (pipeline call only).
   function keepConsensusRows(cross, filtered, consensus, target, markInjected) {
     if (!consensus) return filtered;
+    // Either orientation counts as having the series: pairwise rows list the
+    // pair in column order, so the target is Series_2 for the series ahead of it.
+    var pairedWith = function (f, r) {
+      if (f.cols[0][r] === target) return f.cols[1][r];
+      if (f.cols[1][r] === target) return f.cols[0][r];
+      return null;
+    };
     var have = {};
-    filtered.cols[1].forEach(function (v) { if (v != null) have[v] = true; });
+    for (var i = 0; i < filtered.cols[0].length; i++) {
+      var p = pairedWith(filtered, i);
+      if (p != null) have[p] = true;
+    }
     Object.keys(consensus).forEach(function (s) {
       var c = consensus[s];
       if (c.tier !== 'strong' || have[s]) return;
       if (c.action !== 'promoted' && c.action !== 'confirmed') return;
       for (var r = 0; r < cross.cols[0].length; r++) {
-        if (cross.cols[0][r] === target && cross.cols[1][r] === s) {
+        if (pairedWith(cross, r) === s) {
           cross.cols.forEach(function (col, i) { filtered.cols[i].push(col[r]); });
           if (markInjected) c.injected = true;
           filtered.consensusKept = (filtered.consensusKept || 0) + 1;
@@ -785,18 +874,24 @@
     return filtered;
   }
 
-  // Finish a plain mode-2 run's background segmentation: the grids already
-  // folded (one runner step per series), pick the kept windows, then one
-  // segments-only leadLag vs the mean chronology (full lag range — placements
-  // need it, whatever the whole-series lag limits were). No segment rows enter
-  // the visible table.
+  // Finish a run's background segmentation: the grids already folded (one
+  // runner step per series), pick the kept windows, then one segments-only
+  // leadLag against the master (full lag range — placements need it, whatever
+  // the whole-series lag limits were). No segment rows enter the visible table.
+  // The master is the mean chronology in mode 2 and the target series in mode 1;
+  // either way it leads the frame, so leadLag mode 2 reads it as series 1 and
+  // every implied lag comes back in (target, series) orientation.
   function consensusFinish(result, names, sel, win, keep) {
     var target = result.target;
-    var base = result.chronNSeries;
-    var segFrame = { names: base.names.slice(0, 2), cols: [base.cols[0], base.cols[1]] };
+    var base = Number(result.mode) === 2 ? result.chronNSeries : result.detrended;
+    var ti = base ? base.names.indexOf(target) : -1;
+    var empty = { segments: sel, bySeries: {}, segLength: win, keepN: keep };
+    if (ti < 1) return empty;
+    var segFrame = { names: [base.names[0], target], cols: [base.cols[0], base.cols[ti]] };
     var nrow = base.cols[0].length;
     var total = 0;
     names.forEach(function (s) {
+      if (s === target) return;                 // a series is no evidence about itself
       (sel[s] || []).forEach(function (w) {
         segFrame.names.push(w.name);
         segFrame.cols.push(windowColumn(base, s, w.startRow, win, nrow));
@@ -844,9 +939,9 @@
       x1: entries.map(function (e) { return e.ringEnd; }),
       y0: entries.map(function (e) { return e.datedStart; }),
       y1: entries.map(function (e) { return e.datedEnd; }),
-      color: '#1b7a3d', width: 4
+      color: '#96702f', width: 4
     });
-    var legend = [{ label: 'segments', color: '#1b7a3d' }];
+    var legend = [{ label: 'segments', color: '#96702f' }];
     if (whole) legend.push({ label: 'whole series', color: '#8899a6' });
     return {
       type: 'segmentPlacement',
@@ -1010,8 +1105,11 @@
         if (cd.cols[1][q] === name && cd.cols[0][q] === refName && cd.cols[5][q] != null) { lag = Number(cd.cols[5][q]); break; }
       }
       var out = {
-        line: safe(function () { return RD.linePlot(cn, refName, name, lag); }),
-        skeleton: safe(function () { return RD.skelPlot(skelFrame(cn, rawF), refName, name, lag, {}); }),
+        // Both columns sit on the synthetic 1..n axis built above — even a
+        // chronology reference lost its years there — so the cursor counts
+        // rings on both rather than naming a year that is not one.
+        line: safe(function () { return RD.linePlot(cn, refName, name, lag, { ringSeries: [refName, name] }); }),
+        skeleton: safe(function () { return RD.skelPlot(skelFrame(cn, rawF), refName, name, lag, { ringSeries: [refName, name] }); }),
         heatmap: safe(function () {
           var rll = RD.heatmapAnalysis(cn, { s1: refName, s2: name, neg_lag: -20, pos_lag: 20, center: lag, win: 21, complete: false });
           return RD.heatmapPlot(rll, { s1: refName, s2: name });
@@ -1072,28 +1170,45 @@
   }
   function compositeChron(chronList, detrendUiObj) {
     if (!chronList || chronList.length < 2) throw new Error('The composite needs at least two loaded chronologies.');
-    var det = detrendOptions(detrendUiObj);
     var out = null, used = {};
     chronList.forEach(function (c) {
       var base = baseName(c.name) || 'chronology';
       var name = base, k = 2;
       while (used[name]) name = base + '_' + (k++);
       used[name] = true;
-      var mean = RD.meanChronology(RD.normalise(c.frame, det), name);
+      // each chronology is judged on its own: a .crn among .rwl files is not
+      // detrended a second time before it is averaged in.
+      var cOpt = detrendOptions(detrendUiObj, detectDetrended(c.frame, c.name).names);
+      var mean = RD.meanChronology(RD.normalise(c.frame, cOpt), name);
       out = bindDated(out, mean);
     });
     return out;
   }
 
   // ---- detrend / leadlag / filter option objects (from raw UI values) ------
-  function detrendOptions(ui) {
+  // `skip` names series to carry through un-detrended (normalise() honours it).
+  function detrendOptions(ui, skip) {
     ui = ui || {};
-    return {
+    var o = {
       detrending_select: Number(ui.detrending_select != null ? ui.detrending_select : 3),
       splinewindow: Number(ui.splinewindow != null ? ui.splinewindow : 32),
       ARmod: !!ui.ARmod,
       logT: !!ui.logT
     };
+    var sk = skip != null ? skip : ui.skip;
+    if (sk && sk.length) o.skip = sk.slice();
+    return o;
+  }
+
+  // Which series of a frame are ALREADY indices (src/detrend/detect.js), so a
+  // second detrend can be skipped on them. Best effort in both directions: the
+  // detector never throws out of a run, and it never flags on a guess — see the
+  // rules in that module. `source` is the file name, for the .crn rule.
+  var NO_SKIP = { names: [], reasons: {}, all: false, judged: 0 };
+  function detectDetrended(frame, source) {
+    if (!frame) return NO_SKIP;
+    try { return RD.detectDetrended(frame, { source: source }); }
+    catch (e) { return NO_SKIP; }
   }
 
   // ---- run a full workflow -------------------------------------------------
@@ -1287,10 +1402,18 @@
     var s1 = (o.pair && o.pair[0]) || (mode === 2 ? target : pn[1]);
     var s2 = (o.pair && o.pair[1]) || (mode === 2 ? (pn[2] || pn[1]) : pn[2]);
 
+    // Which plotted series are UNDATED, so the hover cursor labels them by ring
+    // count instead of by a calendar year they do not have. The comparison
+    // frame's year axis belongs to the CHRONOLOGY (mode 2: comb.NA places each
+    // pool series' ring 1 on the chronology's first row, positionally), so
+    // every column but the mean chronology is a series being dated; in mode 1
+    // both sides come from the undated pool.
+    var ringSeries = pn.slice(1).filter(function (n) { return mode !== 2 || n !== target; });
+
     var out = { line: null, skeleton: null, heatmap: null, leadLagBar: null, allSeries: null, detrend: null };
 
-    out.line = safe(function () { return RD.linePlot(lineFrame, s1, s2, lag, { sel_col_pal: colScale }); });
-    out.skeleton = safe(function () { return RD.skelPlot(skelFrame(compFrame, undated), s1, s2, lag, {}); });
+    out.line = safe(function () { return RD.linePlot(lineFrame, s1, s2, lag, { sel_col_pal: colScale, ringSeries: ringSeries }); });
+    out.skeleton = safe(function () { return RD.skelPlot(skelFrame(compFrame, undated), s1, s2, lag, { ringSeries: ringSeries }); });
     out.leadLagBar = safe(function () { return RD.leadLagBar(result.masterLeadLag, s1, s2); });
     out.allSeries = safe(function () { return RD.allSeries(aligned); });
     // heatmap: running lead-lag between the two series on the comparison frame.
@@ -1347,9 +1470,14 @@
   var TARGET = 'mean_chronology';
 
   // Create a builder from loaded frames + the current detrend UI object.
+  // Series already in index form are carried through un-detrended, as in a run.
   function newBuilder(o) {
     o = o || {};
-    return RD.createBuilder({ undated: o.undated, chron: o.chron, detrend: detrendOptions(o.detrend) });
+    var skip = o.autoSkip === false ? [] : detectDetrended(o.undated, o.undatedName).names
+      .concat(detectDetrended(o.chron, o.chronName).names);
+    return RD.createBuilder({
+      undated: o.undated, chron: o.chron, detrend: detrendOptions(o.detrend, skip)
+    });
   }
 
   // Build the three review plot specs for candidate `id` at lag `lag` from an
@@ -1360,8 +1488,9 @@
   function builderPlots(cn, masterLeadLag, id, lag, rawUndated, chronName) {
     var L = Number(lag) || 0;
     return applyPlotTitles({
-      line: safe(function () { return RD.linePlot(cn, TARGET, id, L); }),
-      skeleton: safe(function () { return RD.skelPlot(skelFrame(cn, rawUndated), TARGET, id, L, {}); }),
+      // the candidate is a pool series: no years, so the cursor counts its rings
+      line: safe(function () { return RD.linePlot(cn, TARGET, id, L, { ringSeries: [id] }); }),
+      skeleton: safe(function () { return RD.skelPlot(skelFrame(cn, rawUndated), TARGET, id, L, { ringSeries: [id] }); }),
       heatmap: safe(function () {
         var rll = RD.heatmapAnalysis(cn, { s1: TARGET, s2: id, neg_lag: -20, pos_lag: 20, center: L, win: 21, complete: false });
         return RD.heatmapPlot(rll, { s1: TARGET, s2: id });
@@ -1402,12 +1531,43 @@
     var p = function (n) { return String(n).padStart(2, '0'); };
     return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
   }
-  function builderDownloads(frame, date) {
-    var dt = isoDate(date);
-    return {
-      chronologyCsv: { filename: 'built_chronology_' + dt + '.csv', mime: 'text/csv', content: RD.writeCsv(frame) },
-      chronologyRwl: { filename: 'built_chronology_' + dt + '.rwl', mime: 'text/plain', content: RD.writeRwl(frame, {}) }
-    };
+  // Download descriptors for a built chronology frame.
+  //   opts: a date (string | Date), or { date, sources }.
+  // `sources` are the RAW frames the members were measured from (the undated
+  // pool, loaded chronologies). The builder crossdates on detrended indices, so
+  // its working frame holds indices; given the sources, the CSV and the .rwl are
+  // written in RING WIDTHS at the placement the build found — which is what a
+  // .rwl means and what other software will read them as — and the indices keep
+  // a CSV of their own.
+  // A file name the browser — and the file system it lands in — will accept:
+  // no path separators, none of the characters Windows refuses, no leading dot
+  // or trailing dot/space. Falls back to the generated name when what the user
+  // typed comes to nothing, so an emptied box saves as "built_chronology.csv"
+  // rather than as ".csv".
+  function downloadName(name, fallback) {
+    var s = String(name == null ? '' : name).trim()
+      .replace(/[\/:*?"<>|]+/g, '_')
+      .replace(/[\x00-\x1f]+/g, '')
+      .replace(/^\.+/, '')
+      .replace(/[. ]+$/, '');
+    return s || fallback;
+  }
+
+  function builderDownloads(frame, opts) {
+    var o = (opts && typeof opts === 'object' && !(opts instanceof Date)) ? opts : { date: opts };
+    var dt = isoDate(o.date);
+    var re = (o.sources && o.sources.length) ? RD.rawAligned(frame, o.sources) : null;
+    var raw = (re && re.substituted.length) ? re.frame : null;
+    var out = {};
+    out.chronologyCsv = { filename: 'built_chronology_' + dt + '.csv', mime: 'text/csv',
+      content: RD.writeCsv(raw || frame) };
+    if (raw) {
+      out.chronologyDetrendedCsv = { filename: 'built_chronology_detrended_' + dt + '.csv',
+        mime: 'text/csv', content: RD.writeCsv(frame) };
+    }
+    out.chronologyRwl = { filename: 'built_chronology_' + dt + '.rwl', mime: 'text/plain',
+      content: RD.writeRwl(raw || frame, {}) };
+    return out;
   }
 
   // Assemble a writeTridas() spec from a builder + the raw undated frame + meta:
@@ -1620,9 +1780,9 @@
       '<title>RingdateR — built chronology report</title><style>' +
       'body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#1f2933;margin:0;padding:28px;line-height:1.5;background:#f4f6f8}' +
       '.wrap{max-width:820px;margin:0 auto;background:#fff;border:1px solid #d7dde2;border-radius:8px;padding:24px 28px}' +
-      'h1{color:#006b3a;font-size:22px;margin:0 0 2px}h2{color:#006b3a;font-size:16px;margin:22px 0 6px}' +
+      'h1{color:#8a6529;font-size:22px;margin:0 0 2px}h2{color:#8a6529;font-size:16px;margin:22px 0 6px}' +
       '.sub{color:#667;font-size:13px;margin:0 0 14px}.hint{color:#667;font-size:13px;margin:2px 0 8px}' +
-      '.statement{background:#eef6ef;border:1px solid #cfe6d5;border-radius:6px;padding:10px 14px;margin:10px 0}' +
+      '.statement{background:#fbf5e9;border:1px solid #e8d6ae;border-radius:6px;padding:10px 14px;margin:10px 0}' +
       'table{border-collapse:collapse;font-size:13px;width:100%;margin:6px 0}' +
       'th,td{border:1px solid #e7ebee;padding:4px 9px;text-align:right}td.l,th.l{text-align:left}th{background:#eef2f4}' +
       'th:first-child,td:first-child{text-align:left}' +
@@ -1750,7 +1910,7 @@
     slidingSelectPairwise: slidingSelectPairwise, slidingSelectVsReference: slidingSelectVsReference,
     compositeChron: compositeChron,
     ensureMeta: RD.ensureMeta, META_EDITABLE: RD.META_EDITABLE,
-    detrendOptions: detrendOptions,
+    detrendOptions: detrendOptions, detectDetrended: detectDetrended,
     runAnalysis: runAnalysis, analysisRunner: analysisRunner,
     crossDatTable: crossDatTable, frameToTable: frameToTable, refilter: refilter,
     fmtCell: fmtCell,
@@ -1759,6 +1919,7 @@
     fmtP: fmtP,
     newBuilder: newBuilder, builderReview: builderReview, builderPlots: builderPlots,
     builderChronPlot: builderChronPlot, builderDownloads: builderDownloads,
+    downloadName: downloadName,
     builderTridasDownloads: builderTridasDownloads,
     builderReport: builderReport,
     serializeSession: serializeSession, restoreSession: restoreSession,

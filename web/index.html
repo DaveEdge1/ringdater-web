@@ -46,6 +46,7 @@
 <div class="layout">
   <nav class="tabs" id="tabnav">
     <button data-view="home" class="active">Home</button>
+    <button data-view="measure">Measure</button>
     <button data-view="explore">Explore</button>
     <button data-view="build" disabled>Build</button>
   </nav>
@@ -180,6 +181,17 @@
                 <input type="number" id="splinewindow" value="11" min="5" max="200" step="1">
                 <label class="inline"><input type="checkbox" id="ARmod"> AR1 pre-whitening</label>
                 <label class="inline"><input type="checkbox" id="logT"> Log transform</label>
+                <label class="inline" title="A series that is already an index has no trend left to remove: fitting a curve to it and dividing through only adds noise."><input type="checkbox" id="detrend_auto" checked> Skip series already detrended</label>
+                <div id="detrendChronRow" style="display:none">
+                  <label class="inline" title="Untick when the chronology is already standardised — a .crn, or indices from dplR — and the undated pool is raw measurements."><input type="checkbox" id="detrend_chron" checked> Detrend the chronology too</label>
+                </div>
+                <p class="hint">The method above is applied to every loaded series. Series that are
+                   <b>already indices</b> are detected and carried through un-detrended — a ring width
+                   cannot be negative, and a whole file averaging 1.0 is in index units — so a .crn or a
+                   set of indices can be read straight against raw measurements. They are still put on
+                   the same scale as the detrended ones, so a mean chronology is not dominated by
+                   whichever members were detrended. The chronology can also be excluded by hand.</p>
+                <p class="hint" id="detrendSkipNote" style="display:none"></p>
               </div>
               <div id="railSegment">
                 <h4>Segments</h4>
@@ -194,14 +206,17 @@
                    inconsistent lags point to missing or false rings.</p>
               </div>
               <div id="railConsensus">
-                <h4>Segment consensus (chronology mode)</h4>
+                <h4>Segment consensus</h4>
                 <label for="cons_len">Consensus segment length (years)</label>
                 <input type="number" id="cons_len" value="60" min="20" step="1">
-                <p class="hint">Every chronology-mode run also segments each series in the background,
-                   using windows of this length: when two or more well-dated segments agree on a
-                   series' placement, that consensus lag is promoted to 1st in the results — badged,
-                   with the evidence in the tooltip. With the Segments tool above enabled, consensus
-                   reads that run's segments instead (its own length setting).</p>
+                <p class="hint">Every run also segments each series in the background, using windows
+                   of this length: when two or more well-dated segments agree on a series' placement,
+                   that consensus lag is promoted to 1st in the results — badged, with the evidence in
+                   the tooltip. Chronology runs read the segments against the mean chronology;
+                   pairwise runs read them against the <b>target series</b>, and only against it —
+                   a consensus about a series nobody is dating against says nothing, and every pair
+                   would be a grid per pair. With the Segments tool above enabled, consensus reads that
+                   run's segments instead (its own length setting).</p>
               </div>
             </details>
 
@@ -416,6 +431,183 @@
         </div>
       </div>
     </section>
+
+    <!-- ===== MEASURE (Velmex VRO over Web Serial) ===== -->
+    <section class="tabpage" id="view-measure">
+      <div class="card" id="measureUnsupported" style="display:none">
+        <h2>Measuring needs a Chromium browser over https</h2>
+        <p class="hint">This browser does not expose the Web Serial API, so it cannot talk to a measuring
+           stage. Use Chrome, Edge or Opera (Firefox 151+ also works), and open this page over
+           <strong>https</strong> or <strong>http://localhost</strong> — on a <code>file://</code> page the
+           serial API is unavailable no matter the browser. Everything else in RingdateR works here.</p>
+      </div>
+
+      <div id="measureMain">
+        <div class="card">
+          <h2>Measure a core</h2>
+          <p class="hint">Record ring widths from a Velmex VRO stage straight into the undated pool, then
+             crossdate without leaving the page. Nothing is uploaded; the serial port is opened locally by
+             your browser. Settings are fixed at the VRO's 9600 8N1, CR-terminated protocol.</p>
+
+          <!-- The one field set per core, and the name everything downstream is
+               known by: the ring table's column, the trace legend, the .rwl id
+               and the series in the pool. It gets its own row ahead of the
+               settings strip rather than a slot inside it. -->
+          <div class="measure-name" id="vroNameRow">
+            <label for="vroId">Series name</label>
+            <input type="text" id="vroId" value="NEW1" maxlength="8" size="10"
+                   spellcheck="false" autocomplete="off"
+                   title="What this core is saved as — the column in the ring table, the line on the trace, and the id in the .rwl">
+            <span class="hint">names the column, the trace and the saved file</span>
+          </div>
+
+          <div class="plot-controls">
+            <div>
+              <button class="btn" id="vroConnect">Connect to VRO</button>
+              <span class="pill off" id="vroStatus">not connected</span>
+            </div>
+            <div>
+              <label for="vroAutoZero"
+                     title="so the readout always shows the width of the ring you are measuring rather than distance from the pith">
+                <input type="checkbox" id="vroAutoZero" checked>
+                <span class="tip">Zero the VRO after each ring</span>
+              </label>
+            </div>
+            <div>
+              <label for="vroMode">Readout mode</label>
+              <select id="vroMode">
+                <option value="cumulative">cumulative (absolute position)</option>
+                <option value="incremental">incremental (self-zeroing)</option>
+              </select>
+            </div>
+            <div>
+              <label for="vroDir">Measured</label>
+              <select id="vroDir">
+                <option value="pith_to_bark">pith to bark</option>
+                <option value="bark_to_pith">bark to pith</option>
+              </select>
+            </div>
+            <div>
+              <label for="vroSound"
+                     title="A woodblock tick per ring, then the pencil dots as sound: a marimba note on every tenth, twice on every fiftieth, three times on every hundredth, four on every thousandth — so you can keep count without looking up">
+                <input type="checkbox" id="vroSound" checked>
+                <span class="tip">Sound</span>
+              </label>
+            </div>
+            <div>
+              <label for="vroVolume">Volume</label>
+              <input type="range" id="vroVolume" min="0" max="100" value="45" style="width:110px">
+              <button class="btn ghost" id="vroTestTones" title="Play every marker in order: ring, tenth, fiftieth, hundredth, thousandth">Test tones</button>
+            </div>
+          </div>
+          <div class="measure-btns">
+            <button class="btn ghost" id="vroLoadOpen">Load an existing series…</button>
+            <span class="hint" id="vroOrigin"></span>
+          </div>
+
+          <!-- Pick a series back up: to correct a ring, or to finish a core that
+               was put down half-measured. -->
+          <div id="vroLoadPanel" class="loadbox" style="display:none">
+            <p class="hint">Bring series that already exist into the table. A file's series all come in
+               together, side by side and aligned as they were stored; their widths become the rings
+               below, ready to edit — and the next press of the foot switch carries on from whichever
+               one you are measuring. Nothing in the pool changes until you save or update.</p>
+            <div class="plot-controls">
+              <div>
+                <label for="vroLoadFrom">From</label>
+                <select id="vroLoadFrom">
+                  <option value="loaded">series already loaded</option>
+                  <option value="file">a measurement file</option>
+                </select>
+              </div>
+              <div id="vroLoadFileWrap" style="display:none">
+                <label for="vroLoadFile">File</label>
+                <input type="file" id="vroLoadFile" accept=".rwl,.csv,.txt,.pos,.lps,.xml">
+              </div>
+              <div>
+                <label for="vroLoadSeries" title="Which of them the foot switch carries on with. The others come onto the table beside it.">Carry on with</label>
+                <select id="vroLoadSeries"></select>
+              </div>
+              <div>
+                <button class="btn" id="vroLoadGo"
+                        title="Every series in the file (or the pool) comes onto the table side by side, aligned as it was stored. Nothing already measured here is lost.">Load into the table</button>
+                <button class="btn ghost" id="vroLoadOne" style="display:none"
+                        title="Bring in only the series in the picker, replacing the one being measured">Only this one</button>
+              </div>
+            </div>
+            <div class="msg" id="vroLoadMsg"></div>
+          </div>
+
+          <div id="vroDetect" class="detectbox"></div>
+          <div class="msg" id="measureMsg"></div>
+        </div>
+
+        <div class="card" id="measureControls" style="display:none">
+          <div class="measure-grid">
+            <div>
+              <div id="vroSeriesList" class="series-chips" style="display:none"></div>
+
+              <!-- Slide the series being measured against the others, so a
+                   radius measured twice can be read ring for ring against the
+                   first. Shown only once there is a second series to align to. -->
+              <div id="vroLagRow" class="lag-row" style="display:none">
+                <label for="vroLag">Align <b id="vroLagWho"></b></label>
+                <input type="number" id="vroLag" step="1" value="0"
+                       title="Rings to slide this series against the others. Negative moves it earlier. The table and the trace follow as you go; no width is changed and nothing saved is affected.">
+                <button class="btn ghost" id="vroLagReset" title="Put every series back on ring 1">Reset</button>
+                <span class="hint" id="vroLagNote"></span>
+              </div>
+              <div class="bigread"><span id="vroLast">—</span></div>
+              <p class="hint" id="vroSummary">no rings measured</p>
+              <div class="measure-btns">
+                <button class="btn secondary" id="vroZero">Zero the VRO</button>
+                <button class="btn ghost" id="vroRequest" title="Send S — ask the VRO for its current position">Request reading</button>
+                <button class="btn secondary" id="vroAbsent">Absent ring <kbd>0</kbd></button>
+                <button class="btn secondary" id="vroUndo">Undo <kbd>Backspace</kbd></button>
+                <button class="btn ghost" id="vroEdit">Edit <kbd>E</kbd></button>
+                <button class="btn ghost" id="vroInsert">Insert before</button>
+                <button class="btn ghost" id="vroDelete">Delete <kbd>Del</kbd></button>
+                <button class="btn ghost" id="vroNew" title="Park this series and start another beside it — both are saved into the same file">New series</button>
+                <button class="btn ghost" id="vroDiscard" title="Throw away the series being measured; the others are kept">Discard series</button>
+              </div>
+              <h3>Raw serial frames</h3>
+              <pre id="vroRaw" aria-live="off"></pre>
+            </div>
+
+            <div>
+              <div id="vroTrace"></div>
+              <div class="tablewrap" id="vroTableWrap" style="max-height:280px">
+                <!-- head and body are both painted by measure.js: one width
+                     column per series in the session (mm). -->
+                <table class="res" id="vroTable">
+                  <thead><tr><th>Ring</th><th>Width (mm)</th></tr></thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+              <div class="measure-btns">
+                <button class="btn" id="vroUpdatePool" style="display:none">Update in the pool</button>
+                <button class="btn" id="vroAddPool"
+                        title="Put the whole sitting in the undated pool, then open the Explore tab and run the crossdate on it with the settings in the rail there">Add to pool &amp; crossdate</button>
+                <button class="btn secondary" id="vroSaveRwl">Save .rwl</button>
+                <button class="btn secondary" id="vroSaveCsv">Save .csv</button>
+              </div>
+
+              <!-- Shown only when the series name cannot go into a .rwl as it
+                   stands, so the operator learns it here rather than on the next
+                   load. -->
+              <div class="measure-btns" id="vroRwlIdWrap" style="display:none">
+                <label for="vroLongId"
+                       title="Tucson .rwl reserves columns 1-6 for the series id (NOAA's format description). dplR reads ids of up to 8 characters and writes them under long.names, but warns that other software may not read them — COFECHA and ARSTAN among them.">
+                  <input type="checkbox" id="vroLongId">
+                  <span class="tip">8-character .rwl id</span>
+                </label>
+                <span class="hint" id="vroRwlNote"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
   </main>
 </div>
 
@@ -434,6 +626,8 @@
 <script src="./plotZoom.js?v=0.2.0"></script>
 <script src="./plotLink.js?v=0.2.0"></script>
 <script src="./app.js?v=0.2.0"></script>
+<script src="./measure-audio.js?v=0.2.0"></script>
+<script src="./measure.js?v=0.2.0"></script>
 <script src="./tour.js?v=0.2.0"></script>
 </body>
 </html>

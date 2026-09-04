@@ -56,6 +56,7 @@ export const {
   readXlsx,
   writeRwl,
   writeCsv,
+  fixNames,
   emptySeriesMeta,
   normalizeSeriesMeta,
   ensureMeta,
@@ -90,4 +91,6 @@ export const {
   renderReport,
   chron,
   chronoCheck,
+  vro,
+  createMeasureSeries,
 } = RD;

@@ -14,7 +14,7 @@
     var msg = "ringdater: Node module \"zlib\" is not available in the browser bundle. (.xlsx reading needs a zlib shim — use CSV/TXT/RWL/.pos/.lps instead.)";
     module.exports = new Proxy({}, { get: function(){ return function(){ throw new Error(msg); }; } });
   });
-  define("m0", {"zlib":"ext:zlib","../index.js":"m1","./chronoChecker.js":"m52","../stats/chron.js":"m46"}, function(module, exports, require){
+  define("m0", {"zlib":"ext:zlib","../index.js":"m1","./chronoChecker.js":"m53","../stats/chron.js":"m47"}, function(module, exports, require){
 'use strict';
 // Browser entry for the RingdateR web apps. Bundled by tools/bundle.js into
 // web/ringdater.bundle.js and exposed as window.RD.
@@ -37,7 +37,7 @@ const { chronStd } = require('../stats/chron.js');
 module.exports = Object.assign({}, RD, { summaryTable, chronStd });
 
   });
-  define("m1", {"./version.js":"m2","./spline.js":"m3","./prewhiten.js":"m4","./curvefit.js":"m5","./supsmu.js":"m7","./rwi_stats.js":"m8","./corr_rwl_seg.js":"m9","./analysis/comb.js":"m11","./stats/cortest.js":"m12","./detrend/normalise.js":"m13","./detrend/detcurves.js":"m14","./analysis/autoCorrel.js":"m15","./analysis/rollcor.js":"m16","./analysis/leadLag.js":"m17","./analysis/runningLeadLag.js":"m18","./analysis/heatmap.js":"m19","./analysis/filterCrossdates.js":"m20","./analysis/align.js":"m21","./analysis/correlReplace.js":"m22","./analysis/removeSeries.js":"m23","./analysis/errorMessage.js":"m24","./analysis/checks.js":"m25","./stats/probCheck.js":"m26","./stats/rBarEps.js":"m27","./io/load.js":"m28","./io/csv.js":"m30","./io/xlsx.js":"m31","./io/year.js":"m40","./viz/chartUtils.js":"m41","./engine/store.js":"m42","./engine/actions.js":"m43","./engine/workflows.js":"m44","./engine/builder.js":"m45","./io/downloads.js":"m47","./report.js":"m51","./stats/chron.js":"m46","./engine/chronoChecker.js":"m52","./viz/linePlot.js":"m49","./viz/datedLinePlot.js":"m54","./viz/allSeries.js":"m55","./viz/heatmapPlot.js":"m53","./viz/detrendPlot.js":"m56","./viz/leadLagBar.js":"m50","./viz/skelPlot.js":"m57","./analysis/skel.js":"m58","./viz/render.js":"m48"}, function(module, exports, require){
+  define("m1", {"./version.js":"m2","./spline.js":"m3","./prewhiten.js":"m4","./curvefit.js":"m5","./supsmu.js":"m7","./rwi_stats.js":"m8","./corr_rwl_seg.js":"m9","./analysis/comb.js":"m11","./stats/cortest.js":"m12","./detrend/normalise.js":"m13","./detrend/detcurves.js":"m14","./detrend/detect.js":"m15","./analysis/autoCorrel.js":"m16","./analysis/rollcor.js":"m17","./analysis/leadLag.js":"m18","./analysis/runningLeadLag.js":"m19","./analysis/heatmap.js":"m20","./analysis/filterCrossdates.js":"m21","./analysis/align.js":"m22","./analysis/correlReplace.js":"m23","./analysis/removeSeries.js":"m24","./analysis/errorMessage.js":"m25","./analysis/checks.js":"m26","./stats/probCheck.js":"m27","./stats/rBarEps.js":"m28","./io/load.js":"m29","./io/csv.js":"m31","./io/xlsx.js":"m32","./io/year.js":"m41","./viz/chartUtils.js":"m42","./engine/store.js":"m43","./engine/actions.js":"m44","./engine/workflows.js":"m45","./engine/builder.js":"m46","./io/downloads.js":"m48","./report.js":"m52","./stats/chron.js":"m47","./engine/chronoChecker.js":"m53","./measure/vro.js":"m55","./measure/series.js":"m56","./viz/linePlot.js":"m50","./viz/datedLinePlot.js":"m57","./viz/allSeries.js":"m58","./viz/heatmapPlot.js":"m54","./viz/detrendPlot.js":"m59","./viz/leadLagBar.js":"m51","./viz/skelPlot.js":"m60","./analysis/skel.js":"m61","./viz/render.js":"m49"}, function(module, exports, require){
 'use strict';
 // ringdater-js: JS port of the numeric core + analysis layer of dplR/ringdater
 // (crossdating). Every function is validated against R via tools/*.R + test/*.
@@ -60,6 +60,7 @@ const { pearsonCorTest } = require('./stats/cortest.js');   // Pearson cor.test
 // ---- detrending -------------------------------------------------------------
 const { normalise } = require('./detrend/normalise.js');
 const { detcurves } = require('./detrend/detcurves.js');
+const { detectDetrended } = require('./detrend/detect.js');
 
 // ---- analysis (ringdater's own crossdating logic) --------------------------
 const { autoCorrel } = require('./analysis/autoCorrel.js');
@@ -68,7 +69,7 @@ const { leadLag } = require('./analysis/leadLag.js');
 const { runningLeadLag } = require('./analysis/runningLeadLag.js');
 const { heatmapAnalysis } = require('./analysis/heatmap.js');
 const { filterCrossdates } = require('./analysis/filterCrossdates.js');
-const { alignSeries, alignToChron, ontoAlignDated } = require('./analysis/align.js');
+const { alignSeries, alignToChron, ontoAlignDated, rawAligned } = require('./analysis/align.js');
 const { correlReplace } = require('./analysis/correlReplace.js');
 const { removeSeries } = require('./analysis/removeSeries.js');
 const { RingdateR_error_message } = require('./analysis/errorMessage.js');
@@ -100,6 +101,11 @@ const { renderReport } = require('./report.js');
 const { chron } = require('./stats/chron.js');
 const { chronoCheck } = require('./engine/chronoChecker.js');
 
+// ---- measuring: Velmex VRO stage acquisition -------------------------------
+// Protocol + series state only; the Web Serial transport lives in web/measure.js.
+const vro = require('./measure/vro.js');
+const { createMeasureSeries } = require('./measure/series.js');
+
 const { linePlot } = require('./viz/linePlot.js');
 const { datedLinePlot } = require('./viz/datedLinePlot.js');
 const { allSeries } = require('./viz/allSeries.js');
@@ -123,12 +129,12 @@ module.exports = {
   supsmu, friedman, rwiStatsRunning, corrRwlSeg,
 
   // detrending
-  normalise, detcurves,
+  normalise, detcurves, detectDetrended,
 
   // crossdating analysis
   pearsonCorTest, autoCorrel, rollcor,
   leadLag, runningLeadLag, heatmapAnalysis,
-  filterCrossdates, alignSeries, alignToChron, ontoAlignDated,
+  filterCrossdates, alignSeries, alignToChron, ontoAlignDated, rawAligned,
   correlReplace, removeSeries,
 
   // chronology stats
@@ -142,7 +148,7 @@ module.exports = {
   loadDataTabs: io.loadDataTabs, ldUndatedChron: io.ldUndatedChron,
   loadPos: io.loadPos, loadLps: io.loadLps, readRWL: io.readRWL, readCrn: io.readCrn,
   loadRingMeasurer: io.loadRingMeasurer, combineRMFiles: io.combineRMFiles,
-  parseDelimited, readXlsx, writeRwl: io.writeRwl, writeCsv: io.writeCsv,
+  parseDelimited, readXlsx, writeRwl: io.writeRwl, writeCsv: io.writeCsv, fixNames: io.fixNames,
   // per-series metadata side-channel + calendar (AD/BC, no year 0)
   emptySeriesMeta: io.emptySeriesMeta, normalizeSeriesMeta: io.normalizeSeriesMeta,
   ensureMeta: io.ensureMeta, META_EDITABLE: io.META_EDITABLE,
@@ -164,6 +170,10 @@ module.exports = {
 
   // chrono_checker second app + dplR::chron
   chron, chronoCheck,
+
+  // measuring: Velmex VRO protocol (framing/parsing/mode detection) + the
+  // ring-width series state machine a measuring UI drives
+  vro, createMeasureSeries,
 };
 
   });
@@ -1629,12 +1639,20 @@ function logTransform(A) {
   return A.map(v => (isNA(v) ? C.NA : Math.log(v + c)));
 }
 
+// `skip` names series that are ALREADY indices (see detect.js). A skipped
+// column has no trend removed from it — no curve, no difference, no AR, no
+// log — but it DOES take the final z-score + 1 the other columns take, so the
+// frame comes out on one scale. That matters: a mean chronology is a plain
+// row-wise mean of its members, and averaging a z+1 member (SD 1) with an
+// untouched ratio index (SD ~0.25) would let the detrended member drown out
+// the rest. Under "No detrending" nothing is rescaled and `skip` does nothing.
 function normalise(frameIn, opts = {}) {
   const {
     detrending_select = 1,
     splinewindow = 21,
     ARmod = false,
     logT = false,
+    skip = [],
   } = opts;
 
   if (![1, 2, 3, 4, 5, 6, 7].includes(detrending_select)) {
@@ -1655,10 +1673,13 @@ function normalise(frameIn, opts = {}) {
   // det_tmp starts as the year column; each detrended series is column-bound.
   let detTmp = { names: [inputNames[0]], cols: [yearCol.slice()] };
 
+  const skipSet = Array.isArray(skip) ? skip : (skip ? [skip] : []);
   for (let s = 1; s < C.ncol(frame); s++) {
-    let A = detrendColumn(C.col(frame, s), detrending_select, splinewindow);
-    if (ARmod) A = arWhiten(A);
-    if (logT) A = logTransform(A);
+    const asIs = skipSet.indexOf(inputNames[s]) >= 0;
+    let A = asIs ? C.col(frame, s).slice()
+      : detrendColumn(C.col(frame, s), detrending_select, splinewindow);
+    if (ARmod && !asIs) A = arWhiten(A);
+    if (logT && !asIs) A = logTransform(A);
     if (detrending_select > 1) A = scaleNA(A).map(v => (isNA(v) ? C.NA : v + 1));
     detTmp = C.combNA(detTmp, A);
   }
@@ -1736,7 +1757,140 @@ function detcurves(input, opts = {}) {
 module.exports = { detcurves };
 
   });
-  define("m15", {"./comb.js":"m11","../stats/cortest.js":"m12"}, function(module, exports, require){
+  define("m15", {"../analysis/comb.js":"m11"}, function(module, exports, require){
+'use strict';
+// ============================================================================
+// detect.js — which columns of a Frame are ALREADY detrended?
+//
+// Detrending a series that is already an index is not a no-op: fitting a curve
+// to a curve-free series and dividing through it adds noise, and a second
+// z-scoring flattens whatever the first one left. Crossdating then reads a
+// worse signal than the data actually carries. The usual way this happens is
+// unremarkable: a .crn chronology is standardised BY DEFINITION, and people
+// routinely load indices exported from dplR, from this app, or from a
+// colleague, alongside raw measurements.
+//
+// So this asks of each series column: could these numbers be RING WIDTHS?
+// Everything here is a rule about the numbers or the file, never a guess about
+// the science — and it is deliberately CONSERVATIVE. Failing to notice an index
+// costs a little signal; mistaking ring widths for an index leaves a growth
+// trend in place and can cost the date, so a column is only flagged on evidence
+// that a width series cannot produce:
+//
+//   'negative values'   A ring width cannot be below zero. Anything that goes
+//                       negative has been differenced, z-scored or otherwise
+//                       transformed. (This is what our own detrending emits:
+//                       every method but "none" ends in z-scores + 1, so any
+//                       ring more than one SD below the mean comes out below 0.)
+//   'z-scores'          mean 1 and SD 1 to within a per cent — the signature of
+//                       that same z+1 output. A width series whose SD equals its
+//                       mean that precisely is not a real possibility.
+//   'index units'       the FRAME rule: most of the file's columns average
+//                       within 5% of 1.0. One ring-width series averaging 1 mm
+//                       is ordinary; a whole file of them agreeing on 1.000 to
+//                       within a twentieth of a millimetre is not, so the file
+//                       is in index units and its near-1 columns are indices.
+//                       Judged over the file precisely BECAUSE one column on
+//                       its own proves nothing.
+//   '.crn file'         provenance: the Tucson chronology format holds
+//                       standardised indices, x1000, and our reader divides
+//                       them back. The format itself is the evidence.
+//
+// Returns the names to leave alone; normalise() takes them as `skip`.
+// ============================================================================
+
+const C = require('../analysis/comb.js');
+
+const isNA = C.isNA;
+const MIN_N = 5;              // too few rings to say anything about
+
+// Mean / SD / minimum over the non-NA, finite values of a column.
+function colStats(col) {
+  let n = 0, s = 0, min = Infinity;
+  for (const v of col) {
+    if (isNA(v)) continue;
+    const x = Number(v);
+    if (!Number.isFinite(x)) continue;
+    n++; s += x; if (x < min) min = x;
+  }
+  if (!n) return null;
+  const mean = s / n;
+  let ss = 0;
+  for (const v of col) {
+    if (isNA(v)) continue;
+    const x = Number(v);
+    if (!Number.isFinite(x)) continue;
+    ss += (x - mean) * (x - mean);
+  }
+  return { n, mean, sd: Math.sqrt(ss / Math.max(1, n - 1)), min };
+}
+
+function ext3(name) {
+  const s = String(name || '').toLowerCase();
+  const dot = s.lastIndexOf('.');
+  return dot < 0 ? '' : s.slice(dot + 1);
+}
+
+// detectDetrended(frame, opts) -> { names, reasons, all, judged }
+//   opts.source   file name the frame was loaded from (provenance rule)
+//   opts.minN     minimum non-NA values before a column is judged (default 5)
+// `names` are series names in frame order; `reasons[name]` is the rule that
+// fired; `all` is true when every judged series column was flagged.
+function detectDetrended(frameIn, opts = {}) {
+  const out = { names: [], reasons: {}, all: false, judged: 0 };
+  const frame = frameIn && frameIn.names && frameIn.cols ? frameIn : null;
+  if (!frame || frame.names.length < 2) return out;
+  const minN = opts.minN != null ? opts.minN : MIN_N;
+  const crn = ext3(opts.source) === 'crn';
+
+  const stats = [];
+  for (let i = 1; i < frame.names.length; i++) {
+    const st = colStats(frame.cols[i]);
+    stats.push(st && st.n >= minN ? st : null);
+    if (st && st.n >= minN) out.judged++;
+  }
+
+  const flag = (i, why) => {
+    const name = frame.names[i + 1];
+    if (out.reasons[name]) return;
+    out.names.push(name);
+    out.reasons[name] = why;
+  };
+
+  // 1. per-column evidence: numbers a width series cannot produce.
+  stats.forEach((st, i) => {
+    if (!st) return;
+    if (crn) return flag(i, 'standardised chronology (.crn)');
+    if (st.min < 0) return flag(i, 'negative values');
+    if (Math.abs(st.mean - 1) <= 0.02 && Math.abs(st.sd - 1) <= 0.02) {
+      return flag(i, 'z-scores (mean 1, SD 1)');
+    }
+  });
+
+  // 2. the frame rule. A single column averaging ~1 is ordinary ring widths in
+  // millimetres; most of a file doing so is a file of indices. Needs at least
+  // two columns to be a pattern at all, and a clear majority of them.
+  if (!crn && out.judged >= 2) {
+    const near1 = [];
+    stats.forEach((st, i) => {
+      if (!st) return;
+      if (st.min < 0) return;
+      if (st.sd < 0.02 || st.sd > 0.8) return;      // constant / far too spread
+      if (Math.abs(st.mean - 1) <= 0.05) near1.push(i);
+    });
+    if (near1.length >= Math.max(2, Math.ceil(0.6 * out.judged))) {
+      near1.forEach(i => flag(i, 'index units (the file averages 1.0)'));
+    }
+  }
+
+  out.all = out.judged > 0 && out.names.length === out.judged;
+  return out;
+}
+
+module.exports = { detectDetrended, colStats };
+
+  });
+  define("m16", {"./comb.js":"m11","../stats/cortest.js":"m12"}, function(module, exports, require){
 'use strict';
 // Port of ringdater::auto_correl — lag 0..10 autocorrelation for each series.
 // For each series column A, R computes:
@@ -1780,7 +1934,7 @@ function autoCorrel(input) {
 module.exports = { autoCorrel };
 
   });
-  define("m16", {"../stats/cortest.js":"m12"}, function(module, exports, require){
+  define("m17", {"../stats/cortest.js":"m12"}, function(module, exports, require){
 'use strict';
 // Port of ringdater::rollcor — running Pearson correlation over a sliding
 // window of odd length `width`. Returns the vector of correlations, one per
@@ -1823,7 +1977,7 @@ function rollcor(x, y, width) {
 module.exports = { rollcor };
 
   });
-  define("m17", {"./comb.js":"m11","../stats/cortest.js":"m12"}, function(module, exports, require){
+  define("m18", {"./comb.js":"m11","../stats/cortest.js":"m12"}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // lead_lag_analysis — the ringdater crossdating engine (port of
@@ -2015,7 +2169,7 @@ function leadLag(frame, opts = {}) {
 module.exports = { leadLag };
 
   });
-  define("m18", {"./comb.js":"m11","./rollcor.js":"m16"}, function(module, exports, require){
+  define("m19", {"./comb.js":"m11","./rollcor.js":"m17"}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // running_lead_lag — running lead-lag correlation between two series (port of
@@ -2127,7 +2281,7 @@ function runningLeadLag(frame, opts = {}) {
 module.exports = { runningLeadLag, rollmean };
 
   });
-  define("m19", {"./runningLeadLag.js":"m18"}, function(module, exports, require){
+  define("m20", {"./runningLeadLag.js":"m19"}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // heatmap_analysis — data generator for the running-correlation heatmap (port
@@ -2166,7 +2320,7 @@ function heatmapAnalysis(frame, opts = {}) {
 module.exports = { heatmapAnalysis };
 
   });
-  define("m20", {"./comb.js":"m11"}, function(module, exports, require){
+  define("m21", {"./comb.js":"m11"}, function(module, exports, require){
 'use strict';
 // Port of ringdater::filter_crossdates.
 // Filters the `cross_dat_res` Frame produced by lead_lag_analysis (17 fixed
@@ -2252,7 +2406,7 @@ function filterCrossdates(the_data, opts = {}) {
 module.exports = { filterCrossdates, signif };
 
   });
-  define("m21", {"./comb.js":"m11"}, function(module, exports, require){
+  define("m22", {"./comb.js":"m11"}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // Port of ringdater's alignment functions (T1.8a/b/c):
@@ -2410,10 +2564,82 @@ function ontoAlignDated(df) {
   return { names: ['ring', ...onto.names], cols: [ring, ...onto.cols] };
 }
 
-module.exports = { alignSeries, alignToChron, ontoAlignDated };
+// ---------------------------------------------------------------------------
+// rawAligned(frame, sources)
+// Re-value an ALIGNED frame with the raw (un-detrended) measurements behind it.
+//
+// Crossdating runs on detrended indices, so every aligned frame the analysis
+// produces holds indices — but what a chronology IS, and what a .rwl or another
+// program expects to read, is ring widths. Alignment only ever SHIFTS a series
+// along the axis, and none of the detrending methods move a series' first value
+// (they can drop the last one), so a column's raw counterpart is its source
+// series' own run written from the same row it starts on here.
+//
+// `sources` is a list of raw Frames to look the columns up in (the undated pool,
+// a loaded chronology). A column with no raw source — a mean chronology, a
+// composite chronology's already-detrended members — is kept as it is and named
+// in `kept`, because silently mixing indices among widths would be worse than
+// saying which is which. The axis grows at the tail when a raw series outruns
+// its detrended column (first differences lose the last ring).
+//   -> { frame, substituted: [names], kept: [names] }
+// ---------------------------------------------------------------------------
+function firstValue(col) {
+  for (let i = 0; i < col.length; i++) if (!isNA(col[i])) return i;
+  return -1;
+}
+function sourceColumn(sources, name) {
+  for (const f of sources || []) {
+    if (!f || !f.names) continue;
+    const i = f.names.indexOf(name);
+    if (i > 0) return f.cols[i];
+  }
+  return null;
+}
+function rawAligned(frame, sources) {
+  const substituted = [], kept = [];
+  if (!frame || !frame.names || !frame.cols.length) return { frame, substituted, kept };
+  const axis = frame.cols[0].slice();
+  let nrow = axis.length;
+  const placed = [];
+  for (let c = 1; c < frame.cols.length; c++) {
+    const name = frame.names[c];
+    const src = sourceColumn(sources, name);
+    const dstFirst = firstValue(frame.cols[c]);
+    const srcFirst = src ? firstValue(src) : -1;
+    if (!src || dstFirst < 0 || srcFirst < 0) { kept.push(name); placed.push(null); continue; }
+    // last row this series' raw run would reach, so the axis can be grown to fit
+    let srcLast = srcFirst;
+    for (let i = src.length - 1; i >= srcFirst; i--) if (!isNA(src[i])) { srcLast = i; break; }
+    nrow = Math.max(nrow, dstFirst + (srcLast - srcFirst) + 1);
+    substituted.push(name);
+    placed.push({ src, srcFirst, srcLast, dstFirst });
+  }
+  // a contiguous integer axis extends by counting on from its last value
+  const step = axis.length > 1 ? Number(axis[1]) - Number(axis[0]) : 1;
+  while (axis.length < nrow) axis.push(Number(axis[axis.length - 1]) + step);
+  const cols = [axis];
+  for (let c = 1; c < frame.cols.length; c++) {
+    const p = placed[c - 1];
+    const out = Array(nrow).fill(NA);
+    if (!p) {
+      const old = frame.cols[c];
+      for (let r = 0; r < old.length && r < nrow; r++) out[r] = old[r];
+    } else {
+      for (let i = p.srcFirst; i <= p.srcLast; i++) {
+        const r = p.dstFirst + (i - p.srcFirst);
+        if (r >= 0 && r < nrow) out[r] = src0(p.src, i);
+      }
+    }
+    cols.push(out);
+  }
+  return { frame: { names: frame.names.slice(), cols }, substituted, kept };
+}
+function src0(col, i) { return isNA(col[i]) ? NA : col[i]; }
+
+module.exports = { alignSeries, alignToChron, ontoAlignDated, rawAligned };
 
   });
-  define("m22", {"./comb.js":"m11","../stats/cortest.js":"m12"}, function(module, exports, require){
+  define("m23", {"./comb.js":"m11","../stats/cortest.js":"m12"}, function(module, exports, require){
 'use strict';
 // Port of ringdater::correl_replace.
 // For each series (columns 2..ncol of the Frame; column 1 is years), build an
@@ -2492,7 +2718,7 @@ function correlReplace(the_data) {
 module.exports = { correlReplace, COLHEAD };
 
   });
-  define("m23", {"./comb.js":"m11"}, function(module, exports, require){
+  define("m24", {"./comb.js":"m11"}, function(module, exports, require){
 'use strict';
 // Port of ringdater::remove_series.
 // Removes every column whose name matches an entry of `series_id` from a Frame.
@@ -2532,7 +2758,7 @@ function removeSeries(the_data, series_id) {
 module.exports = { removeSeries };
 
   });
-  define("m24", {}, function(module, exports, require){
+  define("m25", {}, function(module, exports, require){
 'use strict';
 // Port of ringdater::RingdateR_error_message.
 // In R this renders a text placeholder as a ggplot when data is missing. There
@@ -2563,7 +2789,7 @@ function RingdateR_error_message(message = DEFAULT_MESSAGE, plot_err = true) {
 module.exports = { RingdateR_error_message, DEFAULT_MESSAGE };
 
   });
-  define("m25", {"./comb":"m11"}, function(module, exports, require){
+  define("m26", {"./comb":"m11"}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // Data validation / cleaning checks, ports of three ringdater R functions:
@@ -2837,7 +3063,7 @@ module.exports = {
 };
 
   });
-  define("m26", {"../corr_rwl_seg.js":"m9"}, function(module, exports, require){
+  define("m27", {"../corr_rwl_seg.js":"m9"}, function(module, exports, require){
 'use strict';
 // Port of ringdater::prob_check — a thin wrapper over dplR::corr.rwl.seg
 // (already ported as corrRwlSeg) that flags aligned samples whose segment
@@ -2915,7 +3141,7 @@ function probCheck(frame, opts) {
 module.exports = { probCheck };
 
   });
-  define("m27", {"../rwi_stats.js":"m8"}, function(module, exports, require){
+  define("m28", {"../rwi_stats.js":"m8"}, function(module, exports, require){
 'use strict';
 // Port of ringdater::R_bar_EPS — a thin wrapper over dplR::rwi.stats.running
 // (already ported as rBarEps/rwiStatsRunning) that returns a running Rbar / EPS
@@ -2982,7 +3208,7 @@ function rBarEps(frame, opts) {
 module.exports = { rBarEps };
 
   });
-  define("m28", {"./loaders.js":"m29","./pos.js":"m32","./lps.js":"m33","./rwl.js":"m35","./crn.js":"m36","./ringMeasurer.js":"m37","./meta.js":"m38","./tridas.js":"m39","../analysis/comb.js":"m11"}, function(module, exports, require){
+  define("m29", {"./loaders.js":"m30","./pos.js":"m33","./lps.js":"m34","./rwl.js":"m36","./crn.js":"m37","./ringMeasurer.js":"m38","./meta.js":"m39","./tridas.js":"m40","../analysis/comb.js":"m11"}, function(module, exports, require){
 'use strict';
 // T2.6 — IO dispatcher. Wires the format-specific parsers (pos/lps/rwl) into the
 // loaders' pluggable reader hooks and exposes the full RingdateR file surface:
@@ -2992,7 +3218,7 @@ module.exports = { rBarEps };
 const loaders = require('./loaders.js');
 const { loadPos } = require('./pos.js');
 const { loadLps } = require('./lps.js');
-const { readRWL, writeRwl } = require('./rwl.js');
+const { readRWL, writeRwl, fixNames } = require('./rwl.js');
 const { readCrn } = require('./crn.js');
 const { loadRingMeasurer, combineRMFiles } = require('./ringMeasurer.js');
 const meta = require('./meta.js');
@@ -3030,6 +3256,9 @@ module.exports = {
   loadUndated, loadChron, loadDataTabs, ldUndatedChron,
   loadPos, loadLps, readRWL, readCrn, loadRingMeasurer, combineRMFiles,
   writeRwl, writeCsv, READERS,
+  // The Tucson id rule (strip non-alphanumerics, truncate), exported so a UI can
+  // tell the operator what a series will be CALLED in the file before writing it.
+  fixNames,
   // per-series metadata side-channel helpers
   emptySeriesMeta: meta.emptySeriesMeta, normalizeSeriesMeta: meta.normalizeSeriesMeta,
   ensureMeta: meta.ensureMeta, META_EDITABLE: meta.EDITABLE,
@@ -3038,7 +3267,7 @@ module.exports = {
 };
 
   });
-  define("m29", {"../analysis/comb":"m11","../analysis/checks":"m25","./csv":"m30","./xlsx":"m31","../detrend/normalise":"m13"}, function(module, exports, require){
+  define("m30", {"../analysis/comb":"m11","../analysis/checks":"m26","./csv":"m31","./xlsx":"m32","../detrend/normalise":"m13"}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // T2.1c  Data loaders  (ports of the ringdater load_* functions)
@@ -3389,7 +3618,7 @@ module.exports = {
 };
 
   });
-  define("m30", {"../analysis/checks":"m25"}, function(module, exports, require){
+  define("m31", {"../analysis/checks":"m26"}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // T2.1a  Delimited text reader  (port of base R read.csv / read.table)
@@ -3544,7 +3773,7 @@ function parseDelimited(text, opts = {}) {
 module.exports = { parseDelimited, splitFields, isNumericToken, parseNumericToken };
 
   });
-  define("m31", {"zlib":"ext:zlib","../analysis/checks":"m25"}, function(module, exports, require){
+  define("m32", {"zlib":"ext:zlib","../analysis/checks":"m26"}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // T2.1b  XLSX reader  (port of readxl::read_excel(sheet = 1, na = "NA"))
@@ -3747,7 +3976,7 @@ function readXlsx(buffer, opts = {}) {
 module.exports = { readXlsx, unzip, parseSharedStrings, parseSheet };
 
   });
-  define("m32", {}, function(module, exports, require){
+  define("m33", {}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // loadPos: port of ringdater::load_pos (R/load_pos_function.R).
@@ -3911,7 +4140,7 @@ function loadPos(text, seriesName = 'series', col1Name = 'ring') {
 module.exports = { loadPos };
 
   });
-  define("m33", {"./xml.js":"m34"}, function(module, exports, require){
+  define("m34", {"./xml.js":"m35"}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // loadLps: port of ringdater::load_lps (Image-Pro `.lps` line-profile XML).
@@ -4015,7 +4244,7 @@ function loadLps(text, series) {
 module.exports = { loadLps, parseXml };  // parseXml re-exported for back-compat
 
   });
-  define("m34", {}, function(module, exports, require){
+  define("m35", {}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // Dependency-free XML reader + serializer.
@@ -4177,7 +4406,7 @@ module.exports = {
 };
 
   });
-  define("m35", {}, function(module, exports, require){
+  define("m36", {}, function(module, exports, require){
 'use strict';
 // Tucson / RWL decadal-format reader & writer -- a JS port of dplR's
 // read.rwl/read.tucson and write.rwl/write.tucson (Tucson format only), plus
@@ -4261,7 +4490,8 @@ function detectHeader(hdr1) {
     throw e;
   }
   let isHead = false;
-  const yrcheck = asNumeric(hdr1.substring(8, 12)); // cols 9-12
+  // cols 9-12, or 8-12 for a five-column (BC) year — see the data-line parse.
+  const yrcheck = asNumeric(hdr1.substring(hdr1.charAt(7) === '-' ? 7 : 8, 12));
   if (Number.isNaN(yrcheck) || yrcheck < -10000 || yrcheck > 10000 || !isInt(yrcheck)) {
     isHead = true;
   }
@@ -4325,12 +4555,21 @@ function readRwl(text, opts) {
   if (dataLines.length === 0) { const e = new Error('file has no data'); e.rwlError = true; throw e; }
 
   // fixed-width parse: id cols1-8, year cols9-12, then up to 11 value fields (6 wide)
+  //
+  // A year needing five columns — any year before 1 CE, written with its minus
+  // sign — starts at column 8 instead, taking a column from the id field. That
+  // is what dplR's read.tucson `long` argument is about; here it is detected
+  // rather than declared, since a Tucson id is letters and digits (see
+  // fixNames), so a '-' in column 8 can only be a year's sign. Reading such a
+  // line as id cols 1-8 / year cols 9-12 silently drops the sign and turns a BC
+  // series into an AD one.
   const rows = [];
   for (const ln of dataLines) {
-    const year = asNumeric(ln.substring(8, 12));
+    const wideYear = ln.charAt(7) === '-';
+    const year = asNumeric(ln.substring(wideYear ? 7 : 8, 12));
     if (Number.isNaN(year)) continue;            // dplR drops rows with NA year
     if (!isInt(year)) { const e = new Error('non-integral numbers found'); e.rwlError = true; throw e; }
-    const id = ln.substring(0, 8).trim();
+    const id = ln.substring(0, wideYear ? 7 : 8).trim();
     const vals = [];
     for (let k = 0; k < 11; k++) {
       const f = ln.substring(12 + 6 * k, 18 + 6 * k).trim();
@@ -4414,10 +4653,24 @@ function readRwl(text, opts) {
 // writeRwl(frame, opts) -> string  (port of dplR::write.rwl / write.tucson)
 // ---------------------------------------------------------------------------
 //
-// opts: { precision: 0.01 | 0.001 (default 0.01) }
+// opts: { precision: 0.01 | 0.001 (default 0.01), longNames: false }
 // Frame: first column = years, remaining columns = named series.
 // Emits the standard Tucson layout (long.names=FALSE): 6-char id, 1 space,
 // 5-char year, then six-wide values; CRLF line terminator, per-series stop marker.
+//
+// The twelve columns before the data are split between the id and the year.
+// NOAA's own format description (treeinfo.txt) allocates columns 1-6 to the core
+// id and 9-12 to the decade, leaving 7-8 slack — which is exactly the default
+// layout above, and why 6 characters is the only id length that is safe
+// everywhere.
+//
+// longNames is dplR's long.names=TRUE: the id takes whatever the widest year
+// does not need — 8 columns normally, 7 once any year needs 5 (a negative year),
+// and that narrower limit applies to every id in the file, not just the series
+// that has the long year. dplR's read.tucson reads ids of up to 8 (7 with
+// negative years), but dplR's own documentation warns that "long IDs may cause
+// incompatibility with other software", so this stays opt-in: callers ask for it
+// deliberately, having told the operator what it costs.
 function writeRwl(frame, opts) {
   opts = opts || {};
   const prec = opts.precision != null ? opts.precision : 0.01;
@@ -4441,7 +4694,23 @@ function writeRwl(frame, opts) {
   if (prec === 0.01) { naStr = 9.99; missingStr = -9.99; procR = 100; }
   else { naStr = -9.999; missingStr = 0; procR = 1000; }
 
-  const nameWidth = 6, optSpace = ' ', yearWidth = 5;
+  // Year labels printed are decade-first years, always drawn from `years` — plus
+  // the stop marker's year, one past the last, which can open a new decade.
+  const longNames = !!opts.longNames;
+  const PREFIX = 12;                       // id + year columns, before the data
+  let yearWidth = 5, nameWidth = 6, optSpace = ' ';
+  if (longNames) {
+    const widest = years.reduce(
+      (m, y) => Math.max(m, String(y).length),
+      years.length ? String(years[years.length - 1] + 1).length : 4);
+    yearWidth = Math.max(4, widest);
+    nameWidth = PREFIX - yearWidth;
+    optSpace = '';
+    if (nameWidth < 1) {
+      throw new Error('writeRwl: years need ' + yearWidth + ' columns, leaving no room for ' +
+        'a series id. Write without longNames.');
+    }
+  }
   const colNames = fixNames(seriesNames, nameWidth);
 
   let out = '';
@@ -4500,6 +4769,14 @@ function writeRwl(frame, opts) {
           const isLast = i === nDec - 1 && j === ints.length - 1;
           if (ints[j] === 999 && !isLast) ints[j] = 998; // R samples {998,1000}; deterministic 998
         }
+      }
+      // A year wider than its field pushes the whole line right and corrupts every
+      // reader's column arithmetic. Under long names the field was sized to fit,
+      // so this can only fire for the fixed 5-column field of the standard
+      // layout — where dplR overruns into the id columns rather than refusing.
+      if (longNames && decYear1.length > yearWidth) {
+        throw new Error('writeRwl: year ' + decYrs[0] + ' does not fit the ' + yearWidth +
+          '-column year field. Write without longNames.');
       }
       const body = ints.map(v => fmtF0(v, 6)).join('');
       out += name6 + optSpace + decYear1 + body + lineTerm;
@@ -4610,7 +4887,7 @@ function readRWL(text, opts) {
 module.exports = { readRwl, writeRwl, readRWL, locateID, readWOheader, fixNames, baseNameNoExt };
 
   });
-  define("m36", {}, function(module, exports, require){
+  define("m37", {}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // Tucson / ITRDB chronology reader (.crn) — "standardized site growth indices".
@@ -4713,7 +4990,7 @@ function readCrn(text, opts) {
 module.exports = { readCrn };
 
   });
-  define("m37", {}, function(module, exports, require){
+  define("m38", {}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // Ring Measurer CSV loader + combiner. Faithful port of ringdater's
@@ -4878,7 +5155,7 @@ function combineRMFiles(texts) {
 module.exports = { loadRingMeasurer, combineRMFiles, parseCSV };
 
   });
-  define("m38", {}, function(module, exports, require){
+  define("m39", {}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // Per-series metadata side-channel.
@@ -4939,7 +5216,7 @@ function ensureMeta(existing, names, titleFor) {
 module.exports = { EDITABLE, emptySeriesMeta, normalizeSeriesMeta, ensureMeta };
 
   });
-  define("m39", {"./xml.js":"m34","./year.js":"m40","./meta.js":"m38","../analysis/checks.js":"m25"}, function(module, exports, require){
+  define("m40", {"./xml.js":"m35","./year.js":"m41","./meta.js":"m39","../analysis/checks.js":"m26"}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // TRiDaS (Tree Ring Data Standard, v1.2.2) reader — the interchange format
@@ -5405,7 +5682,7 @@ function writeTridas(spec) {
 module.exports = { readTridas, writeTridas, mmPerUnit };
 
   });
-  define("m40", {}, function(module, exports, require){
+  define("m41", {}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // Calendar-year conversion for the traditional dendrochronology convention:
@@ -5455,7 +5732,7 @@ function formatCal(y) {
 module.exports = { astroToCal, calToAstro, formatCal };
 
   });
-  define("m41", {}, function(module, exports, require){
+  define("m42", {}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // Shared visualization utilities, ports of four ringdater R helpers:
@@ -5605,7 +5882,7 @@ function rDateRTheme(opts = {}) {
 module.exports = { xScaleBar, yScaleBar, colPal, rDateRTheme };
 
   });
-  define("m42", {}, function(module, exports, require){
+  define("m43", {}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // store.js — a tiny, framework-agnostic state container that mirrors the 13
@@ -5695,7 +5972,7 @@ function createStore(opts = {}) {
 module.exports = { createStore, initialState, SLOTS };
 
   });
-  define("m43", {"../analysis/comb.js":"m11","../io/load.js":"m28","../analysis/checks.js":"m25","../detrend/normalise.js":"m13","../analysis/leadLag.js":"m17","../analysis/runningLeadLag.js":"m18","../analysis/filterCrossdates.js":"m20","../analysis/align.js":"m21","../analysis/removeSeries.js":"m23","../stats/probCheck.js":"m26","../stats/rBarEps.js":"m27","./workflows.js":"m44"}, function(module, exports, require){
+  define("m44", {"../analysis/comb.js":"m11","../io/load.js":"m29","../analysis/checks.js":"m26","../detrend/normalise.js":"m13","../analysis/leadLag.js":"m18","../analysis/runningLeadLag.js":"m19","../analysis/filterCrossdates.js":"m21","../analysis/align.js":"m22","../analysis/removeSeries.js":"m24","../stats/probCheck.js":"m27","../stats/rBarEps.js":"m28","./workflows.js":"m45"}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // actions.js — explicit, ordered actions over the store that reproduce the
@@ -5875,7 +6152,7 @@ module.exports = {
 };
 
   });
-  define("m44", {"../analysis/comb.js":"m11","../detrend/normalise.js":"m13","../analysis/leadLag.js":"m17","../analysis/filterCrossdates.js":"m20","../analysis/align.js":"m21","../stats/probCheck.js":"m26","../stats/rBarEps.js":"m27"}, function(module, exports, require){
+  define("m45", {"../analysis/comb.js":"m11","../detrend/normalise.js":"m13","../analysis/leadLag.js":"m18","../analysis/filterCrossdates.js":"m21","../analysis/align.js":"m22","../stats/probCheck.js":"m27","../stats/rBarEps.js":"m28"}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // workflows.js — the two headless RingdateR crossdating pipelines, expressed as
@@ -5979,6 +6256,11 @@ function pairwiseWorkflow(input) {
 // chronologyWorkflow (mode 2)
 //   input : { undated, chron,        // loaded (un-detrended) Frames
 //             detrend, leadlag, filter,
+//             detrendChron,          // detrend opts for the chronology alone
+//                                    // (defaults to `detrend`) — a chronology
+//                                    // that is already an index needs no
+//                                    // second pass while the undated pool does
+//             chronIsDetrended,      // hand the chronology through untouched
 //             probWind = 20, rbarWindow = 25 }
 //   output: { detrended,             // detrended undated series
 //             chronDetrended,        // detrended chronology members
@@ -5993,13 +6275,16 @@ function chronologyWorkflow(input) {
   const {
     undated, chron, detrend = {}, leadlag = {}, filter = {},
     probWind = 20, rbarWindow = 25, chronIsDetrended = false,
+    detrendChron = null,
   } = input;
 
   // 1. detrend undated + chronology series. A composite-of-chronologies frame
   // arrives with its member columns ALREADY detrended (each is a chronology's
   // detrended mean) — chronIsDetrended skips the second detrend pass for it.
   const detrended = normalise(undated, detrend);
-  const chronDetrended = chronIsDetrended ? chron : normalise(chron, detrend);
+  const chronDetrended = chronIsDetrended
+    ? chron
+    : normalise(chron, detrendChron || detrend);
 
   // 2. arithmetic mean chronology, then combine with the undated series
   const target = filter.target != null ? filter.target : 'mean_chronology';
@@ -6043,7 +6328,7 @@ function chronologyWorkflow(input) {
 module.exports = { pairwiseWorkflow, chronologyWorkflow, meanChronology, dropYear };
 
   });
-  define("m45", {"../analysis/comb.js":"m11","../detrend/normalise.js":"m13","../analysis/leadLag.js":"m17","../analysis/align.js":"m21","./workflows.js":"m44","../stats/rBarEps.js":"m27","../stats/chron.js":"m46"}, function(module, exports, require){
+  define("m46", {"../analysis/comb.js":"m11","../detrend/normalise.js":"m13","../analysis/leadLag.js":"m18","../analysis/align.js":"m22","./workflows.js":"m45","../stats/rBarEps.js":"m28","../stats/chron.js":"m47"}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // builder.js — the headless INTERACTIVE CHRONOLOGY BUILDER engine.
@@ -6618,7 +6903,7 @@ function createBuilder({ undated, chron, detrend = {}, chronDated = true } = {})
 module.exports = { createBuilder, mergeMemberByYear };
 
   });
-  define("m46", {"../analysis/comb.js":"m11"}, function(module, exports, require){
+  define("m47", {"../analysis/comb.js":"m11"}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // T7.0  chron — port of dplR::chron(x, biweight = TRUE, prewhiten = FALSE).
@@ -6707,7 +6992,7 @@ function chron(frame, opts = {}) {
 module.exports = { chron, chronStd, tbrm };
 
   });
-  define("m47", {"./load.js":"m28","../viz/render.js":"m48","../viz/linePlot.js":"m49","../viz/leadLagBar.js":"m50"}, function(module, exports, require){
+  define("m48", {"./load.js":"m29","../analysis/align.js":"m22","../viz/render.js":"m49","../viz/linePlot.js":"m50","../viz/leadLagBar.js":"m51"}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // downloads.js — Phase 5 download/export layer.
@@ -6743,6 +7028,7 @@ module.exports = { chron, chronStd, tbrm };
 // ============================================================================
 
 const { writeCsv, writeRwl } = require('./load.js');
+const { rawAligned } = require('../analysis/align.js');
 const { toSVG } = require('../viz/render.js');
 
 // ---- date -> R Sys.Date() ISO "YYYY-MM-DD" ---------------------------------
@@ -6765,7 +7051,7 @@ const FILENAMES = {
   filteredCrossdatesCsv:  d => `RingdateR_results_${d}.csv`,     // pairwise_res_download ([,-5])
   meanChronologyCsv:      d => `mean_chronology${d}.csv`,        // initiated_two_column
   alignedChronCsv:        d => `detrended_chrono${d}.csv`,       // initiated.chrono.detrend
-  alignedChronRawCsv:     d => `data-${d}.csv`,                  // initiate.chrono.raw
+  alignedChronRawCsv:     d => `chronology_ring_widths_${d}.csv`, // initiate.chrono.raw (R: data-<date>.csv)
   undatedSeriesCsv:       d => `undated_series_${d}.csv`,        // remove_initiated_series
   alignedChronRwl:        d => `updated_chronology_${d}.rwl`,    // create_initiated_chron_rwl
   // --- plots (R emitted .png; we emit .svg) ---
@@ -6857,8 +7143,20 @@ function buildDownloads(results, opts = {}) {
   if (results_.crossDatRes) out.crossDatResCsv        = crossDatResCsv(results_.crossDatRes, { date });
   if (results_.filtered)    out.filteredCrossdatesCsv = filteredCrossdatesCsv(results_.filtered, { date });
   if (results_.aligned) {
+    // The aligned chronology is the artifact people take away, and it exists in
+    // two forms. Crossdating runs on detrended indices, so `aligned` holds
+    // indices — but a chronology of RING WIDTHS is what other software reads,
+    // and what a .rwl means by definition (its values are thousandths of a
+    // millimetre; indices near 1.0 would be read as 1 mm rings). So the widths
+    // lead — re-valued from the raw measurements at the placement the crossdate
+    // found — and the detrended frame keeps its own CSV, which is what that
+    // file's name has said all along.
+    const sources = [results_.undated, results_.chronRaw].filter(Boolean);
+    const re = sources.length ? rawAligned(results_.aligned, sources) : null;
+    const raw = re && re.substituted.length ? re.frame : null;
+    if (raw) out.alignedChronRawCsv = alignedChronRawCsv(raw, { date });
     out.alignedChronCsv = alignedChronCsv(results_.aligned, { date });
-    out.alignedChronRwl = alignedChronRwl(results_.aligned, { date, precision: opts.precision });
+    out.alignedChronRwl = alignedChronRwl(raw || results_.aligned, { date, precision: opts.precision });
   }
   // chronology mode: the two-column mean chronology is cols [year, mean_*] of
   // chron_n_undated (comb.NA(meanChron, undated)); mirrors initiated_two_column.
@@ -6908,7 +7206,7 @@ module.exports = {
 };
 
   });
-  define("m48", {}, function(module, exports, require){
+  define("m49", {}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // Shared, dependency-free SVG renderer for the six RingdateR plot builders.
@@ -7083,8 +7381,21 @@ function renderPanel(spec, offY, colourbarSpace) {
   // browser-side code (web/plotLink.js) can map cursor position <-> data-x and
   // link hover across plots. Emitted only when the builder declares linkAxis
   // (e.g. 'year'), so unrelated axes (lags, ring counts) never cross-link.
+  //
+  // A comparison plot draws two series on ONE axis with the second shifted by
+  // the crossdate lag, so a hovered x is a different year in each of them —
+  // which is the whole question being asked of the plot. `spec.linkSeries`
+  // rides along to say what x means to each series:
+  //   [{ label, color, offset, span, unit }]  -> own value = x + offset,
+  // `span` being that series' own first..last value (so a cursor outside its
+  // data can be shown as the extrapolation it is) and `color` its legend
+  // colour, so the two labels are told apart the same way the lines are.
+  // `unit` is 'year' for a dated series and 'ring' for an undated one, whose
+  // numbering is ring counts, not years (see ownAxis).
   if (spec.linkAxis) {
-    out.push(`<rect class="rd-hot" data-axis="${esc(spec.linkAxis)}" data-xmin="${xd[0]}" data-xmax="${xd[1]}" x="${left}" y="${top}" width="${(right - left).toFixed(2)}" height="${(bottom - top).toFixed(2)}" fill="none" pointer-events="all"/>`);
+    const ser = spec.linkSeries && spec.linkSeries.length
+      ? ` data-series="${esc(JSON.stringify(spec.linkSeries))}"` : '';
+    out.push(`<rect class="rd-hot" data-axis="${esc(spec.linkAxis)}" data-xmin="${xd[0]}" data-xmax="${xd[1]}"${ser} x="${left}" y="${top}" width="${(right - left).toFixed(2)}" height="${(bottom - top).toFixed(2)}" fill="none" pointer-events="all"/>`);
   }
 
   // colour bar (below panel)
@@ -7139,13 +7450,32 @@ function roundR(x, digits) {
   return r * f;
 }
 
+// One series' entry for spec.linkSeries. `span` is [first, last] where the
+// series was DRAWN (x units, so the lag is already in it) and `shift` how far
+// the lag moved it there.
+//
+// A DATED series is labelled in its own calendar years, so undoing the shift is
+// the whole mapping. An UNDATED series has no years to name — an undated series
+// is exactly what the plot is trying to date — so it is labelled by RING COUNT
+// from its own first ring, and its mapping also subtracts where that first ring
+// landed on the axis. Either way the label stays affine in x, so the browser
+// side (web/plotLink.js) remains one addition.
+function ownAxis(label, color, span, shift, ring) {
+  const sh = shift || 0;
+  if (!span) return { label, color, offset: ring ? 0 : -sh, span: null, unit: ring ? 'ring' : 'year' };
+  const lo = span[0], hi = span[1];
+  return ring
+    ? { label, color, offset: 1 - lo, span: [1, hi - lo + 1], unit: 'ring' }
+    : { label, color, offset: -sh, span: [lo - sh, hi - sh], unit: 'year' };
+}
+
 module.exports = {
-  toSVG, valueToColor, rampColor, linScale, roundR,
+  toSVG, valueToColor, rampColor, linScale, roundR, ownAxis,
   hexToRgb, rgbToHex, esc,
 };
 
   });
-  define("m49", {"../analysis/comb.js":"m11","./chartUtils.js":"m41","./render.js":"m48"}, function(module, exports, require){
+  define("m50", {"../analysis/comb.js":"m11","./chartUtils.js":"m42","./render.js":"m49"}, function(module, exports, require){
 'use strict';
 // linePlot — crossdating overlay of two standardized series (port of the DATA +
 // structure of R/line_plot_function.R). series_1 is drawn black; series_2 is
@@ -7155,7 +7485,10 @@ module.exports = {
 
 const C = require('../analysis/comb.js');
 const { xScaleBar } = require('./chartUtils.js');
-const { toSVG, roundR } = require('./render.js');
+const { toSVG, roundR, ownAxis } = require('./render.js');
+
+// where a series was drawn, as [first, last] x (null when it has no data)
+function span(xs) { return xs.length ? [Math.min(...xs), Math.max(...xs)] : null; }
 
 // complete-cases (x, y) as parallel numeric arrays.
 function completeXY(xs, ys) {
@@ -7174,6 +7507,7 @@ function linePlot(theData, series1Nm, series2Nm, lag = 0, opts = {}) {
   if (s1 === undefined) throw new Error('Error in line_plot(). series_1_nm can not be found in the loaded data.');
   if (s2 === undefined) throw new Error('Error in line_plot(). series_2_nm can not be found in the loaded data.');
 
+  const ring = opts.ringSeries || [];       // series with no years: label rings
   const ser1 = completeXY(years, s1);
   const ser2 = completeXY(years, s2);
   ser2.x = ser2.x.map(v => v + lag);      // shift series 2 by the lag
@@ -7200,6 +7534,14 @@ function linePlot(theData, series1Nm, series2Nm, lag = 0, opts = {}) {
       { type: 'line', x: ser2.x, y: ser2.y, color: 'red', width: opts.plot_line || 0.5 },
     ],
     legend: { entries: [{ label: series1Nm, color: 'black' }, { label: series2Nm, color: 'red' }] },
+    // What a hovered x is in each series' OWN numbering: series 2 was shifted
+    // right by the lag to draw it, so a dated series 2 reads that much earlier;
+    // an undated one (opts.ringSeries) reads as a ring count from its own first
+    // ring, which is the only numbering it has. See ownAxis in render.js.
+    linkSeries: [
+      ownAxis(series1Nm, 'black', span(ser1.x), 0, ring.indexOf(series1Nm) >= 0),
+      ownAxis(series2Nm, 'red', span(ser2.x), lag, ring.indexOf(series2Nm) >= 0),
+    ],
     colourbar: null,
     // exposed plotted data (validated against R)
     data: { series_1: ser1, series_2: ser2, lag },
@@ -7210,7 +7552,7 @@ function linePlot(theData, series1Nm, series2Nm, lag = 0, opts = {}) {
 module.exports = { linePlot, toSVG };
 
   });
-  define("m50", {"../analysis/comb.js":"m11","./chartUtils.js":"m41","./render.js":"m48"}, function(module, exports, require){
+  define("m51", {"../analysis/comb.js":"m11","./chartUtils.js":"m42","./render.js":"m49"}, function(module, exports, require){
 'use strict';
 // leadLagBar — bar chart of T-value vs lag for one series pair, with the best,
 // 2nd and 3rd matches highlighted red / blue / green (port of
@@ -7291,7 +7633,7 @@ function leadLagBar(theData, sample1, sample2, opts = {}) {
 module.exports = { leadLagBar, leadLagBarData, toSVG };
 
   });
-  define("m51", {"./viz/render.js":"m48"}, function(module, exports, require){
+  define("m52", {"./viz/render.js":"m49"}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // report.js — headless port of RingdateR's run-report (inst/report.Rmd and
@@ -7480,7 +7822,7 @@ function fmtBool(v) {
 module.exports = { renderReport, detMethod, frameTable, probSummary, rbarTable };
 
   });
-  define("m52", {"../analysis/comb.js":"m11","../detrend/normalise.js":"m13","../stats/chron.js":"m46","../analysis/leadLag.js":"m17","../analysis/heatmap.js":"m19","../viz/linePlot.js":"m49","../viz/heatmapPlot.js":"m53","../viz/leadLagBar.js":"m50"}, function(module, exports, require){
+  define("m53", {"../analysis/comb.js":"m11","../detrend/normalise.js":"m13","../stats/chron.js":"m47","../analysis/leadLag.js":"m18","../analysis/heatmap.js":"m20","../viz/linePlot.js":"m50","../viz/heatmapPlot.js":"m54","../viz/leadLagBar.js":"m51"}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // chronoCheck — headless workflow for the RingdateR "Quick Chronology Checker"
@@ -7631,7 +7973,7 @@ function chronoCheck(input) {
 module.exports = { chronoCheck, summaryTable };
 
   });
-  define("m53", {"../analysis/comb.js":"m11","./chartUtils.js":"m41","./render.js":"m48"}, function(module, exports, require){
+  define("m54", {"../analysis/comb.js":"m11","./chartUtils.js":"m42","./render.js":"m49"}, function(module, exports, require){
 'use strict';
 // heatmapPlot — running-correlation raster (port of R/plotting_sing_hm_function.R).
 // Input `plotData` is the {year, lag, "R val"} Frame from runningLeadLag /
@@ -7679,7 +8021,455 @@ function heatmapPlot(plotData, opts = {}) {
 module.exports = { heatmapPlot, toSVG };
 
   });
-  define("m54", {"../analysis/comb.js":"m11","./render.js":"m48"}, function(module, exports, require){
+  define("m55", {}, function(module, exports, require){
+'use strict';
+// ============================================================================
+// vro.js — wire protocol for a Velmex VRO measuring stage on a serial port.
+//
+// PURE protocol layer: framing, parsing and mode detection only. It never
+// touches navigator.serial or the DOM, so it runs and is tested under node
+// (test/measure_test.js). The browser transport lives in web/measure.js.
+//
+// The port settings and the frame format below were read out of Tellervo's own
+// driver (org.tellervo.desktop.hardware.device.VRODevice in tellervo-1.5.3.jar),
+// so a VRO already measuring in Tellervo needs no reconfiguration here:
+//
+//   9600 baud, 8 data bits, 1 stop bit, no parity, no flow control
+//   frames terminated by CR (0x0D) — NOT CRLF
+//   payload is an ASCII decimal in millimetres; Tellervo scales by 1000 and
+//   keeps integer microns, which we do too so repeated edits never drift
+//
+// The VRO appends a unit suffix whenever it is NOT in millimetre mode:
+//   "...in"  -> readout is configured for inches
+//   "...ct"  -> readout is emitting raw encoder counts (never configured)
+// Both are reported as errors rather than being silently mis-scaled, matching
+// Tellervo's behaviour — a core measured in inches and read as mm is exactly
+// the kind of error that survives to publication.
+//
+// One deliberate divergence: Tellervo matches values with [\d\.]+, which drops
+// a leading minus sign and turns backwards stage travel into a positive width.
+// We keep the sign so the operator sees the mistake.
+// ============================================================================
+
+// Passed straight to SerialPort.open() — the Web Serial option names are used
+// verbatim so the transport layer needs no translation table.
+const PORT_OPTIONS = {
+  baudRate: 9600,
+  dataBits: 8,
+  stopBits: 1,
+  parity: 'none',
+  flowControl: 'none',
+  bufferSize: 4096,
+};
+
+const MICRONS_PER_MM = 1000;
+
+// ---------------------------------------------------------------------------
+// outbound commands
+// ---------------------------------------------------------------------------
+// The VRO accepts single-character commands terminated by the same CR it sends.
+// Both were recovered from the bytecode of Tellervo's VRODevice: zeroMeasurement()
+// loads the literal "C" and requestMeasurement() loads "S", each handed to
+// sendRequest(), which appends the line terminator before writing.
+//
+//   ZERO    "C\r"  clear — zeroes the readout where it stands
+//   REQUEST "S\r"  send  — transmit the current position without a pedal press
+//
+// Zeroing after every recorded ring is what Tellervo does, and it turns an
+// absolute-position readout into a direct ring-width reader: the number on the
+// VRO is then the ring currently being measured rather than distance from the
+// pith, and nothing accumulates.
+const ZERO = 'C';
+const REQUEST = 'S';
+const COMMAND_TERMINATOR = '\r';
+
+// commandBytes(cmd) -> Uint8Array ready for a serial writer.
+function commandBytes(cmd) {
+  const text = String(cmd) + COMMAND_TERMINATOR;
+  const out = new Uint8Array(text.length);
+  for (let i = 0; i < text.length; i++) out[i] = text.charCodeAt(i) & 0xff;
+  return out;
+}
+
+// A frame is a run of bytes ending in CR or LF. LF is accepted as well as CR so
+// a readout configured for CRLF still frames one value per line instead of
+// gluing the whole session into a single token.
+const TERMINATOR = /\r\n|\r|\n/;
+
+// Anything longer than this without a terminator means the readout is not
+// speaking the protocol we think it is; drop it rather than grow forever.
+const MAX_PENDING = 512;
+
+const VALUE_RE = /[-+]?(?:\d+\.?\d*|\.\d+)/;
+
+// Parse outcomes. `value` is the only one that carries a measurement.
+const VALUE = 'value';
+const UNITS = 'units';
+const NOISE = 'noise';
+
+// ---------------------------------------------------------------------------
+// framing
+// ---------------------------------------------------------------------------
+
+// createFramer() -> push(chunk) -> string[]
+//
+// Serial data arrives in arbitrary chunks that split mid-number, so the framer
+// holds a remainder between calls. `chunk` may be a string, a Uint8Array or an
+// ArrayBuffer (what a Web Serial reader yields); bytes are decoded as ASCII,
+// which is all the VRO emits.
+function createFramer() {
+  let pending = '';
+
+  function decode(chunk) {
+    if (chunk == null) return '';
+    if (typeof chunk === 'string') return chunk;
+    const bytes = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk);
+    let out = '';
+    for (let i = 0; i < bytes.length; i++) out += String.fromCharCode(bytes[i]);
+    return out;
+  }
+
+  return {
+    push(chunk) {
+      pending += decode(chunk);
+      const parts = pending.split(TERMINATOR);
+      pending = parts.pop();               // trailing fragment, awaiting its CR
+      if (pending.length > MAX_PENDING) pending = '';
+      return parts.map(s => s.trim()).filter(s => s.length > 0);
+    },
+    // Flush whatever is buffered; used on disconnect so a final unterminated
+    // frame is not lost.
+    flush() {
+      const rest = pending.trim();
+      pending = '';
+      return rest ? [rest] : [];
+    },
+    reset() { pending = ''; },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// parsing
+// ---------------------------------------------------------------------------
+
+// parseLine(line) -> { status, microns?, mm?, raw, message? }
+//
+// status is 'value' (usable measurement), 'units' (readout in the wrong mode)
+// or 'noise' (no number present — banner text, line noise, a bare prompt).
+function parseLine(line) {
+  const raw = String(line == null ? '' : line).trim();
+  if (!raw) return { status: NOISE, raw, message: 'empty frame' };
+
+  const lower = raw.toLowerCase();
+  if (/in$/.test(lower)) {
+    return {
+      status: UNITS,
+      raw,
+      message: 'The VRO is transmitting inches. Switch the readout to ' +
+               'millimetres (see the VRO Quick Start Guide) and reconnect.',
+    };
+  }
+  if (/ct$/.test(lower)) {
+    return {
+      status: UNITS,
+      raw,
+      message: 'The VRO is transmitting raw encoder counts, so it has not been ' +
+               'configured yet. Set it to millimetres per the VRO Quick Start Guide.',
+    };
+  }
+
+  const match = VALUE_RE.exec(raw);
+  if (!match) return { status: NOISE, raw, message: 'no numeric value in frame' };
+
+  const mm = Number(match[0]);
+  if (!Number.isFinite(mm)) return { status: NOISE, raw, message: 'unparseable number' };
+
+  return { status: VALUE, raw, mm, microns: Math.round(mm * MICRONS_PER_MM) };
+}
+
+// ---------------------------------------------------------------------------
+// mode detection
+// ---------------------------------------------------------------------------
+//
+// Labs run VROs in one of two configurations and the readout does not announce
+// which. Rather than make the operator know, we infer it from the first few
+// presses of the foot switch:
+//
+//   cumulative  — the readout reports absolute distance from the last zero, so
+//                 a ring width is the difference between consecutive presses.
+//                 Values climb monotonically. This is Tellervo's assumption and
+//                 the usual VRO setup.
+//   incremental — the readout zeroes itself after each press, so every value IS
+//                 a ring width. Values wander up and down.
+//
+// Ring widths almost never increase monotonically for many rings running (that
+// is one ordering out of n!), so a strictly rising run is strong evidence of
+// cumulative travel. Below 4 readings we report low confidence and let the
+// operator confirm.
+const CUMULATIVE = 'cumulative';
+const INCREMENTAL = 'incremental';
+
+function detectMode(microns) {
+  const xs = (microns || []).filter(x => Number.isFinite(x));
+  if (xs.length < 2) {
+    return {
+      mode: null, confidence: 'none', samples: xs.length,
+      reason: 'Press the foot switch a few times to identify the readout mode.',
+    };
+  }
+
+  let rising = true;
+  for (let i = 1; i < xs.length; i++) if (xs[i] < xs[i - 1]) { rising = false; break; }
+
+  if (rising) {
+    return {
+      mode: CUMULATIVE,
+      confidence: xs.length >= 4 ? 'high' : 'low',
+      samples: xs.length,
+      reason: xs.length + ' readings rose monotonically, so the readout is ' +
+              'reporting absolute stage position.',
+    };
+  }
+
+  return {
+    mode: INCREMENTAL,
+    confidence: xs.length >= 4 ? 'high' : 'low',
+    samples: xs.length,
+    reason: 'Readings went both up and down, so each frame is already a ring ' +
+            'width rather than an absolute position.',
+  };
+}
+
+module.exports = {
+  PORT_OPTIONS, MICRONS_PER_MM, MAX_PENDING,
+  VALUE, UNITS, NOISE, CUMULATIVE, INCREMENTAL,
+  ZERO, REQUEST, COMMAND_TERMINATOR,
+  createFramer, parseLine, detectMode, commandBytes,
+};
+
+  });
+  define("m56", {"./vro.js":"m55"}, function(module, exports, require){
+'use strict';
+// ============================================================================
+// series.js — the ring-width series being measured, and its edit history.
+//
+// Pure state machine over the numbers a VRO emits: no serial, no DOM. Widths
+// are held as integer MICRONS end to end and only converted to millimetres at
+// the Frame boundary, so re-editing a ring twenty times never accumulates
+// floating-point drift.
+//
+// Output contract is the shared undated Frame { names, cols } used everywhere
+// else in the app: the first column is the RING INDEX (1..n), not a year —
+// a freshly measured core is undated by definition, and crossdating is what
+// assigns it calendar years. This matches appCore.bindUndated(), which labels
+// the index column 'ring'.
+//
+// Two acquisition modes, because the readout does not announce how it is set up
+// (see detectMode in vro.js):
+//   cumulative  — frames are absolute stage positions; width = this - previous
+//   incremental — the readout self-zeroes, so each frame IS a ring width
+// ============================================================================
+
+const { CUMULATIVE, INCREMENTAL, MICRONS_PER_MM } = require('./vro.js');
+
+const PITH_TO_BARK = 'pith_to_bark';
+const BARK_TO_PITH = 'bark_to_pith';
+
+// Deep enough to undo a bad run of presses, bounded so a long session cannot
+// grow the history without limit.
+const MAX_UNDO = 500;
+
+function cloneRings(rings) {
+  return rings.map(r => ({ width: r.width, position: r.position, note: r.note }));
+}
+
+// createMeasureSeries(opts) -> series
+//   id        series name; becomes the Frame column name
+//   mode      'cumulative' (default) | 'incremental'
+//   direction 'pith_to_bark' (default) | 'bark_to_pith'
+function createMeasureSeries(opts) {
+  opts = opts || {};
+  let id = opts.id || 'NEW1';
+  let mode = opts.mode === INCREMENTAL ? INCREMENTAL : CUMULATIVE;
+  let direction = opts.direction === BARK_TO_PITH ? BARK_TO_PITH : PITH_TO_BARK;
+
+  let rings = [];
+  // Absolute position of the last recorded ring boundary. Starts at 0, which is
+  // a VRO zeroed at the inner edge before the first press.
+  let reference = 0;
+  let lastPosition = null;
+  const history = [];
+
+  function snapshot() {
+    history.push({ rings: cloneRings(rings), reference: reference });
+    if (history.length > MAX_UNDO) history.shift();
+  }
+
+  // -- acquisition ---------------------------------------------------------
+
+  // One press of the foot switch. Returns the ring just recorded.
+  //
+  // A cumulative reading behind the previous boundary yields a NEGATIVE width.
+  // It is recorded rather than dropped, and flagged: silently discarding it
+  // would leave the operator watching for a ring that never appears, whereas a
+  // visible negative row says "the stage went backwards, undo".
+  function addReading(microns) {
+    lastPosition = microns;
+    snapshot();
+    let ring;
+    if (mode === CUMULATIVE) {
+      ring = { width: microns - reference, position: microns, note: '' };
+      if (ring.width < 0) ring.note = 'negative — stage moved backwards';
+      reference = microns;
+    } else {
+      ring = { width: microns, position: null, note: microns < 0 ? 'negative reading' : '' };
+    }
+    rings.push(ring);
+    return ring;
+  }
+
+  // A locally absent (missing) ring, recorded as zero width — the Tucson
+  // convention, and what dplR expects.
+  function addAbsent() {
+    snapshot();
+    const ring = { width: 0, position: reference, note: 'locally absent' };
+    rings.push(ring);
+    return ring;
+  }
+
+  // Treat a stage position as the inner edge WITHOUT recording a ring. With no
+  // argument the most recent reading is used: drive to the pith, press once,
+  // then hit Zero.
+  function zeroAt(microns) {
+    snapshot();
+    reference = microns == null ? (lastPosition == null ? 0 : lastPosition) : microns;
+    return reference;
+  }
+
+  // Adopt an existing series so it can be amended, corrected, or carried on
+  // where the last session stopped. `widths` are MILLIMETRES, OLDEST RING FIRST
+  // — the order every file and Frame in the app uses, and exactly what
+  // orderedWidthsMm() emits, so load -> toFrame round-trips. A bark-to-pith
+  // core is flipped back into measurement order here, since that is the order
+  // the stage will continue in.
+  //
+  // Nothing is known about where the stage now sits, so positions are dropped
+  // and the reference is reset: a cumulative readout has to be re-zeroed at the
+  // last ring boundary before measuring resumes (measure.js does that on load).
+  // An undo immediately afterwards restores whatever was being measured before.
+  function loadWidthsMm(widths, opts) {
+    opts = opts || {};
+    snapshot();
+    const order = direction === BARK_TO_PITH ? widths.slice().reverse() : widths.slice();
+    rings = order.map(mm => {
+      const missing = mm == null || Number.isNaN(Number(mm));
+      const width = missing ? 0 : Math.round(Number(mm) * MICRONS_PER_MM);
+      return {
+        width,
+        position: null,
+        note: missing ? 'missing in source' : (width === 0 ? 'locally absent' : (opts.note || 'loaded')),
+      };
+    });
+    reference = 0;
+    lastPosition = null;
+    return rings.length;
+  }
+
+  // -- editing -------------------------------------------------------------
+  function setWidth(index, microns) {
+    if (!rings[index]) throw new Error('setWidth: no ring at index ' + index);
+    snapshot();
+    rings[index].width = microns;
+    rings[index].note = 'edited';
+  }
+
+  function insert(index, microns, note) {
+    snapshot();
+    rings.splice(index, 0, {
+      width: microns || 0,
+      position: null,
+      note: note || 'inserted',
+    });
+  }
+
+  function remove(index) {
+    if (!rings[index]) throw new Error('remove: no ring at index ' + index);
+    snapshot();
+    rings.splice(index, 1);
+  }
+
+  function undo() {
+    const prev = history.pop();
+    if (!prev) return false;
+    rings = prev.rings;
+    reference = prev.reference;
+    return true;
+  }
+
+  function clear() {
+    snapshot();
+    rings = [];
+    reference = 0;
+    lastPosition = null;
+  }
+
+  // -- views ---------------------------------------------------------------
+
+  // Widths in measurement order (mm).
+  function widthsMm() { return rings.map(r => r.width / MICRONS_PER_MM); }
+
+  // Widths oldest ring first. A core measured bark-to-pith comes off the stage
+  // backwards, and every downstream routine — detrending, lead-lag, chronology
+  // building — assumes a series runs oldest to youngest, so reverse it here
+  // rather than leaving a trap for the analysis side.
+  function orderedWidthsMm() {
+    const w = widthsMm();
+    return direction === BARK_TO_PITH ? w.reverse() : w;
+  }
+
+  // The shared undated Frame: ring index + one named series column.
+  function toFrame() {
+    const w = orderedWidthsMm();
+    const index = w.map((_, i) => i + 1);
+    return { names: ['ring', id], cols: [index, w] };
+  }
+
+  function summary() {
+    if (!rings.length) return 'no rings measured';
+    const total = rings.reduce((a, r) => a + r.width, 0) / MICRONS_PER_MM;
+    const mean = total / rings.length;
+    return rings.length + ' rings · mean ' + mean.toFixed(3) +
+           ' mm · total ' + total.toFixed(3) + ' mm';
+  }
+
+  function state() {
+    return {
+      id, mode, direction,
+      rings: cloneRings(rings),
+      reference, lastPosition,
+      count: rings.length,
+      canUndo: history.length > 0,
+    };
+  }
+
+  return {
+    addReading, addAbsent, zeroAt, loadWidthsMm,
+    setWidth, insert, remove, undo, clear,
+    widthsMm, orderedWidthsMm, toFrame, summary, state,
+    get id() { return id; },
+    set id(v) { id = v || 'NEW1'; },
+    get mode() { return mode; },
+    set mode(v) { mode = v === INCREMENTAL ? INCREMENTAL : CUMULATIVE; },
+    get direction() { return direction; },
+    set direction(v) { direction = v === BARK_TO_PITH ? BARK_TO_PITH : PITH_TO_BARK; },
+    get length() { return rings.length; },
+  };
+}
+
+module.exports = { createMeasureSeries, PITH_TO_BARK, BARK_TO_PITH, MAX_UNDO };
+
+  });
+  define("m57", {"../analysis/comb.js":"m11","./render.js":"m49"}, function(module, exports, require){
 'use strict';
 // datedLinePlot — sample coverage plot (port of R/dated_line_plot_function.R).
 // The R function is a DATA-PREP helper: it returns a long data.frame `res` with
@@ -7754,7 +8544,7 @@ function datedLinePlot(theData, opts = {}) {
 module.exports = { datedLinePlot, datedLinePlotData, toSVG };
 
   });
-  define("m55", {"../analysis/comb.js":"m11","./chartUtils.js":"m41","./render.js":"m48"}, function(module, exports, require){
+  define("m58", {"../analysis/comb.js":"m11","./chartUtils.js":"m42","./render.js":"m49"}, function(module, exports, require){
 'use strict';
 // allSeries — all aligned series (semi-transparent black) plus the arithmetic
 // mean chronology (red). Port of R/plot_all_series_function.R.
@@ -7823,7 +8613,7 @@ function allSeries(alignedData, opts = {}) {
 module.exports = { allSeries, toSVG };
 
   });
-  define("m56", {"../analysis/comb.js":"m11","../detrend/normalise.js":"m13","../detrend/detcurves.js":"m14","../analysis/autoCorrel.js":"m15","./chartUtils.js":"m41","./render.js":"m48"}, function(module, exports, require){
+  define("m59", {"../analysis/comb.js":"m11","../detrend/normalise.js":"m13","../detrend/detcurves.js":"m14","../analysis/autoCorrel.js":"m16","./chartUtils.js":"m42","./render.js":"m49"}, function(module, exports, require){
 'use strict';
 // detrendPlot — 3 stacked panels (port of R/detrending_plot_function.R):
 //   1. raw series (alpha 0.75) + the fitted detrending curve (thick black)
@@ -7923,7 +8713,7 @@ function detrendPlot(undetData, firstSeries, opts = {}) {
 module.exports = { detrendPlot, toSVG };
 
   });
-  define("m57", {"../analysis/comb.js":"m11","../analysis/skel.js":"m58","./render.js":"m48"}, function(module, exports, require){
+  define("m60", {"../analysis/comb.js":"m11","../analysis/skel.js":"m61","./render.js":"m49"}, function(module, exports, require){
 'use strict';
 // skelPlot — two-series skeleton-plot crossdating overlay (dplR skel.plot,
 // re-cast as a comparison like the heatmap). series_1 ("master") marks point
@@ -7962,7 +8752,7 @@ module.exports = { detrendPlot, toSVG };
 
 const C = require('../analysis/comb.js');
 const { skelValues, skelGrowth } = require('../analysis/skel.js');
-const { toSVG } = require('./render.js');
+const { toSVG, ownAxis } = require('./render.js');
 
 function seriesArray(frame, name) {
   const c = C.colByName(frame, name);
@@ -8033,6 +8823,7 @@ function rowPanel(start, end, master, sample, first, opts) {
       { type: 'segment', x0: s.map(p => p.x), x1: s.map(p => p.x), y0: s.map(() => 0), y1: s.map(p => p.h), color: '#c0392b', width: 2 },
     ],
     legend: first ? opts.legend : null,
+    linkSeries: opts.linkSeries,   // every row shows both series' own years
     colourbar: null,
   };
 }
@@ -8044,6 +8835,7 @@ function skelPlot(theData, series1Nm, series2Nm, lag = 0, opts = {}) {
   const fw = opts.filt_weight != null ? opts.filt_weight : 9;
   const rowYears = opts.rowYears != null ? opts.rowYears : 120;   // dplR: 120 yr/row
   const width = opts.width || 760;
+  const ring = opts.ringSeries || [];       // series with no years: label rings
   const yr = C.col(f, 0).map(Number);
   const s1 = seriesArray(f, series1Nm);
   const s2 = seriesArray(f, series2Nm);
@@ -8084,6 +8876,14 @@ function skelPlot(theData, series1Nm, series2Nm, lag = 0, opts = {}) {
     width,
     title: `${series1Nm} (down) vs ${series2Nm} (up) — skeleton plot, lag ${lag}`,
     legend: { entries: [{ label: `${series1Nm} (down)`, color: '#2c7fb8' }, { label: `${series2Nm} (up)`, color: '#c0392b' }] },
+    // The sample's marks were shifted by the lag to draw them, so a hovered x
+    // is a different position in each series — in the colours their marks
+    // carry. A dated series reads in years; an undated one (opts.ringSeries)
+    // reads in ring counts from its own first ring. See ownAxis in render.js.
+    linkSeries: [
+      ownAxis(series1Nm, '#2c7fb8', sp1, 0, ring.indexOf(series1Nm) >= 0),
+      ownAxis(series2Nm, '#c0392b', sp2, lag, ring.indexOf(series2Nm) >= 0),
+    ],
   };
   const panels = [];
   for (let p = 0; p < nRows; p++) {
@@ -8106,7 +8906,7 @@ function skelPlot(theData, series1Nm, series2Nm, lag = 0, opts = {}) {
 module.exports = { skelPlot, toSVG };
 
   });
-  define("m58", {}, function(module, exports, require){
+  define("m61", {}, function(module, exports, require){
 'use strict';
 // Skeleton-plot maths — faithful port of dplR's hanning() + the skeleton-value
 // calculation inside skel.plot(). Used by viz/skelPlot.js.

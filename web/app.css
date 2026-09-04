@@ -1,8 +1,8 @@
 /* RingdateR web frontend — styling cues from ringdater www/style.css
-   (green #008d4c header, dark #222d32 sidebar). Functional, not pixel-identical. */
+   (gold #c49749 header, dark #222d32 sidebar). Functional, not pixel-identical. */
 :root {
-  --green: #008d4c;
-  --green-d: #006b3a;
+  --brand: #c49749;
+  --brand-d: #8a6529;
   --sidebar: #222d32;
   --sidebar-h: #1a2226;
   --ink: #1f2933;
@@ -19,7 +19,7 @@ body {
   color: var(--ink); background: var(--bg); font-size: 14px; line-height: 1.45;
 }
 header.app {
-  background: var(--green); color: #fff; padding: 0 18px; height: 56px;
+  background: var(--brand); color: #fff; padding: 0 18px; height: 56px;
   display: flex; align-items: center; gap: 14px; box-shadow: 0 1px 4px rgba(0,0,0,.2);
 }
 header.app h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: .5px; }
@@ -35,7 +35,7 @@ nav.tabs button {
   color: #b8c7ce; padding: 11px 18px; font-size: 14px; cursor: pointer; border-left: 3px solid transparent;
 }
 nav.tabs button:hover { background: var(--sidebar-h); color: #fff; }
-nav.tabs button.active { background: var(--sidebar-h); color: #fff; border-left-color: var(--green); font-weight: 600; }
+nav.tabs button.active { background: var(--sidebar-h); color: #fff; border-left-color: var(--brand); font-weight: 600; }
 nav.tabs button:disabled { opacity: .4; cursor: not-allowed; }
 nav.tabs .grp { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: #6b7a82; padding: 14px 18px 4px; }
 
@@ -47,7 +47,7 @@ main { flex: 1 1 auto; padding: 20px 24px; min-width: 0; }
   background: var(--card); border: 1px solid var(--line); border-radius: 8px;
   padding: 16px 18px; margin: 0 0 18px; box-shadow: 0 1px 2px rgba(0,0,0,.04);
 }
-.card h2 { margin: 0 0 4px; font-size: 17px; color: var(--green-d); }
+.card h2 { margin: 0 0 4px; font-size: 17px; color: var(--brand-d); }
 .card h3 { margin: 14px 0 6px; font-size: 14px; }
 .card p.hint { color: var(--muted); font-size: 13px; margin: 4px 0 10px; }
 .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
@@ -63,11 +63,11 @@ textarea { width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-
 label.filelabel { display: inline-block; font-weight: 600; margin: 0; }
 
 button.btn {
-  background: var(--green); color: #fff; border: 0; border-radius: 6px; padding: 9px 16px;
+  background: var(--brand); color: #fff; border: 0; border-radius: 6px; padding: 9px 16px;
   font-size: 14px; font-weight: 600; cursor: pointer;
 }
-button.btn:hover { background: var(--green-d); }
-button.btn:disabled { background: #9fb3ab; cursor: not-allowed; }
+button.btn:hover { background: var(--brand-d); }
+button.btn:disabled { background: #c6b89b; cursor: not-allowed; }
 button.btn.secondary { background: var(--accent); }
 button.btn.secondary:hover { background: #216a9a; }
 button.btn.ghost { background: #eef2f4; color: var(--ink); }
@@ -75,7 +75,7 @@ button.btn.ghost:hover { background: #e2e8ec; }
 
 .msg { min-height: 20px; font-size: 13px; margin: 8px 0; }
 .msg.err { color: #c0392b; }
-.msg.ok { color: var(--green-d); }
+.msg.ok { color: var(--brand-d); }
 .msg.warn { color: #9a6400; }
 .badge { display: inline-block; background: #eef2f4; border: 1px solid var(--line); border-radius: 12px; padding: 1px 9px; font-size: 12px; margin: 2px 4px 2px 0; }
 .warn { background: #fff6e5; border: 1px solid #f0d9a8; color: #8a6300; border-radius: 6px; padding: 8px 12px; font-size: 13px; margin: 8px 0; }
@@ -86,28 +86,28 @@ table.res th, table.res td { border: 1px solid #e7ebee; padding: 3px 7px; text-a
 table.res th { position: sticky; top: 0; background: #eef2f4; z-index: 1; }
 table.res td:first-child, table.res td:nth-child(2), table.res th:first-child, table.res th:nth-child(2) { text-align: left; }
 table.res th.sortable { cursor: pointer; user-select: none; }
-table.res th.sortable:hover { background: #e3eae6; }
+table.res th.sortable:hover { background: #f0e8da; }
 .sort-arrows { display: inline-flex; flex-direction: column; vertical-align: middle; margin-left: 4px; line-height: 0.62; }
 .sort-arrow { font-size: 8px; color: #9aa7ad; }
 .sort-arrow:hover { color: #1f2933; }
-.sort-arrow.on { color: #006b3a; }
-table.res tbody tr:hover { background: #eef6ef; cursor: pointer; }
+.sort-arrow.on { color: #8a6529; }
+table.res tbody tr:hover { background: #fbf5e9; cursor: pointer; }
 table.res td.altlag:hover { text-decoration: underline dotted; }
 /* the lag group a click would select (best, 2nd or 3rd) lights up as a block —
-   a blue tint distinct from the green row hover / selection */
+   a blue tint distinct from the gold row hover / selection */
 table.res tbody td.lag-hover { background: #d9e8f5; }
 .seg-badge { display: inline-block; margin-left: 5px; padding: 0 5px; border-radius: 8px; font-size: 10px; font-weight: 600; cursor: help; }
-.seg-badge.promoted { background: #1b7a3d; color: #fff; }
-.seg-badge.confirmed { background: #dff1e2; color: #1b7a3d; border: 1px solid #9fceab; }
+.seg-badge.promoted { background: #96702f; color: #fff; }
+.seg-badge.confirmed { background: #f7ecd8; color: #96702f; border: 1px solid #dfc38a; }
 .seg-badge.noted { background: #fff3d6; color: #8a6d1a; border: 1px solid #e3cf94; }
-table.res tbody tr.sel { background: #d7efd7; }
+table.res tbody tr.sel { background: #f2e3c6; }
 table.res tr.sep td { background: #fafbfc; height: 5px; padding: 0; }
-#rt_out table.res tr.rt-fruit td { background: #eef6ef; font-weight: 600; }
-#rt_out table.res tbody tr.sel td { background: #d7efd7; }
+#rt_out table.res tr.rt-fruit td { background: #fbf5e9; font-weight: 600; }
+#rt_out table.res tbody tr.sel td { background: #f2e3c6; }
 td.segchk { width: 24px; text-align: center !important; }
 #segDiagOut table.res tbody tr { cursor: default; }
 #segDiagOut table.res tr.sd-whole td { background: #f4f6f8; font-style: italic; }
-#segDiagOut h3 { color: #006b3a; margin: 14px 0 4px; }
+#segDiagOut h3 { color: #8a6529; margin: 14px 0 4px; }
 
 .plotwrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; padding: 8px; background: #fff; position: relative; }
 .plotwrap svg { max-width: 100%; height: auto; }
@@ -123,24 +123,29 @@ td.segchk { width: 24px; text-align: center !important; }
 .dl-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 6px; margin-bottom: 7px; background: #fff; }
 .dl-list li span.fn { font-size: 13px; word-break: break-all; }
 .dl-list li span.mime { font-size: 11px; color: var(--muted); }
+/* the file name is editable in place: type over it before downloading */
+.dl-list li .fname { display: flex; align-items: baseline; gap: 2px; }
+.dl-list li input.fn { font: inherit; font-size: 13px; padding: 2px 5px; border: 1px solid var(--line); border-radius: 4px; background: #fdfdfd; min-width: 90px; max-width: 260px; }
+.dl-list li input.fn:focus { border-color: var(--brand); outline: none; background: #fff; }
+.dl-list li .ext { font-size: 13px; color: var(--muted); }
 
 .kv { font-size: 13px; margin: 3px 0; }
 .kv b { display: inline-block; min-width: 160px; color: var(--muted); font-weight: 600; }
 .pill { display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 12px; font-weight: 600; }
-.pill.mode1 { background: #dff0e6; color: var(--green-d); }
+.pill.mode1 { background: #f7ecd8; color: var(--brand-d); }
 .pill.mode2 { background: #dde8f5; color: #1c5a86; }
 .tag { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
 .tag.skipped { background: #f1e0df; color: #8a3c34; }
 .tag.review { background: #fdf0d5; color: #8a6300; }
 
-.start-hero { background: linear-gradient(135deg, var(--green), #00a862); color: #fff; border: 0; }
+.start-hero { background: linear-gradient(135deg, var(--brand), #dcb268); color: #fff; border: 0; }
 .start-hero h2 { color: #fff; font-size: 22px; }
 .start-hero ol { margin: 8px 0 0; padding-left: 20px; }
 .start-hero li { margin: 4px 0; }
 .start-hero p { margin: 6px 0 0; }
 
 /* ---- home task cards ------------------------------------------------------ */
-.home-sub { font-size: 16px; color: var(--green-d); margin: 4px 0 12px; display: flex; align-items: center; gap: 8px; }
+.home-sub { font-size: 16px; color: var(--brand-d); margin: 4px 0 12px; display: flex; align-items: center; gap: 8px; }
 .home-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px; margin-bottom: 18px; }
 .task-card { display: flex; flex-direction: column; margin: 0; }
 .task-card p.hint { flex: 1 1 auto; }
@@ -155,7 +160,7 @@ td.segchk { width: 24px; text-align: center !important; }
 .slot-status { font-size: 12px; margin: 2px 0 7px; }
 .slot-dir { margin-top: 8px; display: flex; align-items: center; gap: 8px; }
 .slot-dir .hint { margin: 0; }
-.slot-ok { color: var(--green-d); font-weight: 600; }
+.slot-ok { color: var(--brand-d); font-weight: 600; }
 .slot-need { color: #8a4f47; font-weight: 600; }
 .slot-opt { color: var(--muted); }
 
@@ -171,7 +176,7 @@ header.app .export { position: relative; }
   background: var(--card); color: var(--ink); border: 1px solid var(--line); border-radius: 8px;
   box-shadow: 0 6px 24px rgba(0,0,0,.18); padding: 14px 16px; text-align: left;
 }
-.export-panel h3 { margin: 10px 0 6px; font-size: 13px; color: var(--green-d); }
+.export-panel h3 { margin: 10px 0 6px; font-size: 13px; color: var(--brand-d); }
 .export-panel h3:first-child { margin-top: 0; }
 .export-panel .plot-controls > div { min-width: 120px; }
 
@@ -183,7 +188,7 @@ header.app .export { position: relative; }
   box-shadow: 0 1px 2px rgba(0,0,0,.04);
 }
 .rail-head { display: flex; align-items: center; justify-content: space-between; }
-.rail-head h2 { margin: 0; font-size: 15px; color: var(--green-d); }
+.rail-head h2 { margin: 0; font-size: 15px; color: var(--brand-d); }
 .rail-toggle {
   background: #eef2f4; border: 1px solid var(--line); border-radius: 5px; cursor: pointer;
   font-size: 13px; padding: 2px 9px; color: var(--ink);
@@ -205,7 +210,7 @@ header.app .export { position: relative; }
 }
 #runProgress .pbox h3 { margin: 0 0 12px; font-size: 15px; color: var(--ink); }
 .pbar { height: 8px; background: #e3e9ec; border-radius: 4px; overflow: hidden; }
-.pbar-fill { height: 100%; width: 0; background: var(--green); border-radius: 4px; transition: width .15s ease; }
+.pbar-fill { height: 100%; width: 0; background: var(--brand); border-radius: 4px; transition: width .15s ease; }
 .pbar-label { font-size: 12px; color: var(--muted); margin-top: 6px; min-height: 15px; }
 .workspace.rail-collapsed .rail { flex: 0 0 auto; padding: 8px; }
 .workspace.rail-collapsed .rail-body, .workspace.rail-collapsed .rail-head h2 { display: none; }
@@ -213,8 +218,8 @@ header.app .export { position: relative; }
 
 /* ---- build view collapsible sections -------------------------------------- */
 details { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 8px; }
-details summary { cursor: pointer; font-size: 14px; font-weight: 600; color: var(--green-d); padding: 3px 0; }
-details summary:hover { color: var(--green); }
+details summary { cursor: pointer; font-size: 14px; font-weight: 600; color: var(--brand-d); padding: 3px 0; }
+details summary:hover { color: var(--brand); }
 /* rail data summary: compact status + a jump-to-Home button */
 .rail #railManageBtn { width: 100%; margin-top: 8px; font-size: 12px; padding: 6px 10px; }
 .rail #modeChronPrompt { margin-top: 8px; }
@@ -244,7 +249,7 @@ details.series-meta .sm-wrap { max-height: 220px; overflow: auto; }
 /* ---- guided tour ---------------------------------------------------------- */
 .tour-highlight {
   position: fixed; z-index: 90; border-radius: 6px; pointer-events: none;
-  box-shadow: 0 0 0 4px rgba(0,141,76,.85), 0 0 0 9999px rgba(15,25,32,.55);
+  box-shadow: 0 0 0 4px rgba(196,151,73,.85), 0 0 0 9999px rgba(15,25,32,.55);
   transition: all .25s ease;
 }
 .tour-popover {
@@ -252,7 +257,7 @@ details.series-meta .sm-wrap { max-height: 220px; overflow: auto; }
   background: var(--card); border: 1px solid var(--line); border-radius: 8px;
   box-shadow: 0 8px 30px rgba(0,0,0,.3); padding: 14px 16px;
 }
-.tour-popover h3 { margin: 0 0 6px; font-size: 15px; color: var(--green-d); }
+.tour-popover h3 { margin: 0 0 6px; font-size: 15px; color: var(--brand-d); }
 .tour-popover p { margin: 0 0 10px; font-size: 13px; line-height: 1.5; }
 .tour-popover .tour-foot { display: flex; align-items: center; gap: 8px; }
 .tour-popover .tour-count { font-size: 12px; color: var(--muted); margin-right: auto; }
@@ -262,3 +267,145 @@ details.series-meta .sm-wrap { max-height: 220px; overflow: auto; }
   font-size: 15px; color: var(--muted); padding: 2px 6px;
 }
 .tour-x:hover { color: var(--ink); }
+
+/* ---- measure view (Velmex VRO acquisition) -------------------------------- */
+.measure-grid { display: grid; grid-template-columns: minmax(240px, 1fr) minmax(320px, 2fr); gap: 18px; }
+@media (max-width: 900px) { .measure-grid { grid-template-columns: 1fr; } }
+
+.measure-btns { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 4px; }
+.measure-btns .btn { flex: 0 0 auto; }
+
+/* The series name: its own row at the head of the view, not a slot in the
+   settings strip, since it is the field set once per core and the name the
+   ring table, the trace, the pool and the .rwl all inherit. The accent is the
+   ACTIVE series' trace colour (set by measure.js), so the box, its column and
+   its line on the trace read as one thing. */
+.measure-name {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px;
+  margin: 10px 0 14px; padding: 9px 14px; background: #fbfcfd;
+  border: 1px solid var(--line); border-left: 4px solid var(--vro-line, var(--brand));
+  border-radius: 6px;
+}
+.measure-name label { margin: 0; font-size: 13px; }
+.measure-name input[type=text] {
+  width: 170px; font-size: 18px; font-weight: 700; letter-spacing: .5px; padding: 6px 10px;
+}
+.measure-name input[type=text]:focus {
+  outline: 2px solid var(--vro-line, var(--brand)); outline-offset: 1px; border-color: transparent;
+}
+.measure-name .hint { margin: 0; flex: 1 1 200px; }
+
+/* The live reading, sized to be legible from across a microscope bench. */
+.bigread { font-size: 34px; font-weight: 700; letter-spacing: .5px; color: var(--ink); }
+
+.pill { font-size: 12px; padding: 2px 9px; border-radius: 10px; margin-left: 8px; white-space: nowrap; }
+.pill.ok { background: #f2e3c6; color: var(--brand-d); }
+.pill.off { background: #eceff1; color: var(--muted); }
+
+/* Marks text that carries a title tooltip — without the cue, the explanation is
+   just hidden rather than tucked away. */
+.tip {
+  cursor: help;
+  text-decoration: underline dotted var(--muted);
+  text-underline-offset: 3px;
+}
+
+/* The "load an existing series" drawer: set apart from the acquisition controls
+   above it, since it acts on data rather than on the stage. */
+.loadbox {
+  border: 1px solid var(--line); border-left: 3px solid var(--accent);
+  border-radius: 6px; background: #f7f9fa; padding: 10px 12px 4px; margin: 8px 0 10px;
+}
+.loadbox p.hint { margin-top: 0; }
+.loadbox .plot-controls { margin-bottom: 6px; }
+#vroOrigin { margin-left: 4px; }
+
+/* The series measured in this sitting; the active one is what the foot switch
+   adds to. */
+.series-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; }
+.series-chips .hint { margin: 0; }
+.chip {
+  font: inherit; font-size: 12px; cursor: pointer;
+  background: #eceff1; color: var(--ink); border: 1px solid var(--line);
+  border-radius: 12px; padding: 2px 10px;
+}
+.chip:hover { border-color: var(--accent); }
+.chip.active { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.chip .n { opacity: .7; font-size: 11px; margin-left: 3px; }
+
+/* Aligning the series against each other: a lag in rings, stepped with the
+   box's own arrows, with the table and the trace following each step. */
+.lag-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin: 0 0 10px; }
+.lag-row label { margin: 0; white-space: nowrap; }
+.lag-row input[type=number] { width: 78px; text-align: right; }
+/* The steppers are the point of the box — kept visible rather than appearing
+   only under the pointer, so stepping a ring at a time is the obvious move. */
+.lag-row input[type=number]::-webkit-inner-spin-button,
+.lag-row input[type=number]::-webkit-outer-spin-button { opacity: 1; height: 24px; }
+.lag-row .btn { padding: 3px 10px; font-size: 12px; }
+.lag-row .hint { margin: 0; flex: 1 1 160px; font-size: 11px; }
+/* How far a series has been slid, shown on its own column heading — the rows
+   are the aligned index, not that series' ring numbers. */
+table.res th .lagmark { font-size: 10px; font-weight: 600; opacity: .75; }
+
+/* The column being measured, in a table that now holds one column per series.
+   The measure table's own highlights are tinted with the ACTIVE series' trace
+   colour (the custom properties are set by measure.js, and the fallbacks are
+   the fixed blue this used to be), so the table says which series a click would
+   edit — and matches the cursor drawn on the trace above it. */
+table.res th.col-active { background: #e8f1f8; }
+table.res td.col-active { background: #f4f9fc; }
+#vroTable th.col-active { background: var(--vro-col-head, #e8f1f8); color: var(--vro-line, inherit); }
+#vroTable td.col-active { background: var(--vro-col, #f4f9fc); }
+/* Row under the pointer — in the table, or on the trace, which lights the row
+   it belongs to with the same class. A cell that carries its own meaning keeps
+   it: the striped pad has no ring to point at, and a backwards ring stays red. */
+#vroTable tbody tr:hover > td:not(.pad), #vroTable tbody tr.hov > td:not(.pad) {
+  background: var(--vro-hov, #fbf5e9);
+}
+#vroTable tbody tr.sel > td:not(.pad) { background: var(--vro-sel, #f2e3c6); }
+#vroTable tbody tr.sel > td.col-active { background: var(--vro-sel-col, #e2edf6); }
+#vroTable tbody tr.sel > td.bad, #vroTable tbody tr:hover > td.bad,
+#vroTable tbody tr.hov > td.bad { background: #ffecec; }
+/* A row where a series has no ring — including the gap a lag opens above or
+   below it — stays striped whatever else the cell is caught by: there is no
+   width there to highlight, to select, or to measure the column by. */
+table.res td.pad, #vroTable tbody tr > td.pad, #vroTable tbody tr.sel > td.pad {
+  background: repeating-linear-gradient(135deg, #fafbfc, #fafbfc 4px, #f2f4f6 4px, #f2f4f6 8px);
+}
+
+/* Chrome paints a row that has scrolled under a sticky header THROUGH it when
+   the table's borders are collapsed, so the ring table draws its own: separate
+   borders, one hairline per cell on the right and bottom (the wrap supplies the
+   outer edge), which keeps the ruled look and lets the header cover what is
+   behind it. */
+#vroTable { border-collapse: separate; border-spacing: 0; }
+#vroTable th, #vroTable td { border-width: 0 1px 1px 0; }
+#vroTable th:last-child, #vroTable td:last-child { border-right-width: 0; }
+
+/* The cursor: one ring index shown on the trace, tied to the row in the table. */
+#vroTrace svg { cursor: crosshair; }
+#vroCursor .cur-line { stroke-width: 1; stroke-dasharray: 3 3; opacity: .85; }
+#vroCursor .cur-dot { stroke: #fff; stroke-width: 1; }
+#vroCursor .cur-chip { fill: #fff; fill-opacity: .92; stroke-width: 1; }
+table.res th .pen { opacity: .8; font-weight: 400; }
+
+.detectbox { font-size: 13px; margin: 6px 0; min-height: 20px; }
+.detectbox .btn { margin-left: 8px; padding: 2px 10px; font-size: 12px; }
+
+#vroRaw {
+  font-family: ui-monospace, Consolas, monospace; font-size: 11px; line-height: 1.35;
+  background: #f7f9fa; border: 1px solid var(--line); border-radius: 6px;
+  padding: 6px 8px; margin: 0; height: 132px; overflow: auto; white-space: pre-wrap;
+}
+
+#vroTrace { border: 1px solid var(--line); border-radius: 6px; background: #fff; margin-bottom: 10px; }
+#vroTrace p.hint { padding: 12px; margin: 0; }
+
+table.res td.bad { background: #ffecec; color: #c0392b; }
+table.res td.absent { color: #c0392b; font-style: italic; }
+
+kbd {
+  font-family: ui-monospace, Consolas, monospace; font-size: 10px; padding: 1px 4px;
+  border: 1px solid var(--line); border-radius: 3px; background: #f7f9fa; color: var(--muted);
+}

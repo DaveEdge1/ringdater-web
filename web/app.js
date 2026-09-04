@@ -78,7 +78,45 @@
     $('chronPickField').style.display = (chronoMode && state.chrons.length) ? '' : 'none';
     $('modeChronPrompt').style.display = (chronoMode && !state.chrons.length) ? '' : 'none';
     $('modeChronAdd').style.display = chronoMode ? '' : 'none';
+    // Only chronology mode has a chronology to exclude from detrending.
+    $('detrendChronRow').style.display = chronoMode ? '' : 'none';
     if (chronoMode && state.chrons.length) syncChronSelect();
+    renderDetrendNote();
+  }
+
+  // What the auto-detection makes of the data currently loaded, said before
+  // the run rather than after it: the alternative is a user wondering why a
+  // detrending method they chose appears not to have been applied.
+  function detectedNow() {
+    var chronoMode = Number($('mode_select').value) === 2;
+    var out = [];
+    var u = AC.detectDetrended(state.undated, state.undatedName);
+    if (u.names.length) out.push({ what: 'undated', hit: u });
+    // A chronology excluded by hand is not also 'detected'.
+    if (chronoMode && state.chron && $('detrend_chron').checked) {
+      var c = AC.detectDetrended(state.chron, state.chronName);
+      if (c.names.length) out.push({ what: 'chronology', hit: c });
+    }
+    return out;
+  }
+  function renderDetrendNote() {
+    var el = $('detrendSkipNote');
+    if (!el) return;
+    var willDetrend = Number($('detrending_select').value) !== 1;
+    if (!state.undated || !willDetrend || !$('detrend_auto').checked) {
+      el.style.display = 'none'; return;
+    }
+    var found = detectedNow();
+    if (!found.length) { el.style.display = 'none'; return; }
+    el.innerHTML = found.map(function (f) {
+      var n = f.hit.names.length;
+      var why = {};
+      f.hit.names.forEach(function (nm) { why[f.hit.reasons[nm]] = true; });
+      return '<b>' + n + ' ' + f.what + ' series</b>' + (f.hit.all ? ' (all of them)' : '') +
+        ' are already detrended — ' + Object.keys(why).join('; ') +
+        '. They will be left as they are.';
+    }).join('<br>');
+    el.style.display = '';
   }
   // Populate the "compare against" picker: every loaded chronology by name,
   // plus the composite (mean of the detrended chronologies) when there are >=2.
@@ -110,6 +148,9 @@
     state.chron = frame; state.chronName = name;
     if (state.chronChoice !== COMPOSITE) state.chronChoice = name;
   }
+  $('detrend_auto').addEventListener('change', renderDetrendNote);
+  $('detrend_chron').addEventListener('change', renderDetrendNote);
+  $('detrending_select').addEventListener('change', renderDetrendNote);
   $('mode_select').addEventListener('change', syncModeUI);
   syncModeUI();
 
@@ -264,6 +305,179 @@
     if (t.chron) parts.push(AC.seriesNames(t.chron).length + '-series chronology');
     return parts.join(' + ');
   }
+
+  // Take a series measured in the Measure view (measure.js) straight into the
+  // undated pool — the same merge path a loaded file takes, minus the file. The
+  // name is made unique first, since a pool with two "NEW1" columns would break
+  // every by-name lookup downstream. Returns a message for the caller to show.
+  // The frame may carry SEVERAL series: a sitting at the stage often produces a
+  // re-measured radius or a specimen's several radii, and they arrive together.
+  // Each name is made unique against the pool and against its companions, since
+  // two columns sharing a name break every by-name lookup downstream.
+  function poolAdd(frame, name) {
+    var taken = (state.undated ? AC.seriesNames(state.undated) : []).slice();
+    var f = { names: [frame.names[0]], cols: [frame.cols[0]] }, ids = [];
+    for (var c = 1; c < frame.cols.length; c++) {
+      var base = frame.names[c] || name || 'NEW', id = base, n = 1;
+      while (taken.indexOf(id) >= 0) id = base + '_' + (++n);
+      taken.push(id); ids.push(id);
+      f.names.push(id); f.cols.push(frame.cols[c]);
+    }
+    state.undated = state.undated ? AC.bindUndated(state.undated, f) : f;
+    if (!state.undatedName) state.undatedName = 'measured on the stage';
+    renderDataInfo();
+    onDataChanged();
+    syncNav();
+    var msg = ids.length === 1
+      ? 'Added "' + ids[0] + '" (' + f.cols[1].length + ' rings) to the undated pool.'
+      : 'Added ' + ids.length + ' series (' + ids.map(function (i) { return '"' + i + '"'; }).join(', ') +
+        ') to the undated pool.';
+    return { id: ids[0], ids: ids, message: msg };
+  }
+  // -> { id, ids, message }: the caller needs the names the pool actually gave
+  // the series, so it can link its own copy to them.
+  Actions.addMeasuredSeries = function (frame, name) { return poolAdd(frame, name); };
+  // ---- Measure view: amending a series that already exists -----------------
+  // The Measure view can pick a series up again — to correct a ring, or to carry
+  // on measuring a core that was put down half-done. These three accessors are
+  // its whole view of the pool; measure.js never touches `state` directly.
+
+  // Every series in the undated pool, plus each chronology's members, tagged
+  // with where it came from so the loader can fetch the right column back.
+  Actions.loadableSeries = function () {
+    var out = [];
+    (state.undated ? AC.seriesNames(state.undated) : []).forEach(function (n) {
+      out.push({ name: n, source: 'pool', label: n + ' (pool)' });
+    });
+    state.chrons.forEach(function (c) {
+      AC.seriesNames(c.frame).forEach(function (n) {
+        out.push({ name: n, source: 'chron', chron: c.name, label: n + ' (' + c.name + ')' });
+      });
+    });
+    return out;
+  };
+
+  // One series' widths, oldest ring first — the order series.loadWidthsMm()
+  // expects. Both frame kinds bottom-pad short series with null, and a dated
+  // chronology member is also TOP-padded to the shared year axis, so the pad is
+  // trimmed from both ends; interior nulls are left for the Measure table to
+  // show as gaps rather than silently closed up.
+  Actions.seriesWidths = function (name, source, chronName) {
+    var frame = null;
+    if (source === 'chron') {
+      var c = state.chrons.filter(function (x) { return x.name === chronName; })[0];
+      frame = c && c.frame;
+    } else {
+      frame = state.undated;
+    }
+    if (!frame) return null;
+    var i = frame.names.indexOf(name);
+    if (i < 1) return null;
+    var col = frame.cols[i].slice();
+    var bad = function (v) { return v == null || (typeof v === 'number' && isNaN(v)); };
+    while (col.length && bad(col[col.length - 1])) col.pop();
+    var lead = 0;
+    while (lead < col.length && bad(col[lead])) lead++;
+    return col.slice(lead);
+  };
+
+  // A whole GROUP of series at once: everything in the undated pool, or every
+  // member of one chronology. The Measure view brings a set in together rather
+  // than one series at a time — a specimen's radii were measured together and
+  // are read against each other — so the trimming above is done here for all of
+  // them, and each keeps the count of leading pad rows it carried. That lead is
+  // how a dated set arrives on the table still lined up: it becomes the series'
+  // alignment lag, so year 1850 stays beside year 1850.
+  Actions.seriesGroup = function (source, chronName) {
+    var frame = null;
+    if (source === 'chron') {
+      var c = state.chrons.filter(function (x) { return x.name === chronName; })[0];
+      frame = c && c.frame;
+    } else {
+      frame = state.undated;
+    }
+    if (!frame) return [];
+    var bad = function (v) { return v == null || (typeof v === 'number' && isNaN(v)); };
+    return frame.names.slice(1).map(function (name, i) {
+      var col = frame.cols[i + 1].slice();
+      while (col.length && bad(col[col.length - 1])) col.pop();
+      var lead = 0;
+      while (lead < col.length && bad(col[lead])) lead++;
+      return { name: name, widths: col.slice(lead), lead: lead, source: source, chron: chronName };
+    });
+  };
+
+  // Put an amended series back where it came from, replacing the column in
+  // place rather than adding a near-duplicate beside it. Column ORDER is kept
+  // (the pool is read by eye in the rail and the results table), so the frame is
+  // rebuilt rather than unbound and re-bound. A rename carries its metadata
+  // across; a name that now collides with a different series is uniquified, as
+  // two identically named columns break every by-name lookup downstream.
+  // Falls back to adding when the original is gone — the pool was cleared, or
+  // the series was loaded from a file that was never itself loaded.
+  Actions.updateMeasuredSeries = function (frame, originalName) {
+    var at = state.undated ? state.undated.names.indexOf(originalName) : -1;
+    if (at < 1) {
+      var added = poolAdd(frame, frame.names[1]);
+      return { id: added.id, added: true, message: '"' + originalName + '" is no longer in the pool. ' + added.message };
+    }
+
+    var id = frame.names[1], base = id, n = 1;
+    while (state.undated.names.some(function (nm, i) { return i !== at && nm === id; })) id = base + '_' + (++n);
+
+    var widths = frame.cols[1];
+    var cols = state.undated.cols.slice();
+    cols[at] = widths.slice();
+    // The amended series may now be longer or shorter than everything else in
+    // the pool, so re-rectangularise: pad every column out to the longest, then
+    // drop any all-null tail rows the old length left behind.
+    var nr = cols.reduce(function (m, c) { return Math.max(m, c.length); }, 0);
+    cols = cols.map(function (c) {
+      return c.length < nr ? c.concat(new Array(nr - c.length).fill(null)) : c;
+    });
+    var isBad = function (v) { return v == null || (typeof v === 'number' && isNaN(v)); };
+    while (nr > 0 && cols.every(function (c, ci) { return ci === 0 || isBad(c[nr - 1]); })) nr--;
+    cols = cols.map(function (c) { return c.slice(0, nr); });
+    var ring = []; for (var r = 0; r < nr; r++) ring.push(r + 1);
+    cols[0] = ring;
+
+    var names = state.undated.names.slice();
+    names[at] = id;
+    state.undated = { names: names, cols: cols };
+
+    if (id !== originalName && state.meta[originalName]) {
+      state.meta[id] = state.meta[originalName];
+      delete state.meta[originalName];
+    }
+    renderDataInfo();
+    onDataChanged();
+    syncNav();
+    scheduleAutosave();
+    return { id: id, added: false, message: 'Updated "' + id + '" in the pool (' + widths.length + ' rings).' };
+  };
+
+  // Read one measurement file for the Measure view and hand back its series
+  // without touching the pool: loading a file to amend is not the same act as
+  // loading data to analyse, and merging it here would leave the operator with
+  // the stale copy in the pool as well. cb(err, frame).
+  Actions.readSeriesFile = function (file, cb) {
+    if (AC.isXlsx(file.name)) { cb(new Error('.xlsx is not supported in the browser build — use .csv, .txt, .rwl, .pos or .lps.')); return; }
+    readFilesAsText([file], function (descriptors) {
+      if (!descriptors.length) { cb(new Error('Could not read ' + file.name + '.')); return; }
+      try {
+        var frame;
+        if (AC.isTridas(file.name)) {
+          var t = AC.loadTridas(descriptors);
+          frame = t.undated || t.chron;
+          if (!frame) throw new Error(file.name + ' holds no measurement series.');
+        } else {
+          frame = AC.loadUndated(descriptors);
+        }
+        cb(null, frame);
+      } catch (err) { cb(err); }
+    });
+  };
+
   // opts (optional): { label, note } — label replaces the joined-filenames pool
   // name (e.g. a folder name), note is appended to the success message.
   function loadUndatedFiles(fileList, msgId, opts) {
@@ -467,13 +681,35 @@
   // one workflow / grid / segment chunk per tick — so the progress bar under
   // the Run button paints while the crossdating and the background
   // segment-consensus pass grind (same batched pattern as the ring test).
+  var runInFlight = false;             // one crossdate at a time: a second runner
+                                       // would paint the same bar and race the first
   Actions.runAnalysis = function (done) {
-    if (!state.undated) { setMsg('runMsg', 'Load undated data first.', 'err'); return; }
+    if (runInFlight) {
+      // Whatever asked (the Run button, or a hand-over from the Measure view)
+      // is asking for data the running crossdate may not have. Say so rather
+      // than start a second runner over the top of the first.
+      setMsg('runMsg', 'A crossdate is already running. Let it finish, then press ' +
+        '"Run analysis" to include anything added since it started.', 'warn');
+      if (done) done(false);
+      return;
+    }
+    if (!state.undated) { setMsg('runMsg', 'Load undated data first.', 'err'); if (done) done(false); return; }
     var mode = Number($('mode_select').value);
-    if (mode === 2 && !state.chrons.length) { setMsg('runMsg', 'Chronology mode needs a loaded chronology (Data section above).', 'err'); return; }
+    if (mode === 2 && !state.chrons.length) { setMsg('runMsg', 'Chronology mode needs a loaded chronology (Data section above).', 'err'); if (done) done(false); return; }
+    // Pairwise mode crossdates the undated series against EACH OTHER, so one of
+    // them has nothing to be dated against. Reachable from the Measure view's
+    // "Add to pool & crossdate" on a first series, where an engine-level error
+    // would say nothing about what to do next.
+    if (mode === 1 && AC.seriesNames(state.undated).length < 2) {
+      setMsg('runMsg', 'Pairwise mode dates the undated series against each other, and there is only one. ' +
+        'Measure or load a second series, or switch to chronology mode and load a chronology to date it against.', 'err');
+      if (done) done(false);
+      return;
+    }
     var target = $('target_select').value || AC.seriesNames(state.undated)[0];
     var runner, segTool = $('seg_enable').checked;
     var fail = function (err) {
+      runInFlight = false;
       $('runBtn').disabled = false;
       $('runProgress').style.display = 'none';
       setMsg('runMsg', 'Error: ' + err.message, 'err');
@@ -500,6 +736,12 @@
         chronName: chronNameForRun,
         chronIsDetrended: chronIsDetrended,
         detrend: detrendUI(),
+        undatedName: state.undatedName,
+        // Detection is a default, not a policy: the tick turns it off.
+        autoSkip: $('detrend_auto').checked,
+        // "Detrend the series but not the chronology" — the chronology is
+        // already an index, the pool is raw. No detrending, method 1.
+        detrendChron: $('detrend_chron').checked ? null : { detrending_select: 1 },
         leadlag: leadlagUI(),
         filter: {
           r_val: 0.5, p_val: 0.05, overlap: 30,
@@ -514,6 +756,7 @@
         segTool: segTool
       });
     } catch (err) { fail(err); return; }
+    runInFlight = true;
     $('runBtn').disabled = true;
     $('runProgress').style.display = '';
     $('runBarFill').style.width = '0';
@@ -529,6 +772,7 @@
         return;
       }
       try {
+        runInFlight = false;
         $('runBtn').disabled = false;
         $('runProgress').style.display = 'none';
         state.result = runner.result();
@@ -548,9 +792,13 @@
           ? ' Segment consensus: ' + cc.promoted + ' re-ranked, ' + cc.confirmed + ' confirmed' +
             (cc.noted ? ', ' + cc.noted + ' tentative' : '') + '.'
           : '';
+        var sk = state.result.detrendSkipped || {};
+        var skN = ((sk.undated && sk.undated.names.length) || 0) + ((sk.chron && sk.chron.names.length) || 0);
+        var skNote = skN ? ' ' + skN + ' series were already detrended and were left as they were.' : '';
+        if (mode === 2 && !$('detrend_chron').checked) skNote += ' The chronology was not detrended.';
         setMsg('runMsg', 'Analysis complete (' + (mode === 2 ? 'chronology' : 'pairwise') + ' mode).' + segNote + consNote + ' ' +
           state.result.crossDatRes.cols[0].length + ' result rows; ' +
-          (state.result.aligned.names.length - 1) + ' aligned series.', 'ok');
+          (state.result.aligned.names.length - 1) + ' aligned series.' + skNote, 'ok');
         setupResultControls();
         showExploreResults(true);
         renderPlots();
@@ -560,6 +808,68 @@
     setTimeout(tick, 10);
   };
   $('runBtn').addEventListener('click', function () { Actions.runAnalysis(); });
+
+  // ---- straight off the stage into the crossdate ---------------------------
+  // The Measure view's "Add to pool & crossdate" hands over the series it has
+  // just put in the pool. Measuring and crossdating are one act — the reason to
+  // measure inside RingdateR at all — so finish it: show the Explore tab, run
+  // the analysis the user would have run by hand with the settings already in
+  // the rail, and open the plots on that series' best match. A run that cannot
+  // start (chronology mode with no chronology) says so on the page now in front
+  // of them, next to the control that fixes it.
+  Actions.crossdateSeries = function (name) {
+    showView('explore');
+    Actions.runAnalysis(function (ran) {
+      if (!ran) return;
+      var pair = name && bestPairFor(name);
+      if (!pair) return;                   // no scoreable row: leave the default pair plotted
+      // Prefer the row itself, so the table shows the same pair as the plots.
+      // (A series name can hold anything a file did, so match by attribute
+      // value rather than building a selector out of it.)
+      var tr = null, rows = $('resTable').querySelectorAll('tbody tr[data-s1]');
+      for (var i = 0; i < rows.length && !tr; i++) {
+        if (rows[i].getAttribute('data-s1') === pair[0] &&
+            rows[i].getAttribute('data-s2') === pair[1]) tr = rows[i];
+      }
+      if (tr) tr.click(); else Actions.selectPair(pair[0], pair[1], null);
+    });
+  };
+  // The pair to open the plots on for `name`: the row it scores best in, as
+  // [Series_1, Series_2]. In chronology mode every row is against the mean
+  // chronology, so this is that series' row at its best lag; in pairwise mode
+  // it is also the best PARTNER — the series it dates against. Segment rows are
+  // skipped: the whole series is what was just measured.
+  //
+  // A series too short to correlate scores nowhere (every r is NA), and that is
+  // exactly a series whose plots the operator needs to look at — so fall back to
+  // pairing it with the master the run compares everything against, rather than
+  // leaving them on somebody else's pair.
+  function bestPairFor(name) {
+    var cd = state.result && state.result.crossDatRes;
+    if (!cd || !name) return null;
+    var i1 = cd.names.indexOf('Series_1'), i2 = cd.names.indexOf('Series_2');
+    var il = cd.names.indexOf('First_lag'), ir = cd.names.indexOf('First_R');
+    if (i1 < 0 || i2 < 0 || il < 0 || ir < 0) return null;
+    var best = null;
+    for (var r = 0; r < cd.cols[i1].length; r++) {
+      var a = cd.cols[i1][r], b = cd.cols[i2][r], rv = cd.cols[ir][r];
+      if (!a || !b || a === b) continue;                       // separator / diagonal rows
+      if (a !== name && b !== name) continue;
+      if (rv == null || isNaN(rv) || cd.cols[il][r] == null) continue;
+      if (!best || Number(rv) > best[2]) best = [a, b, Number(rv)];
+    }
+    if (best) return [best[0], best[1]];
+    // The plot selectors only offer the comparison frame's own columns.
+    var mode = Number(state.result.mode) === 2 ? 2 : 1;
+    var comp = mode === 2 ? state.result.chronNSeries : state.result.detrended;
+    var an = comp && comp.names ? comp.names.slice(1) : [];
+    if (an.indexOf(name) < 0) return null;
+    var master = mode === 2 ? state.result.target : null;
+    if (!master || master === name || an.indexOf(master) < 0) {
+      master = an.filter(function (n) { return n !== name; })[0];
+    }
+    return master ? [master, name] : null;
+  }
 
   // ---- results table -------------------------------------------------------
   function setupResultControls() {
@@ -598,10 +908,14 @@
     var frame = state.result.crossDatRes;
     if ($('f_apply').checked) {
       try {
+        // The consensus was computed against the RUN's target; filtering to a
+        // different one asks a different question, and rescuing rows on the old
+        // evidence would answer it wrongly.
+        var consOK = $('f_target').value === state.result.target;
         frame = AC.refilter(state.result.crossDatRes, {
           r_val: Number($('f_r').value), p_val: Number($('f_p').value),
           overlap: Number($('f_overlap').value), target: $('f_target').value
-        }, state.result.consensus && state.result.consensus.bySeries);
+        }, consOK && state.result.consensus ? state.result.consensus.bySeries : null);
         var keptNote = frame.consensusKept ? ' (' + frame.consensusKept + ' kept by segment consensus)' : '';
         setMsg('resMsg', frame.cols[0].length + ' rows pass the filter' + keptNote + '.', 'ok');
       } catch (err) { setMsg('resMsg', 'Filter error: ' + err.message, 'err'); return; }
@@ -696,21 +1010,27 @@
       var s = s1 === t ? s2 : (s2 === t ? s1 : null);
       return (s && consBy[s]) || null;
     };
-    var consBadge = function (c) {
+    // Consensus lags are held in (target, series) orientation; a pairwise row
+    // that lists the pair the other way round shows the opposite shift, and the
+    // badge has to quote the same numbers the row does.
+    var consSign = function (s1) { return s1 === (state.result && state.result.target) ? 1 : -1; };
+    var consBadge = function (c, sign) {
       if (!c || !c.action) return '';
       var minP = AC.fmtP(c.minP);
+      var lag = (sign || 1) * c.lag;
+      var engineLag = c.engineLag == null ? null : (sign || 1) * c.engineLag;
       if (c.action === 'promoted') {
         return ' <span class="seg-badge promoted" title="Ranked by segment consensus: ' + c.nSegs +
           ' segments independently date this series here (min p ' + escA(minP) +
-          '). The r / p shown are the whole-series stats at this lag; the full-series best lag (' + c.engineLag + ') is now 2nd.">' +
+          '). The r / p shown are the whole-series stats at this lag; the full-series best lag (' + engineLag + ') is now 2nd.">' +
           c.nSegs + ' segs</span>';
       }
       if (c.action === 'confirmed') {
         return ' <span class="seg-badge confirmed" title="Segment consensus (' + c.nSegs + ' segments, min p ' + escA(minP) +
           ') independently confirms this lag.">✓ segs</span>';
       }
-      return ' <span class="seg-badge noted" title="' + c.nSegs + ' segments tentatively support lag ' + c.lag +
-        ' instead (min p ' + escA(minP) + ') — not promoted. Enable the Segments tool to inspect the placements.">? ' + c.lag + '</span>';
+      return ' <span class="seg-badge noted" title="' + c.nSegs + ' segments tentatively support lag ' + lag +
+        ' instead (min p ' + escA(minP) + ') — not promoted. Enable the Segments tool to inspect the placements.">? ' + lag + '</span>';
     };
     var paintRow = function (row, rIdx) {
       var s1 = row[0], s2 = row[1];       // Series_1 / Series_2 stay at indices 0,1 ("col" is later)
@@ -746,12 +1066,14 @@
             attr = ' class="altlag" title="Click: view this pair at its ' + (g === 'Sec_' ? '2nd' : '3rd') + '-best lag"';
           }
           attr += ' data-lg="' + (ownGroup ? lgToken[ownGroup] : '') + '" data-eff="' + lgToken[eff] + '"';
-          if (col === 'First_lag') extra = consBadge(consFor(s1, s2));
+          if (col === 'First_lag') extra = consBadge(consFor(s1, s2), consSign(s1));
         }
         return '<td' + attr + '>' + esc(c) + extra + '</td>';
       }).join('');
       tr.innerHTML = '<td class="segchk">' + chk + '</td>' + cells;
       if (isPair) {
+        tr.setAttribute('data-s1', s1);      // so a pair's row can be found by name
+        tr.setAttribute('data-s2', s2);
         tr.addEventListener('click', function (e) {
           if (e.target && e.target.classList && e.target.classList.contains('seg-check')) return;
           tbody.querySelectorAll('tr').forEach(function (x) { x.classList.remove('sel'); });
@@ -1407,7 +1729,8 @@
     if (!state.undated) { setMsg('buildMsg', 'Load undated data first (Home or the Explore settings rail).', 'err'); return false; }
     try {
       state.detrend = detrendUI();
-      state.builder = AC.newBuilder({ undated: state.undated, chron: state.chron, detrend: state.detrend });
+      state.builder = AC.newBuilder({ undated: state.undated, chron: state.chron, detrend: state.detrend,
+        undatedName: state.undatedName, chronName: state.chronName });
       clearReviewUI();
       var st = state.builder.state();
       if (st.hasChronology) {
@@ -1699,6 +2022,7 @@
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
   }
+  Actions.triggerDownload = triggerDownload;   // reused by the Measure view
 
   // ---- per-plot image saving (SVG / PNG buttons on every plot) --------------
   // Serialise the container's current SVG(s), stripped of transient hover
@@ -1779,12 +2103,59 @@
     });
     el.appendChild(bar);
   }
+  // What each download IS, in words. The keys are internal names and two of
+  // these files differ only in whether their values are ring widths or indices,
+  // which is exactly the thing you cannot afford to get wrong.
+  var DL_LABELS = {
+    rawUndatedCsv: 'undated series, as measured — ring widths',
+    detrendedCsv: 'undated series, detrended — indices',
+    crossDatResCsv: 'crossdates, every pair',
+    filteredCrossdatesCsv: 'crossdates that pass the filter',
+    alignedChronRawCsv: 'aligned chronology — ring widths',
+    alignedChronCsv: 'aligned chronology — detrended indices',
+    alignedChronRwl: 'aligned chronology — ring widths, Tucson',
+    meanChronologyCsv: 'mean chronology — index series',
+    detrendedSeriesPlot: 'detrended series plot',
+    pairwiseLinePlot: 'line plot', pairwiseBarPlot: 'lead–lag bar plot',
+    smallHeatmap: 'heat map (small)', fullHeatmap: 'heat map'
+  };
+  function splitExt(fn) {
+    var m = /\.[A-Za-z0-9]+$/.exec(String(fn));
+    return m ? { base: fn.slice(0, -m[0].length), ext: m[0] } : { base: String(fn), ext: '' };
+  }
+  // One download row. The file name is an input, not a label: the generated name
+  // carries the date and says what the file is, but it is not the name anyone
+  // wants on disk beside their own data. The extension is held out of the box so
+  // it cannot be lost.
   function dlItem(d, label) {
     var li = document.createElement('li');
-    li.innerHTML = '<span><span class="fn">' + esc(d.filename) + '</span><br><span class="mime">' + esc(label) + ' · ' + esc(d.mime) + '</span></span>';
+    var part = splitExt(d.filename);
+    var wrap = document.createElement('span');
+    var nameWrap = document.createElement('span');
+    nameWrap.className = 'fname';
+    var input = document.createElement('input');
+    input.type = 'text'; input.className = 'fn'; input.value = part.base;
+    input.spellcheck = false;
+    input.size = Math.min(32, Math.max(12, part.base.length + 1));
+    input.title = 'Name this file — "' + part.ext + '" is kept';
+    var extEl = document.createElement('span');
+    extEl.className = 'ext'; extEl.textContent = part.ext;
+    nameWrap.appendChild(input); nameWrap.appendChild(extEl);
+    var mime = document.createElement('span');
+    mime.className = 'mime';
+    mime.textContent = (label || '') + ' · ' + d.mime;
+    wrap.appendChild(nameWrap);
+    wrap.appendChild(document.createElement('br'));
+    wrap.appendChild(mime);
+    li.appendChild(wrap);
+    var save = function () {
+      triggerDownload({ filename: AC.downloadName(input.value, part.base) + part.ext,
+        mime: d.mime, content: d.content });
+    };
+    input.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); save(); } });
     var btn = document.createElement('button');
     btn.className = 'btn secondary'; btn.textContent = 'Download';
-    btn.addEventListener('click', function () { triggerDownload(d); });
+    btn.addEventListener('click', save);
     li.appendChild(btn);
     return li;
   }
@@ -1797,7 +2168,7 @@
     };
     var dls = AC.downloads(state.result, { plots: specs });
     var ul = $('dlList'); ul.innerHTML = '';
-    Object.keys(dls).forEach(function (key) { ul.appendChild(dlItem(dls[key], key)); });
+    Object.keys(dls).forEach(function (key) { ul.appendChild(dlItem(dls[key], DL_LABELS[key] || key)); });
     if (!Object.keys(dls).length) ul.innerHTML = '<li>No downloadable artifacts for this run.</li>';
   }
   function renderBuildDownloads() {
@@ -1805,9 +2176,26 @@
     var frame = state.builder.isDated() ? state.builder.datedChronology() : state.builder.exportChronology();
     var ul = $('buildDlList'); ul.innerHTML = '';
     if (!frame) { ul.innerHTML = '<li>Nothing to export yet.</li>'; return; }
-    var dls = AC.builderDownloads(frame);
-    ul.appendChild(dlItem(dls.chronologyCsv, 'chronology CSV'));
-    ul.appendChild(dlItem(dls.chronologyRwl, 'chronology RWL (Tucson)'));
+    // The builder works in detrended indices; the chronology people take away is
+    // ring widths. Hand it the raw frames the members were measured from so the
+    // widths can be written at the placement the build found.
+    var sources = [state.undated].concat(state.chrons.map(function (c) { return c.frame; })).filter(Boolean);
+    var dls = AC.builderDownloads(frame, { sources: sources });
+    ul.appendChild(dlItem(dls.chronologyCsv, 'chronology — ring widths'));
+    ul.appendChild(dlItem(dls.chronologyRwl, 'chronology — ring widths, Tucson'));
+    if (dls.chronologyDetrendedCsv) {
+      ul.appendChild(dlItem(dls.chronologyDetrendedCsv, 'chronology — detrended indices'));
+    }
+    // A member with no raw source keeps its indices; saying which is the only
+    // honest option when one file would otherwise mix the two.
+    var kept = (AC.RD.rawAligned(frame, sources) || {}).kept || [];
+    if (kept.length) {
+      var li = document.createElement('li');
+      li.innerHTML = '<span class="mime">' + esc(kept.join(', ')) +
+        ' had no raw measurements to fall back on (seeded from an already-detrended chronology), ' +
+        'so those columns are still indices.</span>';
+      ul.appendChild(li);
+    }
     try {
       var tri = AC.builderTridasDownloads({
         builder: state.builder, undated: state.undated, meta: state.meta,

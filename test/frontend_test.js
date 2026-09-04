@@ -221,6 +221,122 @@ ok('chronIsDetrended skips the second detrend (chronDetrended === input)',
 const compPlots = AppCore.buildPlots(compResult, {});
 ok('composite run plots render', isSvg(AppCore.renderPlot(compPlots.line)) && isSvg(AppCore.renderPlot(compPlots.leadLagBar)));
 
+// What the linked hover cursor calls a position in each plotted series
+// (spec.linkSeries -> ownAxis in src/viz/render.js). The comparison frame's
+// axis is the CHRONOLOGY's calendar years, so the mean chronology is labelled
+// in years; the undated series has no years to name — it is the series being
+// dated — and is labelled by ring count from its own first ring, which is the
+// number the measuring table shows.
+const compLink = compPlots.line.linkSeries;
+const compX = compPlots.line.data.series_2.x;
+ok('chronology-mode cursor labels the chronology in calendar years',
+  compLink[0].unit === 'year' && compLink[0].offset === 0 &&
+  compLink[0].span[0] === compPlots.line.data.series_1.x[0],
+  JSON.stringify(compLink[0]));
+ok('...and the undated series in ring counts from its own first ring',
+  compLink[1].unit === 'ring' && compLink[1].offset === 1 - compX[0] &&
+  compLink[1].span[0] === 1 && compLink[1].span[1] === compX[compX.length - 1] + compLink[1].offset,
+  JSON.stringify(compLink[1]) + ' first drawn x ' + compX[0]);
+ok('the skeleton plot counts the same rings',
+  compPlots.skeleton.panels[0].linkSeries[1].unit === 'ring' &&
+  compPlots.skeleton.panels[0].linkSeries[1].offset === compLink[1].offset &&
+  compPlots.skeleton.panels[0].linkSeries[0].unit === 'year',
+  JSON.stringify(compPlots.skeleton.panels[0].linkSeries));
+
+// 9b. already-detrended data is not detrended twice -----------------------------
+// The engine detrends whatever it is handed. A run now looks first: series that
+// are already indices are carried through as they are (src/detrend/detect.js
+// decides; test/detect_test.js covers the rules), and the chronology can be
+// excluded by hand — "detrend the pool but not the chronology" is the ordinary
+// shape of a .crn read against raw measurements.
+const detPool = RD.normalise(undated, AppCore.detrendOptions(detrendUI));
+const skipRun = AppCore.runAnalysis({
+  mode: 1, undated: detPool, detrend: detrendUI,
+  leadlag: { neg_lag: -20, pos_lag: 20, complete: true },
+  filter: { r_val: 0.5, p_val: 0.05, overlap: 30, target: names[0] }
+});
+ok('a run detects series that are already detrended',
+  !!skipRun.detrendSkipped && skipRun.detrendSkipped.undated.all &&
+  skipRun.detrendSkipped.undated.names.length === names.length,
+  skipRun.detrendSkipped ? skipRun.detrendSkipped.undated.names.length + '/' + names.length : 'missing');
+// Detrending an index a second time is not free: the double pass and the
+// single pass are not the same numbers.
+ok('...and leaves them alone, where a second pass would not',
+  (function () {
+    const c = function (f, n) { return f.cols[f.names.indexOf(n)]; };
+    const kept = c(skipRun.detrended, names[0]);
+    const twice = c(RD.normalise(detPool, AppCore.detrendOptions(detrendUI)), names[0]);
+    let same = 0, diff = 0;
+    for (let i = 0; i < kept.length; i++) {
+      if (kept[i] == null || twice[i] == null) continue;
+      if (Math.abs(kept[i] - twice[i]) < 1e-9) same++; else diff++;
+    }
+    return diff > same;
+  })());
+ok('...which the caller can turn off',
+  AppCore.runAnalysis({
+    mode: 1, undated: detPool, detrend: detrendUI, autoSkip: false,
+    leadlag: { neg_lag: -20, pos_lag: 20, complete: true },
+    filter: { r_val: 0.5, p_val: 0.05, overlap: 30, target: names[0] }
+  }).detrendSkipped.undated.names.length === 0);
+// Raw widths are untouched by any of this: the run is bit-for-bit what it was.
+ok('a run on raw widths is unchanged by the detection',
+  (function () {
+    const r = AppCore.runAnalysis({
+      mode: 1, undated: undated, detrend: detrendUI,
+      leadlag: { neg_lag: -20, pos_lag: 20, complete: true },
+      filter: { r_val: 0.5, p_val: 0.05, overlap: 30, target: names[0] }
+    });
+    if (r.detrendSkipped.undated.names.length) return false;
+    return names.every(function (n) {
+      const a = r.detrended.cols[r.detrended.names.indexOf(n)];
+      const b = result.detrended.cols[result.detrended.names.indexOf(n)];
+      return a.every(function (v, i) { return v === b[i]; });
+    });
+  })());
+
+// The chronology gets its own settings. Method 1 is "leave it alone", which is
+// what the rail's "Detrend the chronology too" tick clears to.
+const chronRawRun = AppCore.runAnalysis({
+  mode: 2, undated: undated, chron: chronA, chronName: 'chronA.rwl',
+  detrend: detrendUI, detrendChron: { detrending_select: 1 },
+  leadlag: { neg_lag: -20, pos_lag: 20, complete: true },
+  filter: { r_val: 0.5, p_val: 0.05, overlap: 30 }
+});
+ok('the chronology can be left un-detrended while the pool is detrended',
+  (function () {
+    const cd = chronRawRun.chronDetrended;
+    const raw = RD.normalise(chronA, { detrending_select: 1 });
+    const c = function (f, n) { return f.cols[f.names.indexOf(n)]; };
+    const sameChron = cd.names.slice(1).every(function (n) {
+      return c(cd, n).every(function (v, i) { return v === c(raw, n)[i]; });
+    });
+    // ...while the undated pool went through the spline as asked
+    const det = c(chronRawRun.detrended, names[0]);
+    const rawU = c(undated, names[0]);
+    return sameChron && det.some(function (v, i) { return v != null && rawU[i] != null && Math.abs(v - rawU[i]) > 1e-9; });
+  })());
+ok('...and the run still crossdates', chronRawRun.crossDatRes.cols[0].length > 0,
+  chronRawRun.crossDatRes.cols[0].length + ' rows');
+// A chronology that IS already an index is spotted without being told.
+const detChron = RD.normalise(chronA, AppCore.detrendOptions(detrendUI));
+const chronDetRun = AppCore.runAnalysis({
+  mode: 2, undated: undated, chron: detChron, chronName: 'indices.csv',
+  detrend: detrendUI,
+  leadlag: { neg_lag: -20, pos_lag: 20, complete: true },
+  filter: { r_val: 0.5, p_val: 0.05, overlap: 30 }
+});
+ok('an already-detrended chronology is detected on its own',
+  chronDetRun.detrendSkipped.chron.all &&
+  chronDetRun.detrendSkipped.chron.names.length === detChron.names.length - 1,
+  JSON.stringify(chronDetRun.detrendSkipped.chron.names));
+ok('...and the composite path judges each chronology separately',
+  (function () {
+    const mixedComp = AppCore.compositeChron(
+      [{ name: 'indices.csv', frame: detChron }, { name: 'chronB.rwl', frame: chronB }], detrendUI);
+    return !!mixedComp && mixedComp.names.length === 3;
+  })());
+
 // 10. sliding segments in chronology mode --------------------------------------
 const chronC = datedFrame(['sample_g'], 1230, 0);
 const compSmall = AppCore.compositeChron(
@@ -453,6 +569,127 @@ ok('consensus honours a custom segment length',
   !!consRes81.consensus.bySeries.a_broken,
   consRes81.consensus ? 'segLength ' + consRes81.consensus.segLength + ', a_broken ' +
     (consRes81.consensus.bySeries.a_broken || {}).action : 'missing');
+
+// 14b. segment consensus in PAIRWISE mode --------------------------------------
+// Pairwise mode has no mean chronology, so the run TARGET plays the master:
+// segments of every OTHER series are read against it, and only against it —
+// one grid per series rather than one per pair. Two things differ from mode 2
+// and both are checked here: the target must never be evidence about itself,
+// and a pairwise row lists its pair in column order, so for a series that comes
+// BEFORE the target the row reads (series, target) and every consensus lag has
+// to be written into it the other way round.
+const pwFrame = {
+  names: ['a_broken', 'c_clean', 'e_clean'].reduce(function (a, n) { return a.concat([n]); }, ['ring']),
+  cols: (function () {
+    const c = undated.cols[undated.names.indexOf('sample_c')].filter(function (v) { return v != null; });
+    const e = undated.cols[undated.names.indexOf('sample_e')].filter(function (v) { return v != null; });
+    const n = Math.max(consBroken.length, c.length, e.length);
+    const p = function (v) { return v.concat(new Array(n - v.length).fill(null)); };
+    return [Array.from({ length: n }, function (_, i) { return i + 1; }), p(consBroken), p(c), p(e)];
+  })()
+};
+const pwRunner = AppCore.analysisRunner({
+  mode: 1, undated: pwFrame, detrend: detrendUI,
+  leadlag: { neg_lag: -20, pos_lag: 20, complete: true },
+  filter: { r_val: 0.5, p_val: 0.05, overlap: 30, target: 'c_clean' },
+  segLen: 60, keepN: 5
+});
+const pwLabels = [];
+while (!pwRunner.done()) { pwLabels.push(pwRunner.label()); pwRunner.step(); }
+const pwRes = pwRunner.result();
+ok('pairwise run carries a consensus block', !!(pwRes.consensus && pwRes.consensus.counts),
+  pwRes.consensus ? JSON.stringify(pwRes.consensus.counts) : 'missing');
+ok('...scanned once per series against the target, not once per pair',
+  pwLabels.filter(function (l) { return /^Scanning segments of /.test(l); }).join(',') ===
+    'Scanning segments of a_broken,Scanning segments of e_clean' &&
+  pwLabels[pwLabels.length - 1] === 'Segment consensus',
+  pwLabels.join(' | '));
+ok('...and the target is never evidence about itself',
+  Object.keys(pwRes.consensus.bySeries).indexOf('c_clean') < 0,
+  Object.keys(pwRes.consensus.bySeries).join(','));
+const pwB = pwRes.consensus.bySeries.a_broken;
+ok('the broken series gets a strong consensus at its true placement',
+  !!pwB && pwB.tier === 'strong' && pwB.nSegs >= 2 && Math.abs(pwB.lag - pwB.engineLag) <= AppCore.CONSENSUS.tol &&
+  pwB.action === 'confirmed',
+  pwB ? pwB.action + '/' + pwB.tier + ' lag ' + pwB.lag + ' vs engine ' + pwB.engineLag + ', ' + pwB.nSegs + ' segs' : 'none');
+// its whole-series r is diluted below the filter — the rescue is the point of
+// the pass, and it has to work on a row that lists the pair the other way round
+ok('...and is kept in the filtered set the r/p filter had dropped',
+  !!pwB.injected && (function () {
+    for (let r = 0; r < pwRes.filtered.cols[0].length; r++) {
+      if (pwRes.filtered.cols[0][r] === 'a_broken' && pwRes.filtered.cols[1][r] === 'c_clean') return true;
+    }
+    return false;
+  })(),
+  'injected ' + !!pwB.injected);
+ok('...so it joins the aligned output', pwRes.aligned.names.indexOf('a_broken') >= 0,
+  pwRes.aligned.names.join(','));
+
+// A promotion on a reversed row: the lag written into (series, target) must be
+// the NEGATION of the consensus lag, or the series is dated the wrong way. The
+// sample here is the master from ring 61 on, with a false ring every 25 rings,
+// so it drifts away from any single whole-series lag while its early segments
+// still date at the true placement.
+const drift = (function () {
+  const N = 400, S = [];
+  for (let i = 0; i < N; i++) {
+    S.push(1 + 0.5 * Math.sin(i / 3.7) + 0.3 * Math.sin(i / 11.3) + 0.2 * Math.sin(i / 29) + (i % 7) * 0.02);
+  }
+  const samp = [];
+  for (let i = 60, k = 0; i < N; i++, k++) {
+    samp.push(S[i]);
+    if (k > 0 && k % 25 === 0) samp.push(S[i] * 0.55);
+  }
+  const noisy = S.map(function (v, i) { return v * (1 + 0.06 * Math.sin(i / 5.1)); });
+  const rows = Math.max(N, samp.length);
+  const p = function (v) { return v.concat(new Array(rows - v.length).fill(null)); };
+  return {
+    names: ['ring', 'aa_sample', 'MASTER', 'zz_extra'],
+    cols: [Array.from({ length: rows }, function (_, i) { return i + 1; }), p(samp), p(S), p(noisy)]
+  };
+})();
+const drRes = AppCore.runAnalysis({
+  mode: 1, undated: drift, detrend: {},
+  leadlag: { neg_lag: -100, pos_lag: 100, complete: true },
+  filter: { r_val: 0.5, p_val: 0.05, overlap: 30, target: 'MASTER' },
+  segLen: 60, keepN: 5
+});
+const drC = drRes.consensus.bySeries.aa_sample;
+ok('a drifting series is promoted over a wrong whole-series lag',
+  !!drC && drC.action === 'promoted' && drC.tier === 'strong' &&
+  Math.abs(drC.lag - 60) <= 2 && Math.abs(drC.engineLag - drC.lag) > AppCore.CONSENSUS.tol,
+  drC ? drC.action + ' lag ' + drC.lag + ' vs engine ' + drC.engineLag : 'none');
+const drRow = (function () {
+  for (let r = 0; r < drRes.crossDatRes.cols[0].length; r++) {
+    if (drRes.crossDatRes.cols[0][r] === 'aa_sample' && drRes.crossDatRes.cols[1][r] === 'MASTER') return r;
+  }
+  return -1;
+})();
+ok('the reversed row carries the NEGATED consensus lag, engine best 2nd',
+  drRow >= 0 && Number(drRes.crossDatRes.cols[5][drRow]) === -drC.lag &&
+  Number(drRes.crossDatRes.cols[9][drRow]) === -drC.engineLag,
+  drRow >= 0 ? '1st ' + drRes.crossDatRes.cols[5][drRow] + ', 2nd ' + drRes.crossDatRes.cols[9][drRow] +
+    ' (consensus ' + drC.lag + ', engine ' + drC.engineLag + ')' : 'row missing');
+ok('...and the promoted series is aligned at the consensus placement',
+  (function () {
+    const f = function (n) { return drRes.aligned.cols[drRes.aligned.names.indexOf(n)].findIndex(function (v) { return v != null; }); };
+    return drRes.aligned.names.indexOf('aa_sample') >= 0 && f('aa_sample') - f('MASTER') === drC.lag;
+  })(),
+  drRes.aligned.names.join(','));
+
+// With the Segments tool on, the pairwise run still ends with the same pass —
+// its own segment rows are (segment, series) placements and cannot be reused.
+const pwSegRes = AppCore.runAnalysis({
+  mode: 1, undated: pwFrame, detrend: detrendUI,
+  leadlag: { neg_lag: -20, pos_lag: 20, complete: true },
+  filter: { r_val: 0.5, p_val: 0.05, overlap: 30, target: 'c_clean' },
+  segLen: 60, keepN: 3, segTool: true
+});
+ok('the Segments tool does not cost the pairwise run its consensus',
+  !!(pwSegRes.consensus && pwSegRes.consensus.counts) &&
+  Object.keys(pwSegRes.consensus.bySeries).indexOf('c_clean') < 0 &&
+  !!pwSegRes.consensus.bySeries.a_broken,
+  pwSegRes.consensus ? Object.keys(pwSegRes.consensus.bySeries).join(',') : 'missing');
 
 // 15. stepwise analysis runner ---------------------------------------------------
 // The progress-bar host drives AppCore.analysisRunner step by step; it must
