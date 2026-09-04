@@ -105,12 +105,20 @@ function logTransform(A) {
   return A.map(v => (isNA(v) ? C.NA : Math.log(v + c)));
 }
 
+// `skip` names series that are ALREADY indices (see detect.js). A skipped
+// column has no trend removed from it — no curve, no difference, no AR, no
+// log — but it DOES take the final z-score + 1 the other columns take, so the
+// frame comes out on one scale. That matters: a mean chronology is a plain
+// row-wise mean of its members, and averaging a z+1 member (SD 1) with an
+// untouched ratio index (SD ~0.25) would let the detrended member drown out
+// the rest. Under "No detrending" nothing is rescaled and `skip` does nothing.
 function normalise(frameIn, opts = {}) {
   const {
     detrending_select = 1,
     splinewindow = 21,
     ARmod = false,
     logT = false,
+    skip = [],
   } = opts;
 
   if (![1, 2, 3, 4, 5, 6, 7].includes(detrending_select)) {
@@ -131,10 +139,13 @@ function normalise(frameIn, opts = {}) {
   // det_tmp starts as the year column; each detrended series is column-bound.
   let detTmp = { names: [inputNames[0]], cols: [yearCol.slice()] };
 
+  const skipSet = Array.isArray(skip) ? skip : (skip ? [skip] : []);
   for (let s = 1; s < C.ncol(frame); s++) {
-    let A = detrendColumn(C.col(frame, s), detrending_select, splinewindow);
-    if (ARmod) A = arWhiten(A);
-    if (logT) A = logTransform(A);
+    const asIs = skipSet.indexOf(inputNames[s]) >= 0;
+    let A = asIs ? C.col(frame, s).slice()
+      : detrendColumn(C.col(frame, s), detrending_select, splinewindow);
+    if (ARmod && !asIs) A = arWhiten(A);
+    if (logT && !asIs) A = logTransform(A);
     if (detrending_select > 1) A = scaleNA(A).map(v => (isNA(v) ? C.NA : v + 1));
     detTmp = C.combNA(detTmp, A);
   }

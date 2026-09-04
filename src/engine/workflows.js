@@ -101,6 +101,11 @@ function pairwiseWorkflow(input) {
 // chronologyWorkflow (mode 2)
 //   input : { undated, chron,        // loaded (un-detrended) Frames
 //             detrend, leadlag, filter,
+//             detrendChron,          // detrend opts for the chronology alone
+//                                    // (defaults to `detrend`) — a chronology
+//                                    // that is already an index needs no
+//                                    // second pass while the undated pool does
+//             chronIsDetrended,      // hand the chronology through untouched
 //             probWind = 20, rbarWindow = 25 }
 //   output: { detrended,             // detrended undated series
 //             chronDetrended,        // detrended chronology members
@@ -115,13 +120,16 @@ function chronologyWorkflow(input) {
   const {
     undated, chron, detrend = {}, leadlag = {}, filter = {},
     probWind = 20, rbarWindow = 25, chronIsDetrended = false,
+    detrendChron = null,
   } = input;
 
   // 1. detrend undated + chronology series. A composite-of-chronologies frame
   // arrives with its member columns ALREADY detrended (each is a chronology's
   // detrended mean) — chronIsDetrended skips the second detrend pass for it.
   const detrended = normalise(undated, detrend);
-  const chronDetrended = chronIsDetrended ? chron : normalise(chron, detrend);
+  const chronDetrended = chronIsDetrended
+    ? chron
+    : normalise(chron, detrendChron || detrend);
 
   // 2. arithmetic mean chronology, then combine with the undated series
   const target = filter.target != null ? filter.target : 'mean_chronology';
