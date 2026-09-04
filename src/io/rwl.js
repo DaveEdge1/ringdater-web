@@ -81,7 +81,8 @@ function detectHeader(hdr1) {
     throw e;
   }
   let isHead = false;
-  const yrcheck = asNumeric(hdr1.substring(8, 12)); // cols 9-12
+  // cols 9-12, or 8-12 for a five-column (BC) year — see the data-line parse.
+  const yrcheck = asNumeric(hdr1.substring(hdr1.charAt(7) === '-' ? 7 : 8, 12));
   if (Number.isNaN(yrcheck) || yrcheck < -10000 || yrcheck > 10000 || !isInt(yrcheck)) {
     isHead = true;
   }
@@ -145,12 +146,21 @@ function readRwl(text, opts) {
   if (dataLines.length === 0) { const e = new Error('file has no data'); e.rwlError = true; throw e; }
 
   // fixed-width parse: id cols1-8, year cols9-12, then up to 11 value fields (6 wide)
+  //
+  // A year needing five columns — any year before 1 CE, written with its minus
+  // sign — starts at column 8 instead, taking a column from the id field. That
+  // is what dplR's read.tucson `long` argument is about; here it is detected
+  // rather than declared, since a Tucson id is letters and digits (see
+  // fixNames), so a '-' in column 8 can only be a year's sign. Reading such a
+  // line as id cols 1-8 / year cols 9-12 silently drops the sign and turns a BC
+  // series into an AD one.
   const rows = [];
   for (const ln of dataLines) {
-    const year = asNumeric(ln.substring(8, 12));
+    const wideYear = ln.charAt(7) === '-';
+    const year = asNumeric(ln.substring(wideYear ? 7 : 8, 12));
     if (Number.isNaN(year)) continue;            // dplR drops rows with NA year
     if (!isInt(year)) { const e = new Error('non-integral numbers found'); e.rwlError = true; throw e; }
-    const id = ln.substring(0, 8).trim();
+    const id = ln.substring(0, wideYear ? 7 : 8).trim();
     const vals = [];
     for (let k = 0; k < 11; k++) {
       const f = ln.substring(12 + 6 * k, 18 + 6 * k).trim();
@@ -234,10 +244,24 @@ function readRwl(text, opts) {
 // writeRwl(frame, opts) -> string  (port of dplR::write.rwl / write.tucson)
 // ---------------------------------------------------------------------------
 //
-// opts: { precision: 0.01 | 0.001 (default 0.01) }
+// opts: { precision: 0.01 | 0.001 (default 0.01), longNames: false }
 // Frame: first column = years, remaining columns = named series.
 // Emits the standard Tucson layout (long.names=FALSE): 6-char id, 1 space,
 // 5-char year, then six-wide values; CRLF line terminator, per-series stop marker.
+//
+// The twelve columns before the data are split between the id and the year.
+// NOAA's own format description (treeinfo.txt) allocates columns 1-6 to the core
+// id and 9-12 to the decade, leaving 7-8 slack — which is exactly the default
+// layout above, and why 6 characters is the only id length that is safe
+// everywhere.
+//
+// longNames is dplR's long.names=TRUE: the id takes whatever the widest year
+// does not need — 8 columns normally, 7 once any year needs 5 (a negative year),
+// and that narrower limit applies to every id in the file, not just the series
+// that has the long year. dplR's read.tucson reads ids of up to 8 (7 with
+// negative years), but dplR's own documentation warns that "long IDs may cause
+// incompatibility with other software", so this stays opt-in: callers ask for it
+// deliberately, having told the operator what it costs.
 function writeRwl(frame, opts) {
   opts = opts || {};
   const prec = opts.precision != null ? opts.precision : 0.01;
@@ -261,7 +285,23 @@ function writeRwl(frame, opts) {
   if (prec === 0.01) { naStr = 9.99; missingStr = -9.99; procR = 100; }
   else { naStr = -9.999; missingStr = 0; procR = 1000; }
 
-  const nameWidth = 6, optSpace = ' ', yearWidth = 5;
+  // Year labels printed are decade-first years, always drawn from `years` — plus
+  // the stop marker's year, one past the last, which can open a new decade.
+  const longNames = !!opts.longNames;
+  const PREFIX = 12;                       // id + year columns, before the data
+  let yearWidth = 5, nameWidth = 6, optSpace = ' ';
+  if (longNames) {
+    const widest = years.reduce(
+      (m, y) => Math.max(m, String(y).length),
+      years.length ? String(years[years.length - 1] + 1).length : 4);
+    yearWidth = Math.max(4, widest);
+    nameWidth = PREFIX - yearWidth;
+    optSpace = '';
+    if (nameWidth < 1) {
+      throw new Error('writeRwl: years need ' + yearWidth + ' columns, leaving no room for ' +
+        'a series id. Write without longNames.');
+    }
+  }
   const colNames = fixNames(seriesNames, nameWidth);
 
   let out = '';
@@ -320,6 +360,14 @@ function writeRwl(frame, opts) {
           const isLast = i === nDec - 1 && j === ints.length - 1;
           if (ints[j] === 999 && !isLast) ints[j] = 998; // R samples {998,1000}; deterministic 998
         }
+      }
+      // A year wider than its field pushes the whole line right and corrupts every
+      // reader's column arithmetic. Under long names the field was sized to fit,
+      // so this can only fire for the fixed 5-column field of the standard
+      // layout — where dplR overruns into the id columns rather than refusing.
+      if (longNames && decYear1.length > yearWidth) {
+        throw new Error('writeRwl: year ' + decYrs[0] + ' does not fit the ' + yearWidth +
+          '-column year field. Write without longNames.');
       }
       const body = ints.map(v => fmtF0(v, 6)).join('');
       out += name6 + optSpace + decYear1 + body + lineTerm;

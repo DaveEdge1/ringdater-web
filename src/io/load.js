@@ -7,7 +7,7 @@
 const loaders = require('./loaders.js');
 const { loadPos } = require('./pos.js');
 const { loadLps } = require('./lps.js');
-const { readRWL, writeRwl } = require('./rwl.js');
+const { readRWL, writeRwl, fixNames } = require('./rwl.js');
 const { readCrn } = require('./crn.js');
 const { loadRingMeasurer, combineRMFiles } = require('./ringMeasurer.js');
 const meta = require('./meta.js');
@@ -45,6 +45,9 @@ module.exports = {
   loadUndated, loadChron, loadDataTabs, ldUndatedChron,
   loadPos, loadLps, readRWL, readCrn, loadRingMeasurer, combineRMFiles,
   writeRwl, writeCsv, READERS,
+  // The Tucson id rule (strip non-alphanumerics, truncate), exported so a UI can
+  // tell the operator what a series will be CALLED in the file before writing it.
+  fixNames,
   // per-series metadata side-channel helpers
   emptySeriesMeta: meta.emptySeriesMeta, normalizeSeriesMeta: meta.normalizeSeriesMeta,
   ensureMeta: meta.ensureMeta, META_EDITABLE: meta.EDITABLE,

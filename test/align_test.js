@@ -5,7 +5,7 @@
 // column names, nrow, and NA placement. Nonzero exit on failure.
 const fs = require('fs');
 const path = require('path');
-const { alignSeries, alignToChron, ontoAlignDated } = require('../src/analysis/align.js');
+const { alignSeries, alignToChron, ontoAlignDated, rawAligned } = require('../src/analysis/align.js');
 
 const gt = JSON.parse(fs.readFileSync(path.join(__dirname, 'align_gt.json'), 'utf8'));
 const TOL = 1e-12;
@@ -67,5 +67,77 @@ compare('ontoAlignDated (scenario 1, from fully-aligned frame)',
 compare('ontoAlignDated (scenario 2, from aligned frame)',
   gt.onto2, ontoAlignDated(gt.aligned2));
 
-console.log(anyFail ? '\nFAIL' : '\nPASS: alignSeries + alignToChron + ontoAlignDated match R element-wise.');
+// ---- rawAligned -------------------------------------------------------------
+// No R oracle: R's app wrote a raw aligned chronology (initiate.chrono.raw) but
+// the ground-truth capture does not carry it, so these are behavioural checks of
+// the contract the exports depend on — a series keeps the placement crossdating
+// gave it and gets its own measured widths back.
+console.log('\n== rawAligned (behavioural — no R ground truth) ==');
+function ok(name, cond, extra) {
+  if (!cond) anyFail = true;
+  console.log('  ' + (cond ? 'PASS' : 'FAIL') + '  ' + name + (extra ? '  (' + extra + ')' : ''));
+}
+{
+  // A is placed at row 2 of the aligned frame, B at row 0; the raw frame holds
+  // the same two series on their own axis, A starting at row 1.
+  const aligned = {
+    names: ['Year', 'A', 'B'],
+    cols: [[1000, 1001, 1002, 1003, 1004],
+           [null, null, 1.10, 0.90, 1.20],
+           [0.80, 1.30, 0.70, null, null]],
+  };
+  const rawSrc = {
+    names: ['ring', 'A', 'B'],
+    cols: [[1, 2, 3, 4, 5],
+           [null, 0.42, 0.51, 0.60, null],
+           [0.11, 0.22, 0.31, null, null]],
+  };
+  const out = rawAligned(aligned, [rawSrc]);
+  ok('every column with a raw source is re-valued',
+    out.substituted.join(',') === 'A,B' && out.kept.length === 0,
+    out.substituted.join(',') + ' | kept ' + out.kept.join(','));
+  ok('the placement the crossdate found is kept',
+    out.frame.cols[1][0] == null && out.frame.cols[1][1] == null && out.frame.cols[1][2] === 0.42,
+    JSON.stringify(out.frame.cols[1]));
+  ok('...for every series, not just the first',
+    JSON.stringify(out.frame.cols[2]) === JSON.stringify([0.11, 0.22, 0.31, null, null]),
+    JSON.stringify(out.frame.cols[2]));
+  ok('the year axis is untouched',
+    JSON.stringify(out.frame.cols[0]) === JSON.stringify([1000, 1001, 1002, 1003, 1004]));
+  ok('the values are the measurements, not the indices',
+    out.frame.cols[1].filter(function (v) { return v != null; }).join(',') === '0.42,0.51,0.6',
+    out.frame.cols[1].filter(function (v) { return v != null; }).join(','));
+}
+{
+  // First-difference detrending loses the LAST ring, so a raw series can outrun
+  // the column it replaces: the axis has to grow rather than drop the ring.
+  const aligned = { names: ['Year', 'A'], cols: [[1000, 1001, 1002], [1.0, 1.1, null]] };
+  const rawSrc = { names: ['ring', 'A'], cols: [[1, 2, 3], [0.5, 0.6, 0.7]] };
+  const out = rawAligned(aligned, [rawSrc]);
+  ok('a raw series longer than its detrended column keeps its last ring',
+    out.frame.cols[0].length === 3 && JSON.stringify(out.frame.cols[1]) === JSON.stringify([0.5, 0.6, 0.7]),
+    JSON.stringify(out.frame.cols[1]));
+  const aligned2 = { names: ['Year', 'A'], cols: [[1000, 1001], [1.0, 1.1]] };
+  const rawSrc2 = { names: ['ring', 'A'], cols: [[1, 2, 3], [0.5, 0.6, 0.7]] };
+  const out2 = rawAligned(aligned2, [rawSrc2]);
+  ok('...growing the year axis when it runs past the frame',
+    JSON.stringify(out2.frame.cols[0]) === JSON.stringify([1000, 1001, 1002]) &&
+    JSON.stringify(out2.frame.cols[1]) === JSON.stringify([0.5, 0.6, 0.7]),
+    JSON.stringify(out2.frame.cols[0]) + ' ' + JSON.stringify(out2.frame.cols[1]));
+}
+{
+  // A mean chronology, or a composite's members, have no raw form. Keeping them
+  // as they are and NAMING them beats quietly mixing indices among widths.
+  const aligned = { names: ['Year', 'A', 'mean_chronology'], cols: [[1, 2], [1.0, 1.1], [0.99, 1.01]] };
+  const rawSrc = { names: ['ring', 'A'], cols: [[1, 2], [0.5, 0.6]] };
+  const out = rawAligned(aligned, [rawSrc]);
+  ok('a column with no raw source is kept as it is, and reported',
+    out.kept.join(',') === 'mean_chronology' && out.substituted.join(',') === 'A' &&
+    JSON.stringify(out.frame.cols[2]) === JSON.stringify([0.99, 1.01]),
+    'kept ' + out.kept.join(',') + ' | ' + JSON.stringify(out.frame.cols[2]));
+  ok('with no sources at all, nothing is substituted',
+    rawAligned(aligned, []).substituted.length === 0);
+}
+
+console.log(anyFail ? '\nFAIL' : '\nPASS: alignSeries + alignToChron + ontoAlignDated match R element-wise; rawAligned re-values in place.');
 process.exit(anyFail ? 1 : 0);

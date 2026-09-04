@@ -33,6 +33,7 @@
 // ============================================================================
 
 const { writeCsv, writeRwl } = require('./load.js');
+const { rawAligned } = require('../analysis/align.js');
 const { toSVG } = require('../viz/render.js');
 
 // ---- date -> R Sys.Date() ISO "YYYY-MM-DD" ---------------------------------
@@ -55,7 +56,7 @@ const FILENAMES = {
   filteredCrossdatesCsv:  d => `RingdateR_results_${d}.csv`,     // pairwise_res_download ([,-5])
   meanChronologyCsv:      d => `mean_chronology${d}.csv`,        // initiated_two_column
   alignedChronCsv:        d => `detrended_chrono${d}.csv`,       // initiated.chrono.detrend
-  alignedChronRawCsv:     d => `data-${d}.csv`,                  // initiate.chrono.raw
+  alignedChronRawCsv:     d => `chronology_ring_widths_${d}.csv`, // initiate.chrono.raw (R: data-<date>.csv)
   undatedSeriesCsv:       d => `undated_series_${d}.csv`,        // remove_initiated_series
   alignedChronRwl:        d => `updated_chronology_${d}.rwl`,    // create_initiated_chron_rwl
   // --- plots (R emitted .png; we emit .svg) ---
@@ -147,8 +148,20 @@ function buildDownloads(results, opts = {}) {
   if (results_.crossDatRes) out.crossDatResCsv        = crossDatResCsv(results_.crossDatRes, { date });
   if (results_.filtered)    out.filteredCrossdatesCsv = filteredCrossdatesCsv(results_.filtered, { date });
   if (results_.aligned) {
+    // The aligned chronology is the artifact people take away, and it exists in
+    // two forms. Crossdating runs on detrended indices, so `aligned` holds
+    // indices — but a chronology of RING WIDTHS is what other software reads,
+    // and what a .rwl means by definition (its values are thousandths of a
+    // millimetre; indices near 1.0 would be read as 1 mm rings). So the widths
+    // lead — re-valued from the raw measurements at the placement the crossdate
+    // found — and the detrended frame keeps its own CSV, which is what that
+    // file's name has said all along.
+    const sources = [results_.undated, results_.chronRaw].filter(Boolean);
+    const re = sources.length ? rawAligned(results_.aligned, sources) : null;
+    const raw = re && re.substituted.length ? re.frame : null;
+    if (raw) out.alignedChronRawCsv = alignedChronRawCsv(raw, { date });
     out.alignedChronCsv = alignedChronCsv(results_.aligned, { date });
-    out.alignedChronRwl = alignedChronRwl(results_.aligned, { date, precision: opts.precision });
+    out.alignedChronRwl = alignedChronRwl(raw || results_.aligned, { date, precision: opts.precision });
   }
   // chronology mode: the two-column mean chronology is cols [year, mean_*] of
   // chron_n_undated (comb.NA(meanChron, undated)); mirrors initiated_two_column.

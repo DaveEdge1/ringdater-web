@@ -18,6 +18,7 @@ const io = require('../src/io/load.js');
 const { writeCsv, readRWL } = io;
 const { pairwiseWorkflow, chronologyWorkflow } = require('../src/engine/workflows.js');
 const D = require('../src/io/downloads.js');
+const { rawAligned } = require('../src/analysis/align.js');
 const { renderReport, detMethod } = require('../src/report.js');
 const { correlReplace } = require('../src/analysis/correlReplace.js');
 
@@ -66,6 +67,23 @@ check('filteredCrossdatesCsv == writeCsv(filtered[,-5])',
   dlPw.filteredCrossdatesCsv.content === writeCsv(D.dropCol(pw.filtered, 4)));
 check('alignedChronCsv == writeCsv(aligned)',
   dlPw.alignedChronCsv.content === writeCsv(pw.aligned));
+
+// The aligned chronology exists in two forms and the DEFAULT is ring widths:
+// crossdating runs on detrended indices, but a chronology anyone else reads —
+// and a .rwl by definition, whose values are thousandths of a millimetre — is
+// ring widths. The detrended frame keeps the CSV whose name always said so.
+check('alignedChronRawCsv is the raw ring widths, re-valued in place',
+  dlPw.alignedChronRawCsv.content === writeCsv(rawAligned(pw.aligned, [undated]).frame));
+check('...and every series column was re-valued (none left as indices)',
+  rawAligned(pw.aligned, [undated]).kept.length === 0 &&
+  rawAligned(pw.aligned, [undated]).substituted.length === pw.aligned.names.length - 1);
+check('the .rwl carries widths, not indices',
+  dlPw.alignedChronRwl.content === D.alignedChronRwl(rawAligned(pw.aligned, [undated]).frame, { date: DATE }).content);
+check('a run with no raw source keeps the detrended frame in both',
+  (function () {
+    const bare = D.buildDownloads({ aligned: pw.aligned }, { date: DATE });
+    return !bare.alignedChronRawCsv && bare.alignedChronCsv.content === writeCsv(pw.aligned);
+  })());
 check('meanChronologyCsv == writeCsv(first 2 cols of chronNSeries)',
   dlCh.meanChronologyCsv.content === writeCsv(D.firstCols(ch.chronNSeries, 2)));
 check('mime is text/csv', dlPw.rawUndatedCsv.mime === 'text/csv');

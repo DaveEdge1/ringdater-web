@@ -155,4 +155,76 @@ function ontoAlignDated(df) {
   return { names: ['ring', ...onto.names], cols: [ring, ...onto.cols] };
 }
 
-module.exports = { alignSeries, alignToChron, ontoAlignDated };
+// ---------------------------------------------------------------------------
+// rawAligned(frame, sources)
+// Re-value an ALIGNED frame with the raw (un-detrended) measurements behind it.
+//
+// Crossdating runs on detrended indices, so every aligned frame the analysis
+// produces holds indices — but what a chronology IS, and what a .rwl or another
+// program expects to read, is ring widths. Alignment only ever SHIFTS a series
+// along the axis, and none of the detrending methods move a series' first value
+// (they can drop the last one), so a column's raw counterpart is its source
+// series' own run written from the same row it starts on here.
+//
+// `sources` is a list of raw Frames to look the columns up in (the undated pool,
+// a loaded chronology). A column with no raw source — a mean chronology, a
+// composite chronology's already-detrended members — is kept as it is and named
+// in `kept`, because silently mixing indices among widths would be worse than
+// saying which is which. The axis grows at the tail when a raw series outruns
+// its detrended column (first differences lose the last ring).
+//   -> { frame, substituted: [names], kept: [names] }
+// ---------------------------------------------------------------------------
+function firstValue(col) {
+  for (let i = 0; i < col.length; i++) if (!isNA(col[i])) return i;
+  return -1;
+}
+function sourceColumn(sources, name) {
+  for (const f of sources || []) {
+    if (!f || !f.names) continue;
+    const i = f.names.indexOf(name);
+    if (i > 0) return f.cols[i];
+  }
+  return null;
+}
+function rawAligned(frame, sources) {
+  const substituted = [], kept = [];
+  if (!frame || !frame.names || !frame.cols.length) return { frame, substituted, kept };
+  const axis = frame.cols[0].slice();
+  let nrow = axis.length;
+  const placed = [];
+  for (let c = 1; c < frame.cols.length; c++) {
+    const name = frame.names[c];
+    const src = sourceColumn(sources, name);
+    const dstFirst = firstValue(frame.cols[c]);
+    const srcFirst = src ? firstValue(src) : -1;
+    if (!src || dstFirst < 0 || srcFirst < 0) { kept.push(name); placed.push(null); continue; }
+    // last row this series' raw run would reach, so the axis can be grown to fit
+    let srcLast = srcFirst;
+    for (let i = src.length - 1; i >= srcFirst; i--) if (!isNA(src[i])) { srcLast = i; break; }
+    nrow = Math.max(nrow, dstFirst + (srcLast - srcFirst) + 1);
+    substituted.push(name);
+    placed.push({ src, srcFirst, srcLast, dstFirst });
+  }
+  // a contiguous integer axis extends by counting on from its last value
+  const step = axis.length > 1 ? Number(axis[1]) - Number(axis[0]) : 1;
+  while (axis.length < nrow) axis.push(Number(axis[axis.length - 1]) + step);
+  const cols = [axis];
+  for (let c = 1; c < frame.cols.length; c++) {
+    const p = placed[c - 1];
+    const out = Array(nrow).fill(NA);
+    if (!p) {
+      const old = frame.cols[c];
+      for (let r = 0; r < old.length && r < nrow; r++) out[r] = old[r];
+    } else {
+      for (let i = p.srcFirst; i <= p.srcLast; i++) {
+        const r = p.dstFirst + (i - p.srcFirst);
+        if (r >= 0 && r < nrow) out[r] = src0(p.src, i);
+      }
+    }
+    cols.push(out);
+  }
+  return { frame: { names: frame.names.slice(), cols }, substituted, kept };
+}
+function src0(col, i) { return isNA(col[i]) ? NA : col[i]; }
+
+module.exports = { alignSeries, alignToChron, ontoAlignDated, rawAligned };
