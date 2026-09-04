@@ -36,7 +36,7 @@
 
 const C = require('../analysis/comb.js');
 const { skelValues, skelGrowth } = require('../analysis/skel.js');
-const { toSVG } = require('./render.js');
+const { toSVG, ownAxis } = require('./render.js');
 
 function seriesArray(frame, name) {
   const c = C.colByName(frame, name);
@@ -107,6 +107,7 @@ function rowPanel(start, end, master, sample, first, opts) {
       { type: 'segment', x0: s.map(p => p.x), x1: s.map(p => p.x), y0: s.map(() => 0), y1: s.map(p => p.h), color: '#c0392b', width: 2 },
     ],
     legend: first ? opts.legend : null,
+    linkSeries: opts.linkSeries,   // every row shows both series' own years
     colourbar: null,
   };
 }
@@ -118,6 +119,7 @@ function skelPlot(theData, series1Nm, series2Nm, lag = 0, opts = {}) {
   const fw = opts.filt_weight != null ? opts.filt_weight : 9;
   const rowYears = opts.rowYears != null ? opts.rowYears : 120;   // dplR: 120 yr/row
   const width = opts.width || 760;
+  const ring = opts.ringSeries || [];       // series with no years: label rings
   const yr = C.col(f, 0).map(Number);
   const s1 = seriesArray(f, series1Nm);
   const s2 = seriesArray(f, series2Nm);
@@ -158,6 +160,14 @@ function skelPlot(theData, series1Nm, series2Nm, lag = 0, opts = {}) {
     width,
     title: `${series1Nm} (down) vs ${series2Nm} (up) — skeleton plot, lag ${lag}`,
     legend: { entries: [{ label: `${series1Nm} (down)`, color: '#2c7fb8' }, { label: `${series2Nm} (up)`, color: '#c0392b' }] },
+    // The sample's marks were shifted by the lag to draw them, so a hovered x
+    // is a different position in each series — in the colours their marks
+    // carry. A dated series reads in years; an undated one (opts.ringSeries)
+    // reads in ring counts from its own first ring. See ownAxis in render.js.
+    linkSeries: [
+      ownAxis(series1Nm, '#2c7fb8', sp1, 0, ring.indexOf(series1Nm) >= 0),
+      ownAxis(series2Nm, '#c0392b', sp2, lag, ring.indexOf(series2Nm) >= 0),
+    ],
   };
   const panels = [];
   for (let p = 0; p < nRows; p++) {

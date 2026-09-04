@@ -172,8 +172,21 @@ function renderPanel(spec, offY, colourbarSpace) {
   // browser-side code (web/plotLink.js) can map cursor position <-> data-x and
   // link hover across plots. Emitted only when the builder declares linkAxis
   // (e.g. 'year'), so unrelated axes (lags, ring counts) never cross-link.
+  //
+  // A comparison plot draws two series on ONE axis with the second shifted by
+  // the crossdate lag, so a hovered x is a different year in each of them —
+  // which is the whole question being asked of the plot. `spec.linkSeries`
+  // rides along to say what x means to each series:
+  //   [{ label, color, offset, span, unit }]  -> own value = x + offset,
+  // `span` being that series' own first..last value (so a cursor outside its
+  // data can be shown as the extrapolation it is) and `color` its legend
+  // colour, so the two labels are told apart the same way the lines are.
+  // `unit` is 'year' for a dated series and 'ring' for an undated one, whose
+  // numbering is ring counts, not years (see ownAxis).
   if (spec.linkAxis) {
-    out.push(`<rect class="rd-hot" data-axis="${esc(spec.linkAxis)}" data-xmin="${xd[0]}" data-xmax="${xd[1]}" x="${left}" y="${top}" width="${(right - left).toFixed(2)}" height="${(bottom - top).toFixed(2)}" fill="none" pointer-events="all"/>`);
+    const ser = spec.linkSeries && spec.linkSeries.length
+      ? ` data-series="${esc(JSON.stringify(spec.linkSeries))}"` : '';
+    out.push(`<rect class="rd-hot" data-axis="${esc(spec.linkAxis)}" data-xmin="${xd[0]}" data-xmax="${xd[1]}"${ser} x="${left}" y="${top}" width="${(right - left).toFixed(2)}" height="${(bottom - top).toFixed(2)}" fill="none" pointer-events="all"/>`);
   }
 
   // colour bar (below panel)
@@ -228,7 +241,26 @@ function roundR(x, digits) {
   return r * f;
 }
 
+// One series' entry for spec.linkSeries. `span` is [first, last] where the
+// series was DRAWN (x units, so the lag is already in it) and `shift` how far
+// the lag moved it there.
+//
+// A DATED series is labelled in its own calendar years, so undoing the shift is
+// the whole mapping. An UNDATED series has no years to name — an undated series
+// is exactly what the plot is trying to date — so it is labelled by RING COUNT
+// from its own first ring, and its mapping also subtracts where that first ring
+// landed on the axis. Either way the label stays affine in x, so the browser
+// side (web/plotLink.js) remains one addition.
+function ownAxis(label, color, span, shift, ring) {
+  const sh = shift || 0;
+  if (!span) return { label, color, offset: ring ? 0 : -sh, span: null, unit: ring ? 'ring' : 'year' };
+  const lo = span[0], hi = span[1];
+  return ring
+    ? { label, color, offset: 1 - lo, span: [1, hi - lo + 1], unit: 'ring' }
+    : { label, color, offset: -sh, span: [lo - sh, hi - sh], unit: 'year' };
+}
+
 module.exports = {
-  toSVG, valueToColor, rampColor, linScale, roundR,
+  toSVG, valueToColor, rampColor, linScale, roundR, ownAxis,
   hexToRgb, rgbToHex, esc,
 };

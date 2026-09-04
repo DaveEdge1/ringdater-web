@@ -7,7 +7,10 @@
 
 const C = require('../analysis/comb.js');
 const { xScaleBar } = require('./chartUtils.js');
-const { toSVG, roundR } = require('./render.js');
+const { toSVG, roundR, ownAxis } = require('./render.js');
+
+// where a series was drawn, as [first, last] x (null when it has no data)
+function span(xs) { return xs.length ? [Math.min(...xs), Math.max(...xs)] : null; }
 
 // complete-cases (x, y) as parallel numeric arrays.
 function completeXY(xs, ys) {
@@ -26,6 +29,7 @@ function linePlot(theData, series1Nm, series2Nm, lag = 0, opts = {}) {
   if (s1 === undefined) throw new Error('Error in line_plot(). series_1_nm can not be found in the loaded data.');
   if (s2 === undefined) throw new Error('Error in line_plot(). series_2_nm can not be found in the loaded data.');
 
+  const ring = opts.ringSeries || [];       // series with no years: label rings
   const ser1 = completeXY(years, s1);
   const ser2 = completeXY(years, s2);
   ser2.x = ser2.x.map(v => v + lag);      // shift series 2 by the lag
@@ -52,6 +56,14 @@ function linePlot(theData, series1Nm, series2Nm, lag = 0, opts = {}) {
       { type: 'line', x: ser2.x, y: ser2.y, color: 'red', width: opts.plot_line || 0.5 },
     ],
     legend: { entries: [{ label: series1Nm, color: 'black' }, { label: series2Nm, color: 'red' }] },
+    // What a hovered x is in each series' OWN numbering: series 2 was shifted
+    // right by the lag to draw it, so a dated series 2 reads that much earlier;
+    // an undated one (opts.ringSeries) reads as a ring count from its own first
+    // ring, which is the only numbering it has. See ownAxis in render.js.
+    linkSeries: [
+      ownAxis(series1Nm, 'black', span(ser1.x), 0, ring.indexOf(series1Nm) >= 0),
+      ownAxis(series2Nm, 'red', span(ser2.x), lag, ring.indexOf(series2Nm) >= 0),
+    ],
     colourbar: null,
     // exposed plotted data (validated against R)
     data: { series_1: ser1, series_2: ser2, lag },
