@@ -974,7 +974,11 @@
   // and paint progress: { total, baseline, seriesLength, step(count)->done,
   // progress(), results(), review(exp), corrected(exp) -> {name, values},
   // correctedDownload(exp) -> {filename, mime, content} (.rwl, relative ring
-  // axis 1..n) }.
+  // axis 1..n), scoreEdit(exp) -> one ranked row for an edit named by hand,
+  // maxRing(type) }.
+  // scoreEdit lets a user test a ring they suspect — one they saw under the
+  // scope, or one ranked below the top of a finished sweep — on its own,
+  // without running (or waiting for) all ~2n experiments.
   //   opts: { undated, series, detrend, leadlag,
   //           seriesValues,   // optional raw values override for `series` —
   //                           // lets an already-corrected series be re-tested
@@ -1034,8 +1038,26 @@
     function editName(exp) {
       return exp ? series + (exp.type === 'split' ? '+ring' : '-ring') + exp.ring : series;
     }
+    // A ring named by hand (a custom edit) is checked here rather than
+    // silently producing NaNs downstream; the exhaustive sweep passes
+    // through it too, so both paths agree on what an edit IS.
+    function validateEdit(exp) {
+      if (!exp) return null;
+      var type = exp.type === 'merge' ? 'merge' : (exp.type === 'split' ? 'split' : null);
+      if (!type) throw new Error('Edit type must be "split" (a missing ring) or "merge" (a false ring).');
+      var ring = Math.round(Number(exp.ring));
+      var hi = type === 'split' ? n : n - 1;
+      if (!(ring >= 1 && ring <= hi)) {
+        throw new Error(type === 'split'
+          ? 'Ring ' + exp.ring + ' is outside ' + series + ' — it has ' + n + ' rings, so pick 1 to ' + n + '.'
+          : 'Rings ' + exp.ring + '–' + (Math.round(Number(exp.ring)) + 1) + ' are outside ' + series +
+            ' — it has ' + n + ' rings, so pick a first ring from 1 to ' + hi + '.');
+      }
+      return { type: type, ring: ring };
+    }
     function corrected(exp) {
-      return { name: editName(exp), values: exp ? applyRingEdit(vals, exp) : vals.slice() };
+      var e = validateEdit(exp);
+      return { name: editName(e), values: e ? applyRingEdit(vals, e) : vals.slice() };
     }
     function correctedDownload(exp) {
       var c = corrected(exp);
@@ -1084,6 +1106,7 @@
     // standard pair plots + stats at the best lag, shaped like buildPlots
     // output so the host renders them the same way.
     function review(exp) {
+      exp = validateEdit(exp);
       var values = exp ? applyRingEdit(vals, exp) : vals;
       var name = editName(exp);
       var detS = detrendValues(values, name, detOpt);
@@ -1122,6 +1145,20 @@
     }
 
     var baseline = score(vals);
+    // One edit, scored and judged exactly as the sweep judges its own —
+    // so a ring the user names by hand is comparable with the ranking,
+    // and can be tested on its own without waiting for ~2n experiments.
+    function scoreEdit(exp) {
+      var e = validateEdit(exp);
+      var s = e ? score(applyRingEdit(vals, e)) : baseline;
+      var dT = (s.t != null && baseline.t != null) ? s.t - baseline.t : null;
+      return {
+        type: e ? e.type : null, ring: e ? e.ring : null,
+        lag: s.lag, r: s.r, p: s.p, overlap: s.overlap, t: s.t, dT: dT,
+        fruitful: !!e && dT != null && s.r != null && baseline.r != null &&
+          dT >= FRUIT_DT && s.r > baseline.r
+      };
+    }
     var results = [];
     var idx = 0;
     return {
@@ -1131,15 +1168,7 @@
       step: function (count) {
         var k = 0;
         while (idx < exps.length && k < count) {
-          var e = exps[idx];
-          var s = score(applyRingEdit(vals, e));
-          results.push({
-            type: e.type, ring: e.ring,
-            lag: s.lag, r: s.r, p: s.p, overlap: s.overlap, t: s.t,
-            dT: (s.t != null && baseline.t != null) ? s.t - baseline.t : null,
-            fruitful: s.t != null && baseline.t != null && s.r != null && baseline.r != null &&
-              (s.t - baseline.t) >= FRUIT_DT && s.r > baseline.r
-          });
+          results.push(scoreEdit(exps[idx]));
           idx++; k++;
         }
         return idx >= exps.length;
@@ -1153,7 +1182,10 @@
       },
       review: review,
       corrected: corrected,
-      correctedDownload: correctedDownload
+      correctedDownload: correctedDownload,
+      scoreEdit: scoreEdit,
+      // highest ring number an edit of each kind can name (merge needs i+1)
+      maxRing: function (type) { return type === 'merge' ? n - 1 : n; }
     };
   }
 

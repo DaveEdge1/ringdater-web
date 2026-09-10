@@ -316,14 +316,27 @@
                merged (as if one ring was falsely counted as two). Every edit is re-detrended and fully
                re-crossdated against the reference — edits that beat the unedited baseline bear fruit.
                Fruitful corrections can be applied and the test re-run iteratively (each pass hunts the
-               next missing / false ring), and any corrected series can be downloaded as .rwl.</p>
+               next missing / false ring), and any corrected series can be downloaded as .rwl.
+               You can also test one ring of your own choosing — a ring you suspect under the scope, or
+               one ranked below the table — without running the full sweep.</p>
             <div class="plot-controls">
               <div><label for="rt_series">Series to test</label><select id="rt_series"></select></div>
               <div><label for="rt_ref">Reference</label><select id="rt_ref"></select></div>
               <div><button class="btn" id="rt_run">Run ring test</button></div>
             </div>
+            <div class="plot-controls">
+              <div><label for="rt_editType">Test one ring of your own</label>
+                <select id="rt_editType">
+                  <option value="split">Missing ring — split ring</option>
+                  <option value="merge">False ring — merge rings</option>
+                </select></div>
+              <div><label for="rt_editRing">Ring number</label>
+                <input type="number" id="rt_editRing" min="1" step="1" placeholder="e.g. 47"></div>
+              <div><button class="btn secondary" id="rt_editRun">Test this edit</button></div>
+            </div>
             <div class="msg" id="rt_msg"></div>
             <div id="rt_out"></div>
+            <div id="rt_custom"></div>
             <div id="rt_plots" style="position:relative"></div>
           </div>
         </div>

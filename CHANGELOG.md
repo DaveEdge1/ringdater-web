@@ -46,6 +46,27 @@ Then `git push --follow-tags`.
   so the raw chronology is available to write from.
 
 ### Added
+- **Missing / false ring test: any ring you name can be tested on its own.** The sweep
+  ranks its own experiments and shows the top 20, which answers "where does the data
+  think a ring is wrong" but not "is the ring I am looking at wrong" — and a
+  dendrochronologist at the scope usually has a specific suspect: a locally absent ring,
+  a frost band, a lobe they scored as two. **Test one ring of your own** takes the kind
+  of error (missing ring — split ring *i*; false ring — merge rings *i* and *i*+1) and
+  the ring number, and reports that one edit: lag, r, p, overlap, T and ΔT against the
+  unedited baseline, plus whether it bears fruit — scored by exactly the code the sweep
+  scores its own experiments with, so a hand-named edit and a ranked one are directly
+  comparable. The corrected series is reviewed below it with the same four plots, can be
+  downloaded as .rwl, and can be applied and iterated on like a fruitful one (a user who
+  has SEEN the ring does not need the statistics to agree before correcting it).
+
+  No sweep is needed: naming a ring builds the baseline alone, so the answer comes back
+  in well under a second instead of after ~2n full crossdates. When a sweep has already
+  run on the same series, reference and settings, the ranking stays on screen and the
+  named edit is read beside it. A ring outside the series is refused with a message that
+  says how many rings it has (a merge stops one ring short of the end, having nothing to
+  merge with) rather than silently scoring nonsense. New runner API: `scoreEdit(exp)`
+  returning one ranked row, and `maxRing(type)`; `review()`, `corrected()` and
+  `correctedDownload()` now validate the ring they are handed.
 - **Series that are already detrended are no longer detrended a second time.** Fitting a
   curve to a curve-free series and dividing through it only adds noise, and a second
   z-scoring flattens what the first one left — so a chronology of indices read against raw

@@ -1382,7 +1382,10 @@
   var ringRunner = null;
   function syncRingTest() {
     $('ringTestCard').style.display = state.undated ? '' : 'none';
-    if (!state.undated) { $('rt_out').innerHTML = ''; $('rt_plots').innerHTML = ''; setMsg('rt_msg', ''); ringRunner = null; ringIter = null; return; }
+    if (!state.undated) {
+      $('rt_out').innerHTML = ''; $('rt_custom').innerHTML = ''; $('rt_plots').innerHTML = '';
+      setMsg('rt_msg', ''); ringRunner = null; ringIter = null; ringKey = null; return;
+    }
     var names = AC.seriesNames(state.undated);
     var curSeries = $('rt_series').value;
     fillSelect($('rt_series'), names, function (n) { return n; }, function (n) { return n; });
@@ -1411,6 +1414,15 @@
   // passes.
   var ringIter = null;               // { base, series, values, edits: [{type, ring}] }
   var RING_ITER_CAP = 8;
+  var ringRefLabel = '';
+  // What the live runner was built for. A hand-named edit reuses the runner
+  // (so it can be read against a ranking already on screen) only while
+  // nothing it depends on has moved; otherwise a fresh baseline is built.
+  var ringKey = null;
+  function ringKeyNow() {
+    return JSON.stringify([$('rt_series').value, $('rt_ref').value, detrendUI(), leadlagUI(),
+      ringIter ? ringIter.edits.length : 0]);
+  }
   function buildRingReference() {
     var refV = $('rt_ref').value;
     if (refV.indexOf('chron:') === 0) {
@@ -1434,8 +1446,11 @@
         undated: state.undated, series: ringIter.series, seriesValues: ringIter.values,
         reference: built.reference, detrend: detrendUI(), leadlag: leadlagUI()
       });
+      ringRefLabel = built.label;
+      ringKey = ringKeyNow();
     } catch (err) { setMsg('rt_msg', 'Error: ' + err.message, 'err'); if (done) done(false); return; }
     $('rt_out').innerHTML = '';
+    $('rt_custom').innerHTML = '';
     $('rt_plots').innerHTML = '';
     $('rt_run').disabled = true;
     var passNote = ringIter.edits.length ? 'Pass ' + (ringIter.edits.length + 1) + ' — t' : 'T';
@@ -1457,6 +1472,54 @@
     startRingRun(done);
   };
   $('rt_run').addEventListener('click', function () { Actions.runRingTest(); });
+
+  // Test ONE edit the user names, without the sweep: the ring they suspect
+  // from the wood, or one ranked below the table. Same scoring and the same
+  // review as a swept edit, so the two are directly comparable — and it can
+  // be applied and iterated on exactly like a fruitful one.
+  Actions.testCustomRingEdit = function () {
+    if (!state.undated) return;
+    var series = $('rt_series').value;
+    if (!series || !$('rt_ref').value) { setMsg('rt_msg', 'Pick a series and a reference.', 'err'); return; }
+    var ringVal = $('rt_editRing').value;
+    if (ringVal === '') { setMsg('rt_msg', 'Type the ring number you want to test.', 'err'); return; }
+    var exp = { type: $('rt_editType').value, ring: Number(ringVal) };
+    if (!(ringRunner && ringIter && ringKey === ringKeyNow())) {
+      // nothing on screen belongs to this selection — start a fresh runner
+      // (its baseline only; the ~2n experiments are not run)
+      try {
+        var built = buildRingReference();
+        ringIter = { base: series, series: series, values: null, edits: [] };
+        ringRunner = AC.ringTest({
+          undated: state.undated, series: series, reference: built.reference,
+          detrend: detrendUI(), leadlag: leadlagUI()
+        });
+        ringRefLabel = built.label;
+        ringKey = ringKeyNow();
+      } catch (err) { setMsg('rt_msg', 'Error: ' + err.message, 'err'); return; }
+      $('rt_out').innerHTML = '';
+    }
+    syncRingEditMax();
+    var row;
+    try { row = ringRunner.scoreEdit(exp); }
+    catch (err) { $('rt_custom').innerHTML = ''; setMsg('rt_msg', 'Error: ' + err.message, 'err'); return; }
+    paintCustomRing(row);
+    var trs = $('rt_out').querySelectorAll('tbody tr');
+    trs.forEach(function (x) { x.classList.remove('sel'); });
+    renderRingReview({ type: row.type, ring: row.ring });
+    setMsg('rt_msg', 'Tested ' + editSentence(row) + ' in ' + ringIter.series + '.', 'ok');
+  };
+  $('rt_editRun').addEventListener('click', function () { Actions.testCustomRingEdit(); });
+  $('rt_editRing').addEventListener('keydown', function (ev) {
+    if (ev.key === 'Enter') { ev.preventDefault(); Actions.testCustomRingEdit(); }
+  });
+  // the ring box takes only what the series being tested can hold
+  function syncRingEditMax() {
+    var hi = ringRunner ? ringRunner.maxRing($('rt_editType').value) : null;
+    if (hi != null) $('rt_editRing').max = hi;
+    else $('rt_editRing').removeAttribute('max');
+  }
+  $('rt_editType').addEventListener('change', syncRingEditMax);
   // Apply one edit to the iteration state and re-test the corrected series.
   function applyAndRerun(exp, done) {
     var c = ringRunner.corrected(exp);
@@ -1478,6 +1541,23 @@
   };
 
   function num(v, dp) { return v == null ? '—' : String(Math.round(v * Math.pow(10, dp)) / Math.pow(10, dp)); }
+  function editSentence(e) {
+    return e.type === 'split' ? 'a missing ring inside ring ' + e.ring
+      : 'a false ring across rings ' + e.ring + '–' + (e.ring + 1);
+  }
+  function paintCustomRing(row) {
+    var base = ringRunner.baseline;
+    $('rt_custom').innerHTML = '<p class="msg' + (row.fruitful ? ' ok' : '') + '"><b>' +
+      (row.type === 'split' ? 'Split ring ' + row.ring + ' in two' : 'Merge rings ' + row.ring + '–' + (row.ring + 1)) +
+      '</b> — testing ' + editSentence(row) + ' in ' + esc(ringIter.series) + ' against ' + esc(ringRefLabel) + ': lag ' +
+      esc(String(row.lag == null ? '—' : row.lag)) + ' · r ' + num(row.r, 3) + ' · p ' + AC.fmtP(row.p) +
+      ' · overlap ' + (row.overlap == null ? '—' : row.overlap) + ' · T ' + num(row.t, 2) + ' (ΔT ' +
+      (row.dT == null ? '—' : (row.dT >= 0 ? '+' : '') + num(row.dT, 2)) + ' on a baseline T of ' + num(base.t, 2) + '). ' +
+      (row.fruitful
+        ? 'This edit bears fruit — the crossdate is meaningfully better with it than without.'
+        : 'This edit does not improve the crossdate, so the data does not support it.') +
+      ' The corrected series is reviewed below.</p>';
+  }
   function paintRingResults(series, refLabel) {
     var base = ringRunner.baseline;
     var res = ringRunner.results();
@@ -1537,11 +1617,13 @@
       tr.addEventListener('click', function () {
         trs.forEach(function (x) { x.classList.remove('sel'); });
         tr.classList.add('sel');
+        $('rt_custom').innerHTML = '';
         renderRingReview({ type: tr.getAttribute('data-type'), ring: Number(tr.getAttribute('data-ring')) });
       });
     });
     $('rt_baseBtn').addEventListener('click', function () {
       trs.forEach(function (x) { x.classList.remove('sel'); });
+      $('rt_custom').innerHTML = '';
       renderRingReview(null);
     });
     var applyBtn = $('rt_applyBtn');
@@ -1564,13 +1646,13 @@
     var area = $('rt_plots');
     area.innerHTML = '';
     area.appendChild(headerEl(specs.header + (exp ? '' : ' (baseline, unedited)'), statsLine(specs.stats)));
-    // download the reviewed corrected series; apply-and-retest for fruitful edits
-    var row = exp ? ringRunner.results().experiments.filter(function (x) {
-      return x.type === exp.type && x.ring === exp.ring;
-    })[0] : null;
+    // download the reviewed corrected series, and apply it to iterate. Any
+    // edit can be applied — a fruitful one from the ranking, or one the user
+    // named themselves and wants to carry into the next pass.
+    var canApply = !!exp && ringIter && ringIter.edits.length < RING_ITER_CAP;
     var bar = document.createElement('p');
     bar.innerHTML = '<button class="btn ghost" id="rt_dlBtn">Download ' + esc(ringRunner.corrected(exp).name) + '.rwl</button>' +
-      (row && row.fruitful ? ' <button class="btn ghost" id="rt_applyThisBtn">Apply this edit &amp; test again</button>' : '');
+      (canApply ? ' <button class="btn ghost" id="rt_applyThisBtn">Apply this edit &amp; test again</button>' : '');
     area.appendChild(bar);
     $('rt_dlBtn').addEventListener('click', function () { triggerDownload(ringRunner.correctedDownload(exp)); });
     var applyThis = $('rt_applyThisBtn');

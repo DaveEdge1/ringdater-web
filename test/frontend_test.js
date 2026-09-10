@@ -440,6 +440,46 @@ ok('iterative pass starts from the corrected baseline',
 while (!runner2.step(100));
 ok('corrected series comes back clean (no further fruitful edits)',
   runner2.results().fruitful.length === 0);
+// a ring named by hand: scored and judged exactly as the sweep scores its own,
+// and available WITHOUT the sweep — this runner is never stepped.
+const hand = AppCore.ringTest({
+  undated: rtFrame, series: 'h_defect',
+  reference: { kind: 'series', name: 'sample_i' },
+  detrend: detrendUI,
+  leadlag: { neg_lag: -20, pos_lag: 20, complete: true }
+});
+const handBest = hand.scoreEdit({ type: best.type, ring: best.ring });
+ok('scoreEdit() reproduces the swept experiment exactly',
+  handBest.t === best.t && handBest.r === best.r && handBest.lag === best.lag &&
+  handBest.dT === best.dT && handBest.fruitful === best.fruitful,
+  'T ' + handBest.t.toFixed(2) + ', dT +' + handBest.dT.toFixed(1));
+const handDud = hand.scoreEdit({ type: 'merge', ring: 5 });
+ok('an edit the data does not support is reported as barren',
+  handDud.fruitful === false && handDud.dT < 1, 'dT ' + handDud.dT.toFixed(2));
+ok('scoreEdit(null) is the baseline', hand.scoreEdit(null).t === hand.baseline.t &&
+  hand.scoreEdit(null).dT === 0 && hand.scoreEdit(null).fruitful === false);
+ok('maxRing bounds each kind of edit',
+  hand.maxRing('split') === hand.seriesLength && hand.maxRing('merge') === hand.seriesLength - 1);
+// a ring outside the series is refused with a message rather than scored as NaN
+function refuses(fn) { try { fn(); return false; } catch (e) { return /outside|Edit type/.test(e.message); } }
+ok('a ring past the end of the series is refused',
+  refuses(function () { return hand.scoreEdit({ type: 'split', ring: hand.seriesLength + 1 }); }));
+ok('ring 0 is refused', refuses(function () { return hand.scoreEdit({ type: 'split', ring: 0 }); }));
+ok('merge stops one ring short of the end',
+  refuses(function () { return hand.scoreEdit({ type: 'merge', ring: hand.seriesLength }); }) &&
+  !refuses(function () { return hand.scoreEdit({ type: 'merge', ring: hand.seriesLength - 1 }); }));
+ok('an unknown edit type is refused',
+  refuses(function () { return hand.scoreEdit({ type: 'shrink', ring: 10 }); }));
+ok('review() and corrected() refuse the same bad ring',
+  refuses(function () { return hand.review({ type: 'split', ring: 0 }); }) &&
+  refuses(function () { return hand.corrected({ type: 'merge', ring: hand.seriesLength }); }));
+// a hand-named edit reviews and exports like a swept one
+const handRev = hand.review({ type: best.type, ring: best.ring });
+ok('a hand-named edit reviews like a swept one',
+  isSvg(AppCore.renderPlot(handRev.line)) && Math.abs(handRev.stats.r - rev.stats.r) < 1e-12,
+  'r ' + handRev.stats.r.toFixed(3));
+ok('a hand-named edit exports the corrected .rwl',
+  /_corrected\.rwl$/.test(hand.correctedDownload({ type: best.type, ring: best.ring }).filename));
 
 // 12. segment placement diagnosis ----------------------------------------------
 // clean control: sample_c's kept windows all place consistently vs sample_a
