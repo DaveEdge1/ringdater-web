@@ -14,6 +14,20 @@ Then `git push --follow-tags`.
 ## [Unreleased]
 
 ### Changed
+- **The heatmap can show every lag it scanned, not a band around the match.** The
+  running-correlation heatmap has always been drawn as a ±20-lag window centred on the
+  plotted lag — the right size to sit under the line and skeleton plots, but it makes a
+  scan of ±260 look like a scan of ±20, and the question a heatmap answers is precisely
+  *where else* the two series correlate. Selecting **Running-correlation heatmap** on its
+  own now offers **Full lag range**, which opens the lag axis to every lag that pair’s
+  crossdate scanned (the lead-lag bar’s own x range) and draws it taller so the rows stay
+  readable. The message under the plot names the range either way, so the band no longer
+  reads as the whole picture: "lag axis −27 … +13 · a band around the plotted lag, out of
+  −260 … +260 scanned". The axis reports what actually correlated — lags far enough out
+  leave fewer overlapping rings than the correlation window needs and drop away. The
+  option is offered only for the heatmap alone, since the combined view has no room for
+  it. New `heatmapFull` / `heatmapSize` options on `AppCore.buildPlots`, a `heatmapSpan`
+  and `scannedSpan` on its result, and `AppCore.scannedLagSpan(result, s1, s2)`.
 - **The app shell no longer scrolls away.** The header and the view rail (Home /
   Measure / Explore / Build) are pinned to the top and left of the viewport, and the
   Explore settings rail pins directly under the header. A results page runs to several

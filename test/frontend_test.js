@@ -85,6 +85,33 @@ const plots = AppCore.buildPlots(result, { colorScale: 1, lag: 0 });
 // combined stacked SVG (what the plots area renders)
 const combined = AppCore.combinedPlot([plots.line, plots.leadLagBar, plots.heatmap]);
 ok('combined stacked SVG well-formed', isSvg(combined), combined.length + ' chars');
+// the heatmap's lag axis: a band beside the other plots, every scanned lag on
+// its own (viewed alone in the app, where there is room for it)
+const hmPair = [names[0], names[1]];
+const band = AppCore.buildPlots(result, { pair: hmPair, lag: 0 });
+const full = AppCore.buildPlots(result, { pair: hmPair, lag: 0, heatmapFull: true });
+const scanned = AppCore.scannedLagSpan(result, hmPair[0], hmPair[1]);
+ok('the scanned lag span is recovered from the lead-lag block',
+  !!scanned && scanned.neg < -100 && scanned.pos > 100,
+  scanned ? scanned.neg + ' … ' + scanned.pos : 'null');
+ok('the default heatmap is a 41-lag band',
+  band.heatmapSpan.pos - band.heatmapSpan.neg === 40,
+  band.heatmapSpan.neg + ' … ' + band.heatmapSpan.pos);
+ok('heatmapFull opens the lag axis far wider',
+  full.heatmapSpan.pos - full.heatmapSpan.neg > 4 * (band.heatmapSpan.pos - band.heatmapSpan.neg) &&
+  full.heatmapSpan.neg >= scanned.neg && full.heatmapSpan.pos <= scanned.pos,
+  full.heatmapSpan.neg + ' … ' + full.heatmapSpan.pos + ' of ' + scanned.neg + ' … ' + scanned.pos);
+ok('the full heatmap carries more cells and is taller',
+  full.heatmap.marks[0].x.length > 5 * band.heatmap.marks[0].x.length &&
+  full.heatmap.height > band.heatmap.height && full.heatmap.width >= band.heatmap.width,
+  full.heatmap.marks[0].x.length + ' cells at ' + full.heatmap.width + 'x' + full.heatmap.height +
+  ' vs ' + band.heatmap.marks[0].x.length + ' at ' + band.heatmap.width + 'x' + band.heatmap.height);
+ok('the full heatmap renders', isSvg(AppCore.renderPlot(full.heatmap)));
+ok('an explicit size overrides the default',
+  AppCore.buildPlots(result, { pair: hmPair, heatmapFull: true, heatmapSize: { width: 900, height: 500 } })
+    .heatmap.width === 900);
+ok('no lead-lag block for a pair leaves the band alone',
+  AppCore.scannedLagSpan(result, hmPair[0], 'not_a_series') === null);
 
 // 5. re-filter the crossDatRes (results-tab filter controls) -------------------
 const refiltered = AppCore.refilter(result.crossDatRes, { r_val: 0.6, p_val: 0.01, overlap: 40, target: names[0] });

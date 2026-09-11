@@ -1316,6 +1316,27 @@
   // Best crossdate lag for a pair, read from crossDatRes (First_lag). Used to
   // center the heatmap's lag axis on the match. Falls back to the reversed
   // orientation (negated) or 0 if the pair isn't in the results table.
+  // Every lag this pair's crossdate scanned, from the masterLeadLag block —
+  // the same range the lead-lag bar plots on its x axis. Null when the pair
+  // has no block (e.g. a frame built outside a run). Columns are stored for
+  // one direction only, so a reversed pair's span is negated.
+  function scannedLagSpan(result, s1, s2) {
+    var mll = result && result.masterLeadLag;
+    if (!mll || !mll.names) return null;
+    var i = mll.names.indexOf('ser_1_' + s1 + '_ser_2_' + s2 + '_lag'), flip = false;
+    if (i < 0) { i = mll.names.indexOf('ser_1_' + s2 + '_ser_2_' + s1 + '_lag'); flip = i >= 0; }
+    if (i < 0) return null;
+    var c = mll.cols[i], lo = Infinity, hi = -Infinity;
+    for (var r = 0; r < c.length; r++) {
+      var v = c[r];
+      if (v == null || (typeof v === 'number' && isNaN(v))) continue;
+      v = Number(v);
+      if (v < lo) lo = v;
+      if (v > hi) hi = v;
+    }
+    if (!isFinite(lo) || !isFinite(hi)) return null;
+    return flip ? { neg: -hi, pos: -lo } : { neg: lo, pos: hi };
+  }
   function bestLagFor(result, s1, s2) {
     var cd = result && result.crossDatRes;
     if (!cd) return 0;
@@ -1456,17 +1477,42 @@
     var hmCenter = o.heatmapCenter != null ? Number(o.heatmapCenter)
       : (lag !== 0 ? lag : bestLagFor(result, s1, s2));
     var corWin = o.corWin != null ? Number(o.corWin) : 21;
-    var heatAt = function (center) {
+    var HM_HALF = 20;
+    var heatAt = function (span, size) {
       return safe(function () {
         var rll = RD.heatmapAnalysis(compFrame, {
-          s1: s1, s2: s2, neg_lag: -20, pos_lag: 20, center: center, win: corWin, complete: false
+          s1: s1, s2: s2, neg_lag: span.neg, pos_lag: span.pos, center: 0,
+          win: corWin, complete: false
         });
-        return RD.heatmapPlot(rll, { s1: s1, s2: s2, sel_col_pal: colScale });
+        return RD.heatmapPlot(rll, {
+          s1: s1, s2: s2, sel_col_pal: colScale,
+          width: size && size.width, height: size && size.height
+        });
       });
     };
+    var window20 = function (center) { return { neg: center - HM_HALF, pos: center + HM_HALF }; };
+    // `heatmapFull` opens the lag axis to EVERY lag the crossdate scanned
+    // instead of the ±20 band around the match. The band is what lets the
+    // heatmap sit beside the other plots; shown on its own it has the room to
+    // say where else in the scan the two series correlate — which is the
+    // question a heatmap is for. Taller with more lag rows, so the rows stay
+    // thick enough to read (capped, and the wrapper scrolls).
+    var fullSpan = o.heatmapFull ? scannedLagSpan(result, s1, s2) : null;
+    var fullSize = fullSpan ? (o.heatmapSize || {
+      width: 1100,
+      height: Math.max(360, Math.min(820, Math.round((fullSpan.pos - fullSpan.neg) * 1.4) + 80))
+    }) : null;
     // a far-off best-lag center can leave too little overlap; fall back to the
     // chosen lag rather than rendering nothing
-    out.heatmap = heatAt(hmCenter) || (hmCenter !== lag ? heatAt(lag) : null);
+    out.heatmap = (fullSpan && heatAt(fullSpan, fullSize)) ||
+      heatAt(window20(hmCenter)) || (hmCenter !== lag ? heatAt(window20(lag)) : null);
+    // What the lag axis ended up covering, so the host can say so. It is the
+    // range that produced correlations, not the range asked for: lags far
+    // enough out leave fewer than `win` overlapping rings and drop out.
+    out.heatmapSpan = out.heatmap
+      ? { neg: out.heatmap.scales.y.domain[0], pos: out.heatmap.scales.y.domain[1] }
+      : null;
+    out.scannedSpan = scannedLagSpan(result, s1, s2);
     // detrend diagnostic on the raw (un-detrended) undated data
     var dSeries = o.detrendSeries || (undated && undated.names[1]);
     out.detrend = safe(function () {
@@ -1948,6 +1994,7 @@
     fmtCell: fmtCell,
     buildPlots: buildPlots, renderPlot: renderPlot, combinedPlot: combinedPlot,
     bestLagFor: bestLagFor,
+    scannedLagSpan: scannedLagSpan,
     fmtP: fmtP,
     newBuilder: newBuilder, builderReview: builderReview, builderPlots: builderPlots,
     builderChronPlot: builderChronPlot, builderDownloads: builderDownloads,

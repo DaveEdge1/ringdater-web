@@ -1230,7 +1230,7 @@
       renderPlots();
     });
   });
-  ['p_colscale', 'detrendSeriesSel'].forEach(function (id) {
+  ['p_colscale', 'detrendSeriesSel', 'p_hmFull'].forEach(function (id) {
     $(id).addEventListener('change', renderPlots);
   });
   $('p_which').addEventListener('change', function () { syncPlotControls(); renderPlots(); });
@@ -1247,6 +1247,9 @@
     var isDetrend = $('p_which').value === 'detrend';
     document.querySelectorAll('#explorePlots .pairCtl').forEach(function (d) { d.style.display = isDetrend ? 'none' : ''; });
     $('detrendCtl').style.display = isDetrend ? '' : 'none';
+    // the full lag axis is only offered where there is room for it: the
+    // heatmap on its own, not the combined stack
+    $('hmFullWrap').style.display = $('p_which').value === 'heatmap' ? '' : 'none';
     syncFullSeriesBtn();
   }
   // "Review full series at this lag": shown while a plotted series is a
@@ -1330,9 +1333,10 @@
     }
 
     var pair = [$('p_series1').value, $('p_series2').value];
+    var hmFull = which === 'heatmap' && $('p_hmFull').checked;
     var plots = AC.buildPlots(state.result, {
       pair: pair, lag: Number($('p_lag').value) || 0, colorScale: $('p_colscale').value,
-      corWin: Number($('cor_win').value) || 21
+      corWin: Number($('cor_win').value) || 21, heatmapFull: hmFull
     });
     area.innerHTML = '';
     var vs = pair[0] + ' vs ' + pair[1];
@@ -1372,8 +1376,28 @@
     var plotDiv = document.createElement('div');
     plotDiv.innerHTML = svg;
     area.appendChild(plotDiv);
-    plotSaveBar(area, which + '_' + vs);
-    setMsg('plotMsg', 'Showing ' + which + ' for ' + vs + '.', 'ok');
+    plotSaveBar(area, (hmFull ? 'heatmap_fulllag' : which) + '_' + vs);
+    setMsg('plotMsg', which === 'heatmap' ? heatmapNote(plots, hmFull, vs)
+      : 'Showing ' + which + ' for ' + vs + '.', 'ok');
+  }
+
+  // What the heatmap's lag axis is covering, and what the other setting would
+  // show — the band around the match reads as "the whole picture" unless the
+  // scan it is a slice of is named.
+  function lagSpanText(sp) {
+    return sp ? (sp.neg > 0 ? '+' : '') + sp.neg + ' … ' + (sp.pos > 0 ? '+' : '') + sp.pos : '?';
+  }
+  function heatmapNote(plots, full, vs) {
+    var shown = 'Heatmap for ' + vs + ' — lag axis ' + lagSpanText(plots.heatmapSpan) + '. ';
+    if (full && plots.scannedSpan) {
+      return shown + 'Every scanned lag with enough overlap to correlate (the scan ran ' +
+        lagSpanText(plots.scannedSpan) + '); each row is the running correlation at that lag.';
+    }
+    // no lead-lag block for this pair (a segment, say) — nothing to widen to
+    if (full) return shown + 'The lag scan is not recorded for this pair, so the band around the plotted lag is shown.';
+    var sc = plots.scannedSpan;
+    return shown + 'A band around the plotted lag' + (sc ? ', out of ' + lagSpanText(sc) + ' scanned' : '') +
+      ' — tick Full lag range to see all of it.';
   }
 
   // ---- missing / false ring test -------------------------------------------
