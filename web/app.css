@@ -14,13 +14,21 @@
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
+/* anything scrolled to (scrollIntoView, #anchors) clears the pinned header */
+html { scroll-padding-top: 68px; }
 body {
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
   color: var(--ink); background: var(--bg); font-size: 14px; line-height: 1.45;
 }
+/* The app shell stays put while the page scrolls: the header pins to the top
+   of the viewport and the tab rail directly under it, so the status line, the
+   Clear/Export actions and the views are reachable from anywhere in a long
+   results page. Both sit BELOW the guided tour's dimmer (z-index 90) so the
+   tour can still spotlight them. */
 header.app {
   background: var(--brand); color: #fff; padding: 0 18px; height: 56px;
   display: flex; align-items: center; gap: 14px; box-shadow: 0 1px 4px rgba(0,0,0,.2);
+  position: sticky; top: 0; z-index: 40;
 }
 header.app h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: .5px; }
 header.app .ver { font-size: 12px; opacity: .8; }
@@ -29,6 +37,11 @@ header.app .status { margin-left: auto; font-size: 13px; opacity: .95; }
 .layout { display: flex; min-height: calc(100vh - 56px); }
 nav.tabs {
   flex: 0 0 210px; background: var(--sidebar); color: #b8c7ce; padding: 12px 0;
+  /* a flex item stretched to the full column cannot stick — it already spans
+     the whole scroll range — so the rail is sized to the viewport instead and
+     pinned under the header, scrolling internally if it does not fit */
+  position: sticky; top: 56px; z-index: 30;
+  align-self: flex-start; height: calc(100vh - 56px); overflow-y: auto;
 }
 nav.tabs button {
   display: block; width: 100%; text-align: left; background: none; border: 0;
@@ -183,7 +196,7 @@ header.app .export { position: relative; }
 /* ---- explore workspace (rail + main) -------------------------------------- */
 .workspace { display: flex; gap: 18px; align-items: flex-start; }
 .rail {
-  flex: 0 0 280px; position: sticky; top: 12px; max-height: calc(100vh - 80px); overflow-y: auto;
+  flex: 0 0 280px; position: sticky; top: 68px; max-height: calc(100vh - 80px); overflow-y: auto;
   background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px;
   box-shadow: 0 1px 2px rgba(0,0,0,.04);
 }

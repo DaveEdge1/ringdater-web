@@ -13,6 +13,16 @@ Then `git push --follow-tags`.
 
 ## [Unreleased]
 
+### Changed
+- **The app shell no longer scrolls away.** The header and the view rail (Home /
+  Measure / Explore / Build) are pinned to the top and left of the viewport, and the
+  Explore settings rail pins directly under the header. A results page runs to several
+  screens — table, four plots, diagnostics, the ring test — and reaching another view,
+  the loaded-data status or Clear / Export meant scrolling back to the top first. The
+  view rail is sized to the viewport and scrolls inside itself on a short window, and
+  both sit below the guided tour's dimmer so the tour can still spotlight them.
+  Anything scrolled to (`scrollIntoView`, `#anchors`) clears the pinned header.
+
 ### Fixed
 - **The measurement trace named the wrong series' ring under a lag.** The cursor quotes a
   ring number beside the width it reads off the series being measured, but the number was
