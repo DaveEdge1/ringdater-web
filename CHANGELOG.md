@@ -59,6 +59,16 @@ Then `git push --follow-tags`.
   Anything scrolled to (`scrollIntoView`, `#anchors`) clears the pinned header.
 
 ### Fixed
+- **An `.rwl` with a word after the last measurement on a row no longer fails to load.**
+  ITRDB files are in circulation that write an annotation past the tenth value of every
+  full decade row — `id020.rwl` (Craters of the Moon) ends 2,050 of its rows with `gap` —
+  and the reader treated any unparseable value column as fatal: "failed to read rwl file",
+  no line, no reason, 56 series over 1,786 years refused. R reads those files (as.numeric
+  turns the word into NA and keeps the row), so we do too: text AFTER the last measurement
+  on a line is an annotation and is ignored. Junk BETWEEN measurements still stops the
+  read, because skipping it would silently drop ring widths — but it now says which value
+  and which year it choked on instead of the blanket message, so the next malformed file
+  can actually be found and fixed.
 - **The measurement trace named the wrong series' ring under a lag.** The cursor quotes a
   ring number beside the width it reads off the series being measured, but the number was
   the shared row index — which is the ring numbering of whichever series starts at row 1,

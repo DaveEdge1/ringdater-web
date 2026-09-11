@@ -85,5 +85,43 @@ for (const w of gt.wrapper) {
               String(r.naMism != null ? r.naMism : (r.why || '')).padStart(7), res, r.why || '');
 }
 
+console.log('\n=== (d) trailing annotations after the last measurement ===');
+// ITRDB files are in circulation (id020.rwl, Craters of the Moon, among
+// others) that write a word past the tenth value of every full decade row.
+// R reads them — as.numeric("  gap") is NA and the row is kept — and so must
+// we: refusing the file costs the user 56 series over 1,786 years.
+function check(name, cond, detail) {
+  if (!cond) allPass = false;
+  console.log(name.padEnd(46), cond ? 'PASS' : 'FAIL', cond ? '' : (detail || ''));
+}
+const CLEAN = [
+  'abc123  1900   796   848   664   635   668   545   619   588   495   537',
+  'abc123  1910   855   789   826 -9999',
+].join('\n');
+const GAPPED = [
+  'abc123  1900   796   848   664   635   668   545   619   588   495   537  gap',
+  'abc123  1910   855   789   826 -9999',
+].join('\n');
+const clean = readRwl(CLEAN, { header: false });
+const gapped = readRwl(GAPPED, { header: false });
+check('a trailing word does not stop the read',
+  JSON.stringify(gapped) === JSON.stringify(clean),
+  JSON.stringify(gapped.cols && gapped.cols[1]));
+check('...and every measurement on the row survives it',
+  gapped.cols[1].filter(function (v) { return v != null; }).length === 13,
+  String(gapped.cols[1].filter(function (v) { return v != null; }).length));
+check('...through the readRWL wrapper too',
+  JSON.stringify(readRWL(GAPPED, { fileName: 'x.rwl' })) ===
+  JSON.stringify(readRWL(CLEAN, { fileName: 'x.rwl' })));
+// Junk BETWEEN measurements is corruption, not an annotation: skipping it
+// would silently drop ring widths, so it still stops the read — and now says
+// which value and which year.
+const INNER = 'abc123  1900   796   848   xxx   635 -9999';
+let msg = null;
+try { readRwl(INNER, { header: false }); } catch (e) { msg = e.message; }
+check('junk between measurements still stops the read', !!msg, 'no error thrown');
+check('...naming the value and the year it sits in',
+  !!msg && /xxx/.test(msg) && /1902/.test(msg), msg || '');
+
 console.log('\n' + (allPass ? 'ALL PASS' : 'FAILURES PRESENT'));
 process.exit(allPass ? 0 : 1);

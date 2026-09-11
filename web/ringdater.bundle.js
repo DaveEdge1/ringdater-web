@@ -4570,12 +4570,28 @@ function readRwl(text, opts) {
     if (Number.isNaN(year)) continue;            // dplR drops rows with NA year
     if (!isInt(year)) { const e = new Error('non-integral numbers found'); e.rwlError = true; throw e; }
     const id = ln.substring(0, wideYear ? 7 : 8).trim();
+    // The eleven six-wide value fields. Text AFTER the last measurement is not
+    // data: ITRDB files are in circulation that write a word ("gap") past the
+    // tenth value of every full decade row, and R reads them — as.numeric()
+    // turns the word into NA and the row is kept. Junk BETWEEN measurements is
+    // a different thing, since skipping it would silently drop ring widths, so
+    // that still stops the read — now saying which value it choked on and
+    // where, rather than "failed to read rwl file".
+    const fields = [];
+    for (let k = 0; k < 11; k++) fields.push(ln.substring(12 + 6 * k, 18 + 6 * k).trim());
+    let lastNum = -1;
+    for (let k = 0; k < 11; k++) if (fields[k] !== '' && !Number.isNaN(asNumeric(fields[k]))) lastNum = k;
     const vals = [];
-    for (let k = 0; k < 11; k++) {
-      const f = ln.substring(12 + 6 * k, 18 + 6 * k).trim();
+    for (let k = 0; k <= lastNum; k++) {
+      const f = fields[k];
       if (f === '') { vals.push(null); continue; }
       const v = asNumeric(f);
-      if (Number.isNaN(v)) { const e = new Error('failed to read rwl file'); e.rwlError = true; throw e; }
+      if (Number.isNaN(v)) {
+        const e = new Error('unreadable value "' + f + '" among the measurements for ' +
+          (id ? 'series ' + id + ', ' : '') + 'year ' + (Math.round(year) + k) +
+          ' — a Tucson value column must hold a whole number');
+        e.rwlError = true; throw e;
+      }
       if (!isInt(v)) { const e = new Error('non-integral numbers found'); e.rwlError = true; throw e; }
       vals.push(v);
     }
