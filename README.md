@@ -99,7 +99,8 @@ test — see [Validation](#validation)).
   **Existing series can be loaded back onto the table** — a whole file at once, or the
   whole pool, side by side — to correct a ring or finish a core that was put down
   half-measured, then written straight back over the series they came from.
-  See [Measuring](#measuring-velmex-vro) below.
+  The sitting is **auto-saved in the browser** after every ring, so a closed tab or a
+  refresh does not cost you the core. See [Measuring](#measuring-velmex-vro) below.
 - **Export** the chronology (CSV / RWL), download plots (SVG), and generate a run report —
   from the **Export** menu in the header, scoped to whichever workspace you're in. The
   chronology comes out in **ring widths** — crossdating runs on detrended indices, but the
@@ -176,6 +177,18 @@ only and says so.
 **Workflow.** Connect (the VRO is zeroed automatically), then press the foot switch at
 each ring boundary. `0` marks a locally absent ring, `Backspace` undoes, `E` edits the
 selected ring, `Del` deletes it. Then **Add to pool & crossdate**, or save `.rwl` / `.csv`.
+
+**Nothing is lost to a closed tab.** Until a sitting is saved to a file or added to the
+pool, the measurements exist only in this view — so the whole sitting is written to the
+browser's local storage after every ring and read back when you return: every series, its
+widths (as the integer microns they were measured in, not rounded millimetres), its notes,
+its alignment, and which series the foot switch was feeding. Come back and the view says
+what it picked up, with **start fresh** beside it if you would rather begin again. It is a
+crash net, not a filing system: one sitting is remembered, overwritten as you measure, and
+cleared when the last ring is discarded — saving to `.rwl` and adding to the pool are still
+how measurements leave this view. Nothing leaves your machine; it is the same local storage
+the volume setting uses. The undo history is not carried across a reload — `Backspace`
+starts from the restored state.
 
 **Several series in one sitting.** A radius is routinely measured twice to check it, and a
 specimen's radii belong together in one file — so **New series** parks the series you are

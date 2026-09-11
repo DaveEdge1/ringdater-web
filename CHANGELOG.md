@@ -13,6 +13,27 @@ Then `git push --follow-tags`.
 
 ## [Unreleased]
 
+### Added
+- **Measurements are auto-saved as you make them.** The Measure view was the one place in
+  the app where the data existed nowhere else: a core arrives press by press, and until it
+  was saved to a file or added to the pool, a closed tab was a re-measured core — hours at
+  the stage, with the wood possibly already back in its box. The whole sitting is now
+  mirrored into the browser's local storage after every change and restored on the way back
+  in: every series, its widths as the integer microns they were measured in, its per-ring
+  notes (locally absent, edited, backwards), its alignment lag, and which series the foot
+  switch was feeding. The view says what it picked up and offers **start fresh** beside it.
+
+  It is a crash net, not a filing system: one slot, overwritten as you go, cleared when the
+  last ring goes — saving `.rwl`/`.csv` and adding to the pool are still how measurements
+  leave the view. A tab only touches the slot once it owns rings (measured, loaded, or
+  restored from the slot), so opening a second tab of the app cannot wipe the sitting in the
+  first. A closing tab flushes past the 400 ms debounce rather than losing the last ring. If
+  storage is full or blocked the view says so instead of failing quietly, since the whole
+  point is that the operator can trust it. The undo history is deliberately not persisted:
+  it records an editing sitting rather than the wood. New `restoreMeasureSeries(state)` in
+  src/measure/series.js (and on `RD`), with `createMeasureSeries` now accepting
+  `rings`/`reference`/`lastPosition` so a saved state comes back exactly as it was.
+
 ### Changed
 - **The heatmap can show every lag it scanned, not a band around the match.** The
   running-correlation heatmap has always been drawn as a ±20-lag window centred on the

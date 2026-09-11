@@ -131,6 +131,15 @@ async function main() {
     await send('Page.navigate', { url: `http://localhost:${PORT}/index.html` });
     await sleep(3500);
 
+    // The view now carries a sitting between visits (see the autosave section
+    // below), so a run has to start from a known empty one rather than whatever
+    // the last run left in this Chrome profile. Clearing the slot by hand is not
+    // enough — the page would write its restored sitting straight back out — so
+    // the session itself is emptied, which clears the slot with it.
+    await js(`window.confirm = function () { return true; };
+      window.MeasureUI.startFresh(); 1`);
+    await sleep(300);
+
     await js(MOCK);
     await js(`document.querySelector('nav.tabs button[data-view="measure"]').click(); 1`);
 
@@ -946,6 +955,56 @@ async function main() {
     check('discarding one of a loaded set keeps the others',
       fileSess.length === keptIds.length + 12 && fileSess.every((e) => e.id !== 'sample_c'),
       String(fileSess.length));
+
+    // ---- autosave: the sitting outlives the tab --------------------------
+    // The whole point of the view is that the rings exist nowhere else yet, so
+    // this asserts the one thing that matters: close the page mid-core, come
+    // back, and the sitting is still there.
+    const saveBefore = JSON.parse(await js(`JSON.stringify(window.MeasureUI.session())`));
+    const ringsSaveBefore = saveBefore.reduce((n, e) => n + e.rings, 0);
+    await js(`window.MeasureUI.saveNow(); 1`);
+    const snap = JSON.parse(await js(`JSON.stringify(window.MeasureUI.savedSnapshot())`));
+    check('the sitting is mirrored into browser storage',
+      !!snap && snap.entries.length === saveBefore.length &&
+      snap.entries.reduce((n, e) => n + e.series.rings.length, 0) === ringsSaveBefore,
+      snap ? snap.entries.length + ' series' : 'nothing stored');
+    check('widths are stored as integer microns, not rounded mm',
+      snap.entries.some(e => e.series.rings.some(r => Number.isInteger(r.width) && r.width > 100)),
+      JSON.stringify((snap.entries[0].series.rings || []).slice(0, 2)));
+
+    // the tab goes away mid-core
+    await send('Page.navigate', { url: `http://localhost:${PORT}/index.html` });
+    await sleep(3500);
+    await js(`document.querySelector('nav.tabs button[data-view="measure"]').click(); 1`);
+    await sleep(400);
+    const saveAfter = JSON.parse(await js(`JSON.stringify(window.MeasureUI.session())`));
+    check('every series comes back after the page is reloaded',
+      saveAfter.length === saveBefore.length &&
+      saveAfter.map(e => e.id).join(',') === saveBefore.map(e => e.id).join(',') &&
+      saveAfter.reduce((n, e) => n + e.rings, 0) === ringsSaveBefore,
+      saveAfter.length + ' series / ' + saveAfter.reduce((n, e) => n + e.rings, 0) + ' rings');
+    check('...including which one the foot switch was feeding',
+      saveAfter.findIndex(e => e.active) === saveBefore.findIndex(e => e.active),
+      saveAfter.findIndex(e => e.active) + ' vs ' + saveBefore.findIndex(e => e.active));
+    check('...and their alignment',
+      saveAfter.map(e => e.lag).join(',') === saveBefore.map(e => e.lag).join(','),
+      saveAfter.map(e => e.lag).join(','));
+    check('the restored rings are painted, not just held',
+      (await js(`document.querySelectorAll('#vroTable tbody tr[data-i]').length`)) > 0);
+    check('the view says what it picked up',
+      /Picked up where you left off/.test(await js(`document.getElementById('vroRestored').textContent`)),
+      await js(`document.getElementById('vroRestored').textContent`));
+
+    // and the way out of it clears the table AND the slot
+    await js(`window.confirm = function () { return true; };
+      document.getElementById('vroFresh').click(); 1`);
+    await sleep(500);
+    const fresh = JSON.parse(await js(`JSON.stringify(window.MeasureUI.session())`));
+    check('start fresh empties the sitting',
+      fresh.length === 1 && fresh[0].rings === 0, JSON.stringify(fresh));
+    check('...and clears the saved slot, so the next visit starts clean',
+      (await js(`window.MeasureUI.savedSnapshot()`)) == null,
+      JSON.stringify(await js(`window.MeasureUI.savedSnapshot()`)));
 
     ws.close();
   } finally {

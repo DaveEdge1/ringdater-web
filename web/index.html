@@ -463,7 +463,9 @@
           <h2>Measure a core</h2>
           <p class="hint">Record ring widths from a Velmex VRO stage straight into the undated pool, then
              crossdate without leaving the page. Nothing is uploaded; the serial port is opened locally by
-             your browser. Settings are fixed at the VRO's 9600 8N1, CR-terminated protocol.</p>
+             your browser. Settings are fixed at the VRO's 9600 8N1, CR-terminated protocol.
+             Every ring is <strong>auto-saved in this browser</strong> as you measure, so a closed tab, a
+             refresh or a flat battery does not cost you the core — the session comes back when you return.</p>
 
           <!-- The one field set per core, and the name everything downstream is
                known by: the ring table's column, the trace legend, the .rwl id
@@ -555,6 +557,7 @@
           </div>
 
           <div id="vroDetect" class="detectbox"></div>
+          <div class="msg ok" id="vroRestored" style="display:none"></div>
           <div class="msg" id="measureMsg"></div>
         </div>
 

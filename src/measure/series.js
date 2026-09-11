@@ -32,21 +32,42 @@ function cloneRings(rings) {
   return rings.map(r => ({ width: r.width, position: r.position, note: r.note }));
 }
 
+// A ring coming back from storage has been through JSON: widths must land as
+// integer microns, a missing position as null, a missing note as ''. Rubbish
+// in a restored snapshot becomes a 0 mm ring rather than a NaN that would
+// poison every mean downstream.
+function normRing(r) {
+  r = r || {};
+  const w = Number(r.width);
+  const p = Number(r.position);
+  return {
+    width: Number.isFinite(w) ? Math.round(w) : 0,
+    position: r.position == null || !Number.isFinite(p) ? null : p,
+    note: r.note == null ? '' : String(r.note),
+  };
+}
+
 // createMeasureSeries(opts) -> series
 //   id        series name; becomes the Frame column name
 //   mode      'cumulative' (default) | 'incremental'
 //   direction 'pith_to_bark' (default) | 'bark_to_pith'
+//   rings, reference, lastPosition
+//             restore a series saved with state() — see restoreMeasureSeries
 function createMeasureSeries(opts) {
   opts = opts || {};
   let id = opts.id || 'NEW1';
   let mode = opts.mode === INCREMENTAL ? INCREMENTAL : CUMULATIVE;
   let direction = opts.direction === BARK_TO_PITH ? BARK_TO_PITH : PITH_TO_BARK;
 
-  let rings = [];
+  // Rings normally start empty and arrive one press at a time; a series
+  // restored from an autosave starts as the state it was saved in, which is
+  // why this is a constructor argument and not a setter. Widths stay integer
+  // microns across the round trip, so a restored ring is the ring measured.
+  let rings = Array.isArray(opts.rings) ? opts.rings.map(normRing) : [];
   // Absolute position of the last recorded ring boundary. Starts at 0, which is
   // a VRO zeroed at the inner edge before the first press.
-  let reference = 0;
-  let lastPosition = null;
+  let reference = Number.isFinite(Number(opts.reference)) ? Number(opts.reference) : 0;
+  let lastPosition = Number.isFinite(Number(opts.lastPosition)) ? Number(opts.lastPosition) : null;
   const history = [];
 
   function snapshot() {
@@ -215,4 +236,14 @@ function createMeasureSeries(opts) {
   };
 }
 
-module.exports = { createMeasureSeries, PITH_TO_BARK, BARK_TO_PITH, MAX_UNDO };
+// Rebuild a series from the shape state() emits — the other half of the
+// Measure view's autosave. Notes and stage positions come back with the
+// widths, so a restored core is indistinguishable from the one that was
+// being measured. The undo HISTORY is deliberately not carried: it records an
+// editing sitting rather than the wood, and persisting hundreds of ring
+// snapshots to make Backspace work after a reload is not worth the bytes.
+function restoreMeasureSeries(st) {
+  return createMeasureSeries(st || {});
+}
+
+module.exports = { createMeasureSeries, restoreMeasureSeries, PITH_TO_BARK, BARK_TO_PITH, MAX_UNDO };

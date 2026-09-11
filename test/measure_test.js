@@ -13,7 +13,7 @@
 // Exits nonzero on any failure.
 // ============================================================================
 const V = require('../src/measure/vro.js');
-const { createMeasureSeries, BARK_TO_PITH } = require('../src/measure/series.js');
+const { createMeasureSeries, restoreMeasureSeries, BARK_TO_PITH } = require('../src/measure/series.js');
 const { writeRwl, readRWL } = require('../src/io/load.js');
 
 let allPass = true;
@@ -347,6 +347,46 @@ check('declines to guess from one reading',
     fixNames(['sample_b', 'CMP-519B', 'waytoolongname'], 8).join(',') ===
     'sampleb,CMP519B,waytoolo',
     fixNames(['sample_b', 'CMP-519B', 'waytoolongname'], 8).join(','));
+})();
+
+// ---- autosave: state() -> JSON -> restoreMeasureSeries --------------------
+// What the Measure view mirrors into localStorage after every press. The
+// round trip has to be exact, because the copy in the browser IS the core
+// until it is saved to a file.
+(function () {
+  const s = createMeasureSeries({ id: 'CMP519B', mode: V.CUMULATIVE, direction: BARK_TO_PITH });
+  [1200, 2450, 3600, 4000].forEach(m => s.addReading(m));
+  s.addAbsent();
+  s.addReading(5100);
+  s.setWidth(0, 1150);
+  const before = s.state();
+  const back = restoreMeasureSeries(JSON.parse(JSON.stringify(before)));
+  const after = back.state();
+  check('restore keeps id, mode and direction',
+    after.id === before.id && after.mode === before.mode && after.direction === before.direction,
+    JSON.stringify([after.id, after.mode, after.direction]));
+  check('restore keeps every ring, in microns, with its note',
+    JSON.stringify(after.rings) === JSON.stringify(before.rings),
+    JSON.stringify(after.rings.slice(0, 2)));
+  check('restore keeps the stage reference and last position',
+    after.reference === before.reference && after.lastPosition === before.lastPosition,
+    after.reference + ' / ' + after.lastPosition);
+  check('a restored series writes the same Frame',
+    JSON.stringify(back.toFrame()) === JSON.stringify(s.toFrame()),
+    JSON.stringify(back.toFrame().cols[1]));
+  check('measuring continues from where the restore left the stage',
+    (back.addReading(5600).width) === 500, String(back.state().rings[6].width));
+  // The history is a record of an editing sitting, not of the wood.
+  check('a restored series has nothing to undo', back.state().canUndo === false ||
+    restoreMeasureSeries(before).state().canUndo === false);
+  // Rubbish in a snapshot must not become NaN mm downstream.
+  const junk = restoreMeasureSeries({ id: 'X', rings: [{ width: 'abc' }, { width: 1200, position: 'x' }, null] });
+  check('a corrupt ring lands as 0 mm, not NaN',
+    junk.widthsMm().every(w => Number.isFinite(w)) && junk.widthsMm()[0] === 0,
+    JSON.stringify(junk.widthsMm()));
+  check('...and a bad position becomes null', junk.state().rings[1].position === null);
+  check('an empty restore is an empty series', restoreMeasureSeries().length === 0 &&
+    restoreMeasureSeries({}).id === 'NEW1');
 })();
 
 console.log(allPass ? '\nALL PASS' : '\nFAILURES');

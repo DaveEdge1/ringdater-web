@@ -64,7 +64,7 @@ const { chronoCheck } = require('./engine/chronoChecker.js');
 // ---- measuring: Velmex VRO stage acquisition -------------------------------
 // Protocol + series state only; the Web Serial transport lives in web/measure.js.
 const vro = require('./measure/vro.js');
-const { createMeasureSeries } = require('./measure/series.js');
+const { createMeasureSeries, restoreMeasureSeries } = require('./measure/series.js');
 
 const { linePlot } = require('./viz/linePlot.js');
 const { datedLinePlot } = require('./viz/datedLinePlot.js');
@@ -133,5 +133,5 @@ module.exports = {
 
   // measuring: Velmex VRO protocol (framing/parsing/mode detection) + the
   // ring-width series state machine a measuring UI drives
-  vro, createMeasureSeries,
+  vro, createMeasureSeries, restoreMeasureSeries,
 };

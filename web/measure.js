@@ -76,6 +76,149 @@
 
   function supported() { return typeof navigator !== 'undefined' && 'serial' in navigator; }
 
+  // ---- autosave ------------------------------------------------------------
+  // Measuring is the one place in the app where the data exists ONLY here. A
+  // core arrives press by press, and until it is saved to a file or added to
+  // the pool, a closed tab is a re-measured core — hours at the stage, and the
+  // wood may already be back in its box. So the whole sitting is mirrored into
+  // localStorage after every change and restored on the way back in: every
+  // series, its widths in microns, its notes, its alignment, and which one the
+  // foot switch is feeding.
+  //
+  // It is a crash net, not a filing system: ONE slot, overwritten as you go,
+  // cleared when the last ring goes. Saving to .rwl and adding to the pool are
+  // still how measurements leave this view.
+  var SAVE_KEY = 'ringdater_measure_v1';
+  var saveTimer = null, saveWarned = false, restored = null;
+  // One slot, one browser — so a SECOND tab of the app must not be able to wipe
+  // the sitting in the first one just by opening with an empty table. A tab only
+  // touches the slot once it owns rings: measured here, loaded here, or restored
+  // from the slot itself. An empty tab that never measured anything leaves it be.
+  var ownsSlot = false;
+
+  function storage() { try { return window.localStorage || null; } catch (e) { return null; } }
+  function snapshot() {
+    return {
+      v: 1,
+      saved: Date.now(),
+      active: active,
+      autoZero: autoZero,
+      modeLocked: modeLocked,
+      entries: session.map(function (e) {
+        return { series: e.series.state(), origin: e.origin || null, lag: e.lag || 0 };
+      }),
+    };
+  }
+  function saveNow() {
+    var store = storage();
+    if (!store) return;
+    clearTimeout(saveTimer);
+    if (ringTotal()) ownsSlot = true;
+    try {
+      if (!ringTotal()) {
+        // Everything here has gone — discarded, or started fresh. Drop the slot
+        // rather than leave a husk that would offer an empty sitting back. A tab
+        // that never had rings has nothing to drop and says nothing.
+        if (ownsSlot) { store.removeItem(SAVE_KEY); ownsSlot = false; }
+        return;
+      }
+      store.setItem(SAVE_KEY, JSON.stringify(snapshot()));
+      saveWarned = false;
+    } catch (e) {
+      // A full or blocked store must not fail quietly — the operator would go
+      // on measuring believing the net is under them.
+      if (!saveWarned) {
+        saveWarned = true;
+        setMsg('measureMsg', 'Could not auto-save this session (browser storage is full or ' +
+          'blocked). Save to a file as you go.', 'err');
+      }
+    }
+  }
+  function scheduleSave() {
+    // the restore note is about the session as it came back; once it has moved
+    // on, it is answering a question nobody is asking
+    if (restored && ringTotal() !== restored.rings) hideRestored();
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveNow, 400);
+  }
+  function clearSaved() {
+    var store = storage();
+    if (store) { try { store.removeItem(SAVE_KEY); } catch (e) { /* nothing to do */ } }
+  }
+  // Read the slot back into the session. Returns what was restored (for the
+  // note) or null — a missing, unreadable or ringless slot leaves the fresh
+  // session alone and is cleared, so a bad snapshot cannot haunt the view.
+  function restoreSaved() {
+    var store = storage();
+    if (!store) return null;
+    var raw;
+    try { raw = store.getItem(SAVE_KEY); } catch (e) { return null; }
+    if (!raw) return null;
+    var snap;
+    try { snap = JSON.parse(raw); } catch (e) { clearSaved(); return null; }
+    if (!snap || !Array.isArray(snap.entries) || !snap.entries.length) { clearSaved(); return null; }
+    var entries = [];
+    snap.entries.forEach(function (e) {
+      var st = e && e.series;
+      if (!st || !Array.isArray(st.rings)) return;
+      entries.push({
+        series: RD.restoreMeasureSeries(st),
+        origin: e.origin || null,
+        lag: Number(e.lag) || 0,
+      });
+    });
+    var rings = entries.reduce(function (n, e) { return n + e.series.length; }, 0);
+    if (!rings) { clearSaved(); return null; }
+    session = entries;
+    active = Math.max(0, Math.min(Number(snap.active) || 0, session.length - 1));
+    series = session[active].series;
+    origin = session[active].origin;
+    autoZero = snap.autoZero !== false;
+    modeLocked = !!snap.modeLocked;
+    ownsSlot = true;                    // this tab is now the one carrying it
+    return { rings: rings, series: session.length, saved: Number(snap.saved) || 0 };
+  }
+  function hideRestored() {
+    restored = null;
+    var el = $('vroRestored');
+    if (el) { el.style.display = 'none'; el.innerHTML = ''; }
+  }
+  function whenSaved(ts) {
+    if (!ts) return 'a moment ago';
+    var mins = Math.round((Date.now() - ts) / 60000);
+    if (mins < 1) return 'moments ago';
+    if (mins < 60) return mins + (mins === 1 ? ' minute ago' : ' minutes ago');
+    var hrs = Math.round(mins / 60);
+    if (hrs < 24) return hrs + (hrs === 1 ? ' hour ago' : ' hours ago');
+    return new Date(ts).toLocaleString();
+  }
+  function showRestored(info) {
+    restored = info;
+    var el = $('vroRestored');
+    if (!el) return;
+    el.style.display = '';
+    el.innerHTML = 'Picked up where you left off: ' + info.series + ' series, ' + info.rings +
+      (info.rings === 1 ? ' ring' : ' rings') + ', auto-saved ' + whenSaved(info.saved) +
+      '. Carry on measuring, or ' +
+      '<button class="btn ghost" id="vroFresh">start fresh</button>';
+    var btn = $('vroFresh');
+    if (btn) btn.addEventListener('click', startFresh);
+  }
+  // The way out of a restored sitting. Deliberate, confirmed, and it clears the
+  // slot as well as the table — otherwise the next reload offers the session
+  // back again.
+  function startFresh() {
+    var n = ringTotal();
+    if (n && !window.confirm('Throw away this session (' + n + ' rings across ' +
+      session.length + ' series) and start over? ' +
+      'Anything already saved to a file or added to the pool is not affected.')) return;
+    clearSaved();
+    session = [{ series: RD.createMeasureSeries({ id: 'NEW1' }), origin: null, lag: 0 }];
+    hideRestored();
+    activate(0);
+    setMsg('measureMsg', 'Started a fresh session.', '');
+  }
+
   // ---- the session ---------------------------------------------------------
   function setSeries(s) { session[active].series = s; series = s; }
   function setOrigin(o) { session[active].origin = o; origin = o; }
@@ -1080,6 +1223,7 @@
     renderLag();
     renderTable();
     renderTrace();
+    scheduleSave();
   }
 
   // The session, one chip per series: which exist, how long each is, and which
@@ -1614,11 +1758,17 @@
     // tab close, but a same-tab reload can leave a locked reader behind, and the
     // reloaded page then cannot open its own port.
     window.addEventListener('pagehide', function () {
+      saveNow();   // the debounce is 400ms; a closing tab does not wait
       if (isOpen(port)) { try { releasePort(); } catch (e) { /* best effort */ } }
     });
 
     setConnected(false);
-    applyAutoZero(true, true);   // Tellervo's behaviour is the default
+    // Anything left from a previous sitting comes back BEFORE the stage
+    // settings are applied: auto-zero and the readout mode follow the active
+    // series, and applying the defaults first would re-stamp them onto it.
+    var back = restoreSaved();
+    applyAutoZero(autoZero, true);   // Tellervo's behaviour is the default
+    if (back) { activate(active); showRestored(back); }
     restorePort();
     render();
   }
@@ -1637,5 +1787,11 @@
     },
     activate: activate,
     sessionFrame: sessionFrame,
+    saveNow: saveNow,
+    startFresh: startFresh,
+    savedSnapshot: function () {
+      var store = storage();
+      try { return store ? JSON.parse(store.getItem(SAVE_KEY)) : null; } catch (e) { return null; }
+    },
   });
 })();

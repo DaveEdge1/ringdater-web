@@ -23,6 +23,7 @@ export const {
   corrRwlSeg,
   normalise,
   detcurves,
+  detectDetrended,
   pearsonCorTest,
   autoCorrel,
   rollcor,
@@ -33,6 +34,7 @@ export const {
   alignSeries,
   alignToChron,
   ontoAlignDated,
+  rawAligned,
   correlReplace,
   removeSeries,
   probCheck,
@@ -93,4 +95,5 @@ export const {
   chronoCheck,
   vro,
   createMeasureSeries,
+  restoreMeasureSeries,
 } = RD;
