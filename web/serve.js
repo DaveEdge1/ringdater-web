@@ -27,7 +27,17 @@ const server = http.createServer(function (req, res) {
   if (!filePath.startsWith(ROOT)) { res.writeHead(403); res.end('Forbidden'); return; }
   fs.readFile(filePath, function (err, buf) {
     if (err) { res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('Not found: ' + urlPath); return; }
-    res.writeHead(200, { 'Content-Type': TYPES[path.extname(filePath)] || 'application/octet-stream' });
+    res.writeHead(200, {
+      'Content-Type': TYPES[path.extname(filePath)] || 'application/octet-stream',
+      // Never cache: this server exists to look at the files as they are NOW.
+      // index.html asks for the bundle as `ringdater.bundle.js?v=<version>`, so
+      // between releases a rebuilt bundle keeps the same URL — and a browser
+      // holding the old one will happily go on running code that was fixed
+      // hours ago, which is a very expensive way to lose an afternoon.
+      'Cache-Control': 'no-store, must-revalidate',
+      Pragma: 'no-cache',
+      Expires: '0',
+    });
     res.end(buf);
   });
 });

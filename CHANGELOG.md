@@ -115,6 +115,12 @@ Then `git push --follow-tags`.
   Anything scrolled to (`scrollIntoView`, `#anchors`) clears the pinned header.
 
 ### Fixed
+- **The local dev server no longer lets a browser run a stale bundle.** `web/index.html`
+  asks for the engine as `ringdater.bundle.js?v=<version>`, so between releases a rebuilt
+  bundle keeps the same URL — and `web/serve.js` sent no `Cache-Control`, no `ETag` and no
+  `Last-Modified`, leaving the browser free to reuse the copy it already had. A fix could
+  therefore be on disk, in the file being served, and still not reach the tab. The server
+  now sends `no-store, must-revalidate`: it exists to show the files as they are now.
 - **An `.rwl` with a word after the last measurement on a row no longer fails to load.**
   ITRDB files are in circulation that write an annotation past the tenth value of every
   full decade row — `id020.rwl` (Craters of the Moon) ends 2,050 of its rows with `gap` —
