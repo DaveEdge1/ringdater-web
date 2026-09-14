@@ -118,6 +118,9 @@
             <label id="slotChronLabel" for="setupChronInput"></label>
             <div class="slot-status" id="slotChronStatus"></div>
             <input type="file" id="setupChronInput" multiple accept=".csv,.txt,.rwl,.crn,.xml">
+            <!-- filled by app.js: one card per loaded target, asking how it
+                 should be detrended and whether it joins the composite -->
+            <div id="slotChronTargets" style="display:none"></div>
           </div>
         </div>
         <div class="warn" id="xlsxWarn" style="display:none"></div>
@@ -161,6 +164,7 @@
               <div id="chronPickField" style="display:none">
                 <label for="chron_select">Compare against</label>
                 <select id="chron_select"></select>
+                <p class="hint" id="compositeNote" style="display:none"></p>
               </div>
               <div id="modeChronPrompt" style="display:none">
                 <p class="hint">Chronology mode needs a dated chronology.</p>
@@ -182,15 +186,15 @@
                 <label class="inline"><input type="checkbox" id="ARmod"> AR1 pre-whitening</label>
                 <label class="inline"><input type="checkbox" id="logT"> Log transform</label>
                 <label class="inline" title="A series that is already an index has no trend left to remove: fitting a curve to it and dividing through only adds noise."><input type="checkbox" id="detrend_auto" checked> Skip series already detrended</label>
-                <div id="detrendChronRow" style="display:none">
-                  <label class="inline" title="Untick when the chronology is already standardised — a .crn, or indices from dplR — and the undated pool is raw measurements."><input type="checkbox" id="detrend_chron" checked> Detrend the chronology too</label>
-                </div>
-                <p class="hint">The method above is applied to every loaded series. Series that are
-                   <b>already indices</b> are detected and carried through un-detrended — a ring width
-                   cannot be negative, and a whole file averaging 1.0 is in index units — so a .crn or a
-                   set of indices can be read straight against raw measurements. They are still put on
-                   the same scale as the detrended ones, so a mean chronology is not dominated by
-                   whichever members were detrended. The chronology can also be excluded by hand.</p>
+                <p class="hint" id="detrendTargetNote" style="display:none"></p>
+                <p class="hint">The method above is applied to every series in the <b>undated pool</b>.
+                   Series that are <b>already indices</b> are detected and carried through un-detrended — a
+                   ring width cannot be negative, and a whole file averaging 1.0 is in index units — so a
+                   .crn or a set of indices can be read straight against raw measurements. They are still
+                   put on the same scale as the detrended ones, so a mean chronology is not dominated by
+                   whichever members were detrended. <b>Targets carry their own method</b>, chosen per
+                   target under Data — a climate reconstruction has no growth trend to remove, and
+                   fitting a curve to one throws away the signal it was loaded for.</p>
                 <p class="hint" id="detrendSkipNote" style="display:none"></p>
               </div>
               <div id="railSegment">
@@ -310,6 +314,20 @@
             </div>
             <div class="msg" id="plotMsg"></div>
             <div class="plotwrap" id="plotArea"></div>
+          </div>
+
+          <div class="card" id="targetCard" style="display:none">
+            <h2>Composite target</h2>
+            <p class="hint">Averaging targets only helps if they agree. Two that share no signal do not
+               reinforce each other — the mean is mostly the noise they do not have in common — and two
+               that agree better a few years apart are two of which one is dated wrong, which a composite
+               hides behind a tidy-looking mean. Every ticked pair is measured over the years they share,
+               as dated and at every lag within ±10 years, before the mean is used for anything.
+               The members are drawn together below with their mean through them — scroll to zoom,
+               drag to pan, double-click to reset.</p>
+            <div class="msg" id="targetCheckVerdict"></div>
+            <div id="targetCheckTable"></div>
+            <div id="targetCheckPlot" style="position:relative"></div>
           </div>
 
           <div class="card" id="ringTestCard" style="display:none">

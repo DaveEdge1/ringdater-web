@@ -68,8 +68,16 @@ test — see [Validation](#validation)).
   and a `.crn` is standardised by definition. So a chronology of indices can be read
   straight against raw measurements without being detrended twice. They are still put on
   the same scale as the detrended series, so a mean chronology is not dominated by
-  whichever of its members happened to be detrended. The detection can be turned off, and
-  the chronology can be excluded from detrending by hand.
+  whichever of its members happened to be detrended. The detection can be turned off.
+- **Targets you choose the treatment for, and can average.** What you crossdate against
+  is not always a tree-ring chronology — a PDSI grid point, a precipitation or
+  temperature reconstruction is increasingly what people have — and those have no growth
+  trend to remove. Each loaded target therefore carries **its own detrending method**,
+  asked for when the file lands and recommended with a reason ("averages 18.3, which a
+  ring-width series does not"; "goes negative, so it is already an index"). Load several
+  and tick which ones go into the **composite**: their mean becomes the target, each put
+  on the common z-score scale first so a reconstruction in millimetres cannot outweigh an
+  index. See [Targets](#targets-what-you-crossdate-against) below.
 - **Automatic crossdating** in pairwise or chronology mode, with a filterable results
   table (suggested lags, R, p, overlap).
 - **Segment consensus** on every run: each series is segmented in the background and its
@@ -138,6 +146,70 @@ node tools/gen-esm.js   # regenerates src/index.mjs from src/index.js's exports
 Node is only needed for the bundler and the tests; the app itself has **no runtime
 dependencies**. (`.xlsx` upload in the browser needs a small inflate shim — CSV / TXT /
 RWL / `.pos` / `.lps` / Ring Measurer are fully supported out of the box.)
+
+## Targets: what you crossdate against
+
+In chronology mode the undated pool is dated against a **target**. A target is any dated
+series: a tree-ring chronology (`.crn`, `.rwl`, a set of indices), or a climate
+reconstruction — a NADA PDSI grid point, a precipitation or temperature series from NOAA
+Paleo. Load as many as you like; each keeps its own card under **Data**.
+
+**Each target says how it should be detrended.** This is not a detail. A raw tree-ring
+chronology has a growth trend that must come off. A reconstruction does not — fitting a
+curve to one removes the low-frequency climate signal it was loaded for, and for anything
+that crosses zero (PDSI, any anomaly series) the usual detrendings are **ratios**, so
+dividing by a curve that passes through zero returns noise. Measured on two real files —
+a Utah precipitation reconstruction against the NADA PDSI at 41.8N 111.2W, 2,006 shared
+years — the two correlate at **r = 0.58** rescaled and **r = 0.02** if both are splined.
+
+So the method is a property of the target, chosen on its card, not inherited from the
+pool:
+
+- **Rescale only — z-score, no curve fitted** — for a reconstruction, or a series that is
+  already an index. Nothing is removed; it is only put on the common scale.
+- **Spline / ModNegExp / Friedman / ModHugershoff / first difference** — for a raw
+  tree-ring chronology, exactly as for the pool.
+- **Same as the undated pool** — the default for an ordinary chronology loaded beside raw
+  series.
+
+The app recommends one and says why, but never decides: the numbers can only ever rule
+*out* ring widths (a negative value, a mean no ring width can have), never rule them in.
+Every method offered ends in z-scores + 1, so targets always plot and average on one
+scale.
+
+**Averaging targets.** Tick **Include in the composite target** on two or more, and
+*Composite — mean of N ticked targets* appears in **Compare against**. Each member is
+detrended its own way first, then they are merged on the union of their years and
+averaged — so a 2,000-year precipitation reconstruction and a PDSI grid point become one
+target, and years covered by only one of them still contribute. Untick a target to hold
+it out without unloading it.
+
+**The composite is measured before it is used.** Averaging is not free: two targets that
+share no signal do not reinforce each other, they cancel, and the mean comes out a smooth
+plausible series made mostly of the noise they do not have in common. Worse, two that
+agree better a few years apart are two of which one is **dated wrong** — and a composite
+hides that behind a tidy mean, then carries the error into every date taken from it.
+
+So the **Composite target** card scores every ticked pair over the years it shares, as
+dated and at every lag within ±10 years, and says what it found:
+
+| Verdict | What it means |
+| --- | --- |
+| **agree** | r ≥ 0.35 at lag 0 — average them |
+| **weak** | 0.15 ≤ r < 0.35 — the mean will be flatter than its members |
+| **no agreement** | r < 0.15 — the mean is mostly noise |
+| **opposed** | r ≤ −0.15 — check you have not loaded an index and its inverse |
+| **possible dating offset** | they agree better at a lag (by ≥ 0.05, reaching r ≥ 0.35) — one of them is dated wrong |
+| **too little overlap** | fewer than 30 shared years: nothing can be said either way |
+
+Above the table: the **mean inter-target correlation** and the **EPS** it implies
+(`n·r̄ / (1 + (n−1)·r̄)`, the standard measure of whether a mean is worth more than its
+members — 0.85 is the usual threshold), the years every member covers, and a plain
+sentence saying whether to go ahead. Below it, the members are plotted together with
+their mean through them, zoomable, because that is the picture the numbers only assert.
+The verdict is repeated in one line beside **Compare against** and in the run message, so
+a composite that should not have been averaged cannot be used without saying so — but it
+is a warning, not a veto: untick the odd one out, or fix its dating, and run again.
 
 ## Measuring (Velmex VRO)
 

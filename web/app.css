@@ -116,6 +116,10 @@ table.res tbody td.lag-hover { background: #d9e8f5; }
 table.res tbody tr.sel { background: #f2e3c6; }
 table.res tr.sep td { background: #fafbfc; height: 5px; padding: 0; }
 #rt_out table.res tr.rt-fruit td { background: #fbf5e9; font-weight: 600; }
+/* the composite check: a pair that needs looking at, and one that only just passes */
+#targetCheckTable table.res tr.rt-fruit td { background: #fdeeee; }
+#targetCheckTable table.res tr.rt-warn td { background: #fbf5e9; }
+#targetCheckTable table.res td:last-child { min-width: 22em; }
 #rt_out table.res tbody tr.sel td { background: #f2e3c6; }
 td.segchk { width: 24px; text-align: center !important; }
 #segDiagOut table.res tbody tr { cursor: default; }
@@ -422,3 +426,21 @@ kbd {
   font-family: ui-monospace, Consolas, monospace; font-size: 10px; padding: 1px 4px;
   border: 1px solid var(--line); border-radius: 3px; background: #f7f9fa; color: var(--muted);
 }
+
+/* ---- targets (what the pool is crossdated against) ------------------------ */
+/* One card per loaded target: what it is, how it is detrended, and whether it
+   joins the composite. A target is not always a tree-ring chronology, so the
+   treatment is asked for here rather than inferred. */
+.targets .target {
+  border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; margin: 0 0 8px;
+  background: #fbfcfd;
+}
+.targets .target-head { display: flex; align-items: baseline; gap: 8px; }
+.targets .target-head b { word-break: break-all; }
+.targets .target-meta { margin: 2px 0 0; font-size: 12px; }
+.targets .target-head .btn { margin-left: auto; flex: 0 0 auto; }
+.targets .target label { display: block; font-size: 12px; margin-top: 6px; }
+.targets .target select { width: 100%; margin-top: 2px; }
+.targets .target .target-why { margin: 5px 0 0; font-size: 12px; }
+.targets .target .target-rec { color: var(--brand-d); font-weight: 600; }
+.targets .target .target-comp-l { margin-top: 7px; font-size: 12px; }

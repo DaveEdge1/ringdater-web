@@ -78,26 +78,21 @@
     $('chronPickField').style.display = (chronoMode && state.chrons.length) ? '' : 'none';
     $('modeChronPrompt').style.display = (chronoMode && !state.chrons.length) ? '' : 'none';
     $('modeChronAdd').style.display = chronoMode ? '' : 'none';
-    // Only chronology mode has a chronology to exclude from detrending.
-    $('detrendChronRow').style.display = chronoMode ? '' : 'none';
     if (chronoMode && state.chrons.length) syncChronSelect();
     renderDetrendNote();
+    renderTargetNote();
   }
 
   // What the auto-detection makes of the data currently loaded, said before
   // the run rather than after it: the alternative is a user wondering why a
   // detrending method they chose appears not to have been applied.
+  // The pool only. Targets are not guessed at any more: each one is asked
+  // about when it is loaded and carries its own method (see the targets
+  // panel), so a note inferring something about them would be talking over
+  // a decision the user has already made.
   function detectedNow() {
-    var chronoMode = Number($('mode_select').value) === 2;
-    var out = [];
     var u = AC.detectDetrended(state.undated, state.undatedName);
-    if (u.names.length) out.push({ what: 'undated', hit: u });
-    // A chronology excluded by hand is not also 'detected'.
-    if (chronoMode && state.chron && $('detrend_chron').checked) {
-      var c = AC.detectDetrended(state.chron, state.chronName);
-      if (c.names.length) out.push({ what: 'chronology', hit: c });
-    }
-    return out;
+    return u.names.length ? [{ what: 'undated', hit: u }] : [];
   }
   function renderDetrendNote() {
     var el = $('detrendSkipNote');
@@ -118,11 +113,51 @@
     }).join('<br>');
     el.style.display = '';
   }
-  // Populate the "compare against" picker: every loaded chronology by name,
-  // plus the composite (mean of the detrended chronologies) when there are >=2.
+  // How each target will be treated, said in the rail beside the method box.
+  // The pool's method does NOT apply to them — that is the whole point of the
+  // per-target setting — so the rail must not read as though it did.
+  function methodLabelFor(c) {
+    if (c.method == null) return 'same as the pool (' + poolMethodLabel() + ')';
+    for (var i = 0; i < AC.TARGET_METHODS.length; i++) {
+      if (AC.TARGET_METHODS[i].value === Number(c.method)) return AC.TARGET_METHODS[i].label;
+    }
+    return 'method ' + c.method;
+  }
+  function renderTargetNote() {
+    var el = $('detrendTargetNote');
+    if (!el) return;
+    var chronoMode = Number($('mode_select').value) === 2;
+    if (!chronoMode || !state.chrons.length) { el.style.display = 'none'; return; }
+    el.innerHTML = 'Each target is detrended its own way: ' + state.chrons.map(function (c) {
+      return '<b>' + esc(c.name) + '</b> — ' + esc(methodLabelFor(c));
+    }).join('; ') + '. Change it per target under <b>Data</b> above.';
+    el.style.display = '';
+  }
+  // ...and in the run message, so the result says what it was dated against.
+  function targetTreatmentNote() {
+    if (!state.chrons.length) return '';
+    if (state.chronChoice === COMPOSITE) {
+      var inc = includedTargets();
+      var worth = lastCheck
+        ? ' Mean inter-target r ' + fmtNum(lastCheck.rbar, 2) +
+          (lastCheck.eps != null ? ', EPS ' + fmtNum(lastCheck.eps, 2) : '') +
+          (lastCheck.status === 'agree' ? '.' : ' — ' + (STATUS_WORD[lastCheck.status] || lastCheck.status) + ', see Composite target below.')
+        : '';
+      return 'Target: mean of ' + inc.length + ' targets (' + inc.map(function (c) {
+        return c.name + ' — ' + methodLabelFor(c);
+      }).join('; ') + ').' + worth;
+    }
+    var c = chronByName(state.chronChoice);
+    return c ? 'Target: ' + c.name + ' — ' + methodLabelFor(c) + '.' : '';
+  }
+  // Populate the "compare against" picker: every loaded target by name, plus
+  // the composite — the mean of the ticked targets, each on its own terms.
   function syncChronSelect() {
     var items = state.chrons.map(function (c) { return { v: c.name, l: c.name }; });
-    if (state.chrons.length >= 2) items.push({ v: COMPOSITE, l: 'Composite — mean of the detrended chronologies' });
+    var inc = includedTargets();
+    if (inc.length >= 2) {
+      items.push({ v: COMPOSITE, l: 'Composite — mean of ' + inc.length + ' ticked targets' });
+    }
     fillSelect($('chron_select'), items, function (it) { return it.v; }, function (it) { return it.l; });
     var want = state.chronChoice != null ? state.chronChoice : state.chronName;
     if (want != null && items.some(function (it) { return it.v === want; })) $('chron_select').value = want;
@@ -134,23 +169,40 @@
       var c = chronByName(state.chronChoice);
       if (c) { state.chron = c.frame; state.chronName = c.name; }
     }
+    renderCompositeNote();
   });
   function chronByName(name) {
     for (var i = 0; i < state.chrons.length; i++) if (state.chrons[i].name === name) return state.chrons[i];
     return null;
   }
-  // Register a loaded chronology: replace a same-name reload, else append;
-  // it also becomes the ACTIVE chronology (state.chron — Build tab, sessions).
+  // Register a loaded target: replace a same-name reload, else append; it also
+  // becomes the ACTIVE one (state.chron — Build tab, sessions). A new target
+  // arrives with a recommended treatment and its reason, which the panel then
+  // puts in front of the user rather than applying silently.
   function addChron(name, frame) {
     var existing = chronByName(name);
-    if (existing) existing.frame = frame;
-    else state.chrons.push({ name: name, frame: frame });
+    var rec = AC.recommendTarget(frame, name);
+    if (existing) {
+      existing.frame = frame;
+      existing.rec = rec;
+      if (existing.method == null) existing.method = rec.method;
+    } else {
+      state.chrons.push({
+        name: name, frame: frame,
+        method: rec.method,          // null = follow the pool
+        inComposite: true,
+        rec: rec,
+      });
+    }
     state.chron = frame; state.chronName = name;
     if (state.chronChoice !== COMPOSITE) state.chronChoice = name;
   }
+  function includedTargets() {
+    return state.chrons.filter(function (c) { return c.inComposite !== false; });
+  }
   $('detrend_auto').addEventListener('change', renderDetrendNote);
-  $('detrend_chron').addEventListener('change', renderDetrendNote);
-  $('detrending_select').addEventListener('change', renderDetrendNote);
+  // the pool's method is named inside every target's "same as the pool" option
+  $('detrending_select').addEventListener('change', function () { renderDetrendNote(); refreshTargets(); });
   $('mode_select').addEventListener('change', syncModeUI);
   syncModeUI();
 
@@ -267,16 +319,104 @@
     $('undatedInfo').innerHTML = state.undated
       ? '<p class="msg ok">' + un.length + ' undated series loaded.</p>' + seriesMetaTable(un)
       : '<p class="hint">No undated series loaded.</p>';
-    $('chronInfo').innerHTML = state.chrons.length
-      ? state.chrons.map(function (c) {
-          return '<p class="msg ok">Chronology ' + esc(c.name) + ': ' + AC.seriesNames(c.frame).length +
-            ' members. <button class="btn ghost chron-remove" data-name="' + escA(c.name) + '">Remove</button></p>' +
-            seriesMetaTable(AC.seriesNames(c.frame));
-        }).join('')
-      : '<p class="hint">No chronology loaded.</p>';
-    $('chronInfo').querySelectorAll('.chron-remove').forEach(function (btn) {
-      btn.addEventListener('click', function () { Actions.removeChron(btn.getAttribute('data-name')); });
+    renderTargets($('chronInfo'), true);
+  }
+
+  // ---- targets --------------------------------------------------------------
+  // A TARGET is whatever the pool is crossdated against. It is not always a
+  // tree-ring chronology: people bring PDSI grids, precipitation and
+  // temperature reconstructions, and those have no growth trend to remove —
+  // fitting a curve to one strips the climate signal it was loaded for, and
+  // for anything that crosses zero the ratio is not even defined. So each
+  // target carries its own detrending, asked for when it lands, recommended
+  // but never decided; and each says whether it is in the composite, so two
+  // reconstructions can be averaged into one target to date against.
+  function poolMethodLabel() {
+    var sel = $('detrending_select');
+    var opt = sel.options[sel.selectedIndex];
+    return opt ? opt.textContent : 'the pool method';
+  }
+  function targetSpan(frame) {
+    var yrs = frame.cols[0], first = null, last = null;
+    for (var r = 0; r < yrs.length; r++) {
+      var any = false;
+      for (var c = 1; c < frame.cols.length; c++) if (frame.cols[c][r] != null) { any = true; break; }
+      if (!any || yrs[r] == null) continue;
+      if (first == null) first = yrs[r];
+      last = yrs[r];
+    }
+    return first == null ? '' : first + '–' + last;
+  }
+  function methodHint(method) {
+    for (var i = 0; i < AC.TARGET_METHODS.length; i++) {
+      if (AC.TARGET_METHODS[i].value === Number(method)) return AC.TARGET_METHODS[i].hint;
+    }
+    return 'Treated exactly like the undated series, which is right when this is a raw tree-ring chronology.';
+  }
+  function targetCardHtml(c, showComposite) {
+    var members = AC.seriesNames(c.frame).length;
+    var opts = ['<option value=""' + (c.method == null ? ' selected' : '') + '>Same as the undated pool (' +
+      esc(poolMethodLabel()) + ')</option>'];
+    AC.TARGET_METHODS.forEach(function (m) {
+      opts.push('<option value="' + m.value + '"' + (Number(c.method) === m.value ? ' selected' : '') +
+        '>' + esc(m.label) + '</option>');
     });
+    var why = (c.rec && c.rec.reason && Number(c.method) === Number(c.rec.method))
+      ? '<span class="target-rec">Recommended: this target ' + esc(c.rec.reason) + '.</span> '
+      : '';
+    return '<div class="target" data-name="' + escA(c.name) + '">' +
+      '<div class="target-head"><b>' + esc(c.name) + '</b>' +
+      '<button class="btn ghost target-remove">Remove</button></div>' +
+      '<p class="hint target-meta">' + members + (members === 1 ? ' series' : ' series') +
+      ' · ' + esc(targetSpan(c.frame)) + '</p>' +
+      '<label>Detrending <select class="target-method">' + opts.join('') + '</select></label>' +
+      '<p class="hint target-why">' + why + esc(methodHint(c.method)) + '</p>' +
+      (showComposite
+        ? '<label class="inline target-comp-l"><input type="checkbox" class="target-comp"' +
+          (c.inComposite !== false ? ' checked' : '') + '> Include in the composite target</label>'
+        : '') +
+      '</div>';
+  }
+  // Paint the panel into a container and wire it. Called for the rail and for
+  // the Home setup step, so the question is in front of the user wherever the
+  // file was loaded.
+  function renderTargets(el, withMeta) {
+    if (!el) return;
+    if (!state.chrons.length) {
+      el.innerHTML = '<p class="hint">No target loaded.</p>';
+      return;
+    }
+    var showComposite = state.chrons.length >= 2;
+    el.innerHTML = '<div class="targets">' + state.chrons.map(function (c) {
+      return targetCardHtml(c, showComposite) + (withMeta ? seriesMetaTable(AC.seriesNames(c.frame)) : '');
+    }).join('') + '</div>' + (showComposite
+      ? '<p class="hint">Ticked targets are averaged into <b>Composite</b> in the "Compare against" picker — ' +
+        'each is put on the common z-score scale first, so a reconstruction in millimetres cannot outweigh an index.</p>'
+      : '');
+    el.querySelectorAll('.target').forEach(function (card) {
+      var name = card.getAttribute('data-name');
+      var c = chronByName(name);
+      if (!c) return;
+      card.querySelector('.target-remove').addEventListener('click', function () { Actions.removeChron(name); });
+      card.querySelector('.target-method').addEventListener('change', function () {
+        c.method = this.value === '' ? null : Number(this.value);
+        refreshTargets();
+      });
+      var box = card.querySelector('.target-comp');
+      if (box) box.addEventListener('change', function () {
+        c.inComposite = this.checked;
+        refreshTargets();
+        syncChronSelect();
+      });
+    });
+  }
+  // Repaint wherever the panel is showing (rail + the Home setup slot).
+  function refreshTargets() {
+    renderTargets($('chronInfo'), true);
+    if ($('taskSetup').style.display !== 'none') renderTargets($('slotChronTargets'), false);
+    renderDetrendNote();
+    renderTargetNote();
+    renderCompositeCheck();
   }
   // Drop one loaded chronology; the active chronology falls back to the last
   // remaining one (or none).
@@ -622,6 +762,7 @@
     document.querySelector('.header-actions').style.display = state.undated ? '' : 'none';
     syncModeUI();
     syncRingTest();
+    refreshTargets();          // cards, rail note, and the composite check
     refreshSetup();
     if (!state.result) updateExploreEmpty();
     syncNav();
@@ -720,14 +861,19 @@
       // composite (mean of the detrended chronologies) built at run time
       // from the current detrend settings.
       var chronForRun = state.chron, chronNameForRun = state.chronName, chronIsDetrended = false;
+      var detrendChron = null;
       if (mode === 2) {
         if (state.chronChoice === COMPOSITE) {
-          chronForRun = AC.compositeChron(state.chrons, detrendUI());
-          chronNameForRun = 'composite of ' + state.chrons.length + ' chronologies';
+          var inc = includedTargets();
+          chronForRun = AC.compositeChron(inc, detrendUI());
+          chronNameForRun = 'composite of ' + inc.length + ' targets';
+          // its members were already detrended, each its own way, on the way in
           chronIsDetrended = true;
         } else {
           var pick = chronByName(state.chronChoice) || state.chrons[state.chrons.length - 1];
           chronForRun = pick.frame; chronNameForRun = pick.name;
+          // the target says how it is to be treated; null = same as the pool
+          if (pick.method != null) detrendChron = AC.targetDetrend(detrendUI(), pick);
         }
       }
       runner = AC.analysisRunner({
@@ -739,9 +885,8 @@
         undatedName: state.undatedName,
         // Detection is a default, not a policy: the tick turns it off.
         autoSkip: $('detrend_auto').checked,
-        // "Detrend the series but not the chronology" — the chronology is
-        // already an index, the pool is raw. No detrending, method 1.
-        detrendChron: $('detrend_chron').checked ? null : { detrending_select: 1 },
+        // the target's own method, when it was given one
+        detrendChron: detrendChron,
         leadlag: leadlagUI(),
         filter: {
           r_val: 0.5, p_val: 0.05, overlap: 30,
@@ -795,7 +940,7 @@
         var sk = state.result.detrendSkipped || {};
         var skN = ((sk.undated && sk.undated.names.length) || 0) + ((sk.chron && sk.chron.names.length) || 0);
         var skNote = skN ? ' ' + skN + ' series were already detrended and were left as they were.' : '';
-        if (mode === 2 && !$('detrend_chron').checked) skNote += ' The chronology was not detrended.';
+        if (mode === 2) skNote += ' ' + targetTreatmentNote();
         setMsg('runMsg', 'Analysis complete (' + (mode === 2 ? 'chronology' : 'pairwise') + ' mode).' + segNote + consNote + ' ' +
           state.result.crossDatRes.cols[0].length + ' result rows; ' +
           (state.result.aligned.names.length - 1) + ' aligned series.' + skNote, 'ok');
@@ -1400,6 +1545,122 @@
       ' — tick Full lag range to see all of it.';
   }
 
+  // ---- composite target: is it worth averaging? ----------------------------
+  // The composite is the one target the app BUILDS rather than reads, so it is
+  // the one that can be wrong without looking wrong: a mean of two
+  // uncorrelated targets is a smooth, plausible series made mostly of noise,
+  // and a mean of two offset ones carries a dating error into everything dated
+  // against it. So the evidence is shown beside it, not left to be inferred.
+  var lastCheck = null;
+  function checkVerdict(chk) {
+    var n = chk.n;
+    var stat = 'Mean inter-target r ' + fmtNum(chk.rbar, 3) +
+      (chk.eps != null ? ' · EPS ' + fmtNum(chk.eps, 3) : ' · EPS — (no shared signal to describe)') +
+      ' · ' + chk.shared + ' years all ' + n + ' cover' +
+      (chk.sharedFirst != null ? ' (' + chk.sharedFirst + '–' + chk.sharedLast + ')' : '') + '.';
+    var head, kind;
+    if (chk.status === 'agree') {
+      kind = 'ok';
+      head = 'These ' + n + ' targets agree. ' +
+        (chk.eps != null && chk.eps >= 0.85
+          ? 'EPS is above the conventional 0.85, so the mean is a better target than any of them alone.'
+          : 'The mean is worth more than its members, though EPS is below the conventional 0.85 — treat it as a target built from few series, because it is.');
+    } else if (chk.status === 'offset') {
+      kind = 'err';
+      head = 'One of these targets may be dated wrong. ' + chk.offsets + ' pair' +
+        (chk.offsets === 1 ? '' : 's') + ' agree better at a lag than as dated — see the table. ' +
+        'Averaging them at the dates given would bake that offset into every date taken from the composite.';
+    } else if (chk.status === 'opposed') {
+      kind = 'err';
+      head = 'Two of these targets move in OPPOSITE directions. Averaging them cancels signal rather than building it; check that they are not an index and its inverse (a drought severity against a wetness measure, say) before combining them.';
+    } else if (chk.status === 'none') {
+      kind = 'err';
+      head = 'These targets share no measurable signal, so their mean is mostly noise. A composite is worth building from targets that agree; these do not.';
+    } else if (chk.status === 'weak') {
+      kind = 'warn';
+      head = 'These targets share only a little signal. The mean will be flatter than its members and may crossdate worse than the best of them on its own.';
+    } else {
+      kind = 'warn';
+      head = 'Too few shared years to judge whether these targets agree. Anything the composite says rests on that overlap.';
+    }
+    return { kind: kind, html: '<b>' + head + '</b><br>' + esc(stat) };
+  }
+  function fmtNum(v, dp) {
+    if (v == null) return '—';
+    return (Math.round(v * Math.pow(10, dp)) / Math.pow(10, dp)).toFixed(dp);
+  }
+  var STATUS_WORD = {
+    agree: 'agree', weak: 'weak', none: 'no agreement', opposed: 'opposed',
+    offset: 'possible dating offset', thin: 'too little overlap'
+  };
+  function renderCompositeCheck() {
+    var card = $('targetCard');
+    if (!card) return;
+    var inc = includedTargets();
+    if (inc.length < 2) {
+      lastCheck = null;
+      card.style.display = 'none';
+      renderCompositeNote();
+      return;
+    }
+    card.style.display = '';
+    var chk;
+    try { chk = AC.compositeCheck(inc, detrendUI()); }
+    catch (err) {
+      lastCheck = null;
+      setMsg('targetCheckVerdict', 'Could not measure the composite: ' + err.message, 'err');
+      $('targetCheckTable').innerHTML = ''; $('targetCheckPlot').innerHTML = '';
+      renderCompositeNote();
+      return;
+    }
+    lastCheck = chk;
+    var v = checkVerdict(chk);
+    var el = $('targetCheckVerdict');
+    el.className = 'msg' + (v.kind ? ' ' + v.kind : '');
+    el.innerHTML = v.html;
+    var rows = chk.pairs.map(function (p) {
+      var cls = (p.status === 'agree') ? '' : (p.status === 'weak' || p.status === 'thin' ? ' class="rt-warn"' : ' class="rt-fruit"');
+      return '<tr' + cls + '><td>' + esc(p.a) + ' × ' + esc(p.b) + '</td><td>' + p.overlap +
+        '</td><td>' + fmtNum(p.r, 3) + '</td><td>' + AC.fmtP(p.p) + '</td><td>' + p.bestLag +
+        '</td><td>' + fmtNum(p.rBest, 3) + '</td><td>' + esc(STATUS_WORD[p.status] || p.status) +
+        (p.note ? ' — ' + esc(p.note) : '') + '</td></tr>';
+    }).join('');
+    $('targetCheckTable').innerHTML =
+      '<div class="tablewrap"><table class="res"><thead><tr><th>Pair</th><th>Shared years</th>' +
+      '<th>r as dated</th><th>p</th><th>Best lag</th><th>r at best lag</th><th>Verdict</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table></div>' +
+      '<p class="hint">r is measured on the detrended targets over the years each pair shares. ' +
+      '&quot;Best lag&quot; is the offset within ±' + chk.cfg.maxLag + ' years at which they agree ' +
+      'most: 0 means they are dated consistently with one another. A pair is called weak below ' +
+      'r ' + chk.cfg.ok + ', no agreement below ' + chk.cfg.weak + ', and a lag is only flagged when ' +
+      'it beats the dated correlation by ' + chk.cfg.gain + ' or more.</p>';
+    var spec = AC.compositePlot(chk);
+    var plotDiv = $('targetCheckPlot');
+    plotDiv.innerHTML = '';
+    if (spec) {
+      var d = document.createElement('div');
+      PlotZoom.attachDataZoom(d, spec, AC.RD.renderSvg);
+      plotDiv.appendChild(d);
+      plotSaveBar(plotDiv, 'composite_targets');
+    } else {
+      plotDiv.innerHTML = '<p class="hint">The members could not be plotted together.</p>';
+    }
+    renderCompositeNote();
+  }
+  // the same finding, one line, next to the picker that offers the composite
+  function renderCompositeNote() {
+    var el = $('compositeNote');
+    if (!el) return;
+    if (!lastCheck || state.chronChoice !== COMPOSITE) { el.style.display = 'none'; return; }
+    var chk = lastCheck;
+    var bad = chk.status !== 'agree';
+    el.innerHTML = (bad ? '⚠ ' : '') + 'Composite of ' + chk.n + ': mean r ' + fmtNum(chk.rbar, 2) +
+      (chk.eps != null ? ', EPS ' + fmtNum(chk.eps, 2) : '') + ' — ' +
+      esc(STATUS_WORD[chk.status] || chk.status) + '. <a href="#targetCard">See the check below.</a>';
+    el.style.color = bad ? '#b23b3b' : '';
+    el.style.display = '';
+  }
+
   // ---- missing / false ring test -------------------------------------------
   // Exhaustive per-series edit simulation (AppCore.ringTest), batched through
   // setTimeout so the progress line paints while ~2n experiments run.
@@ -1422,7 +1683,7 @@
     state.chrons.forEach(function (c) {
       items.push({ v: 'chron:' + c.name, l: c.name + ' (mean chronology)' });
     });
-    if (state.chrons.length >= 2) items.push({ v: 'chron:' + COMPOSITE, l: 'Composite of all chronologies' });
+    if (includedTargets().length >= 2) items.push({ v: 'chron:' + COMPOSITE, l: 'Composite of the ticked targets' });
     AC.seriesNames(state.undated).forEach(function (n) {
       if (n !== test) items.push({ v: 'series:' + n, l: n });
     });
@@ -1452,7 +1713,7 @@
     if (refV.indexOf('chron:') === 0) {
       var cname = refV.slice(6);
       if (cname === COMPOSITE) {
-        return { reference: { kind: 'chron', frame: AC.compositeChron(state.chrons, detrendUI()), isDetrended: true }, label: 'composite mean chronology' };
+        return { reference: { kind: 'chron', frame: AC.compositeChron(includedTargets(), detrendUI()), isDetrended: true }, label: 'composite of the ticked targets' };
       }
       var c = chronByName(cname);
       return { reference: { kind: 'chron', frame: c.frame }, label: cname + ' mean chronology' };
@@ -1702,7 +1963,7 @@
       intro: 'Load the undated series you want to crossdate. A dated chronology is optional — you only need it for chronology mode.',
       slots: {
         undated: { show: true, required: true, order: 1, label: 'Undated series to crossdate' },
-        chron: { show: true, required: false, order: 2, label: 'Dated chronology (optional — for chronology mode; load several to compare)' }
+        chron: { show: true, required: false, order: 2, label: 'Dated target (optional — for chronology mode; a chronology or a climate reconstruction, and several can be averaged)' }
       },
       example: true,
       go: function () { showView('explore'); }
@@ -1757,6 +2018,12 @@
         st.innerHTML = '<span class="slot-ok">✓ Loaded: ' + detail + '</span>';
       } else {
         st.innerHTML = cfg.required ? '<span class="slot-need">Required</span>' : '<span class="slot-opt">Optional</span>';
+      }
+      if (name === 'Chron') {
+        // the treatment question belongs next to the file that raised it
+        var panel = $('slotChronTargets');
+        panel.style.display = state.chrons.length ? '' : 'none';
+        if (state.chrons.length) renderTargets(panel, false);
       }
     });
     $('setupContinueBtn').disabled = !ready;

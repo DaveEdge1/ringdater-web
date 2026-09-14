@@ -14,6 +14,55 @@ Then `git push --follow-tags`.
 ## [Unreleased]
 
 ### Added
+- **The composite target is measured before it is used.** Combining targets is the one
+  place the app BUILDS a target rather than reading one, and so the one place it can be
+  wrong without looking wrong: the mean of two uncorrelated targets is a smooth, plausible
+  series made mostly of the noise they do not share, and the mean of two that are offset
+  carries a dating error into every date taken from it — behind a tidy-looking series that
+  gives no sign of it. Nothing stopped either combination, and nothing said so.
+
+  A **Composite target** card now scores every ticked pair over the years it shares, as
+  dated and at every lag within ±10 years: shared years, r and p as dated, the best lag and
+  the r there, and a verdict — *agree* (r ≥ 0.35), *weak*, *no agreement* (r < 0.15),
+  *opposed* (r ≤ −0.15, an index and its inverse?), *possible dating offset* (it agrees
+  better at a lag, by ≥ 0.05 and reaching r ≥ 0.35), or *too little overlap* (< 30 years).
+  An offset outranks a healthy correlation at lag 0, because that is precisely the case
+  that looks fine and is not. Above the table: the mean inter-target correlation and the
+  **EPS** it implies (n·r̄/(1+(n−1)·r̄), against the conventional 0.85), the years every
+  member covers, and a sentence saying whether to go ahead. Below it: the members plotted
+  together with their mean through them, zoomable.
+
+  The same verdict rides beside **Compare against** and in the run message, so a composite
+  that should not have been averaged cannot be used silently. It warns rather than blocks —
+  untick the odd one out, or fix its dating, and run again. New `AppCore.compositeCheck`,
+  `AppCore.compositePlot`, `AppCore.COMPOSITE_CHECK` (the thresholds, all stated in the UI).
+- **Targets carry their own detrending, and several can be averaged into one.** What you
+  crossdate against is not always a tree-ring chronology: a NADA PDSI grid point, a
+  precipitation or temperature reconstruction is increasingly what people bring. Those have
+  no growth trend to remove, and treating them like measurements is not a small error —
+  fitting a curve to a reconstruction strips the low-frequency climate signal it was loaded
+  for, and because spline/negexp/Hugershoff detrending is a **ratio**, a series that crosses
+  zero is divided by a curve passing through zero and comes back as noise. On two real
+  files (a Utah precipitation reconstruction and the NADA PDSI at 41.8N 111.2W, 2,006
+  shared years) the pair correlates at **r = 0.58** rescaled and **r = 0.02** splined.
+
+  So the method is now a property of each target rather than the pool's applied to
+  everything. Every loaded target gets a card under **Data** — in the rail and in the Home
+  setup step, wherever the file was chosen — carrying its span, a **detrending method**, and
+  a tick for the composite. The app recommends a method and says why ("averages 18.3 — a
+  ring-width series does not"; "looks like it is already an index (negative values)") but
+  never decides: the numbers can only rule ring widths OUT, never in. "Raw" is deliberately
+  not offered — every method on the list ends in z-scores + 1, so targets always plot and
+  average on one scale.
+
+  **Composite targets**: tick two or more and *Composite — mean of N ticked targets* appears
+  in Compare against. Each member is detrended its own way, then they are merged on the
+  union of their years and averaged, so a 2,000-year precipitation reconstruction and a
+  PDSI grid point become a single target and years only one of them covers still count.
+  The run message and the rail name what was used. New `AppCore.recommendTarget`,
+  `AppCore.targetDetrend`, `AppCore.TARGET_METHODS`; `compositeChron` now honours each
+  target's method. This replaces the "Detrend the chronology too" tick, which said the same
+  thing for one chronology in a coarser way.
 - **Files whose table does not start on line 1 now load.** NOAA / PReSto exports put
   provenance prose above the header — a dozen lines of "Dataset name:", "Notes:", `---` —
   and `read.csv` took the first of them as the header, leaving one nonsense column and no

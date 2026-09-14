@@ -113,6 +113,153 @@ ok('an explicit size overrides the default',
 ok('no lead-lag block for a pair leaves the band alone',
   AppCore.scannedLagSpan(result, hmPair[0], 'not_a_series') === null);
 
+// 4b. targets: each one detrended its own way, then averaged ------------------
+// A target is not always a tree-ring chronology. A climate reconstruction has
+// no growth trend to remove, and for one that crosses zero (PDSI) a ratio
+// detrending is not even defined — so each target carries its own method, and
+// the composite averages them only after they are on one scale.
+const YEARS = [];
+for (let y = 1500; y <= 1999; y++) YEARS.push(y);
+function synth(fn) { return YEARS.map(fn); }
+// a precipitation-like target: positive, no growth trend, mean 18 mm
+const precip = { names: ['year', 'recon_precip'],
+  cols: [YEARS.slice(), synth((y, i) => 18 + 3 * Math.sin(i / 7) + Math.sin(i / 3)) ] };
+// a PDSI-like target: crosses zero
+const pdsi = { names: ['year', 'nada_pdsi'],
+  cols: [YEARS.slice(), synth((y, i) => 2 * Math.sin(i / 7) + 0.8 * Math.sin(i / 3)) ] };
+const recP = AppCore.recommendTarget(precip, 'recon_precip.csv');
+const recD = AppCore.recommendTarget(pdsi, 'nada_pdsi.csv');
+ok('a reconstruction in reconstructed units is recommended rescale-only',
+  recP.method === 2 && /averages/.test(recP.reason), JSON.stringify(recP));
+ok('a target that goes negative is recommended rescale-only too',
+  recD.method === 2 && /negative/.test(recD.reason), JSON.stringify(recD));
+ok('an ordinary ring-width chronology is left to follow the pool',
+  AppCore.recommendTarget(undated, EXAMPLE.name).method === null);
+// the method is the target's own, not the pool's
+ok("targetDetrend uses the target's method over the pool's",
+  AppCore.targetDetrend(detrendUI, { name: 'x', frame: precip, method: 2 }).detrending_select === 2 &&
+  AppCore.targetDetrend(detrendUI, { name: 'x', frame: precip, method: null }).detrending_select === 3);
+const TGT = [
+  { name: 'recon_precip.csv', frame: precip, method: 2 },
+  { name: 'nada_pdsi.csv', frame: pdsi, method: 2 },
+];
+const tgtComp = AppCore.compositeChron(TGT, detrendUI);
+function tgtColStats(c) {
+  const v = c.filter(function (x) { return x != null; });
+  const m = v.reduce(function (a, b) { return a + b; }, 0) / v.length;
+  const sd = Math.sqrt(v.reduce(function (a, b) { return a + (b - m) * (b - m); }, 0) / (v.length - 1));
+  return { n: v.length, mean: m, sd: sd };
+}
+ok('the composite carries one column per target',
+  tgtComp.names.length === 3 && tgtComp.cols[0].length === YEARS.length, tgtComp.names.join(', '));
+const s1 = tgtColStats(tgtComp.cols[1]), s2 = tgtColStats(tgtComp.cols[2]);
+ok('...each on the common z+1 scale, whatever units it arrived in',
+  Math.abs(s1.mean - 1) < 1e-9 && Math.abs(s2.mean - 1) < 1e-9 &&
+  Math.abs(s1.sd - 1) < 1e-9 && Math.abs(s2.sd - 1) < 1e-9,
+  'mm target ' + s1.mean.toFixed(3) + '/' + s1.sd.toFixed(3) +
+  ', PDSI target ' + s2.mean.toFixed(3) + '/' + s2.sd.toFixed(3));
+// rescale-only must leave the SHAPE alone: correlation with the raw series is 1
+function tgtCorr(a, b) {
+  const p = [];
+  for (let i = 0; i < a.length; i++) if (a[i] != null && b[i] != null) p.push([a[i], b[i]]);
+  const n = p.length;
+  const ma = p.reduce(function (s, x) { return s + x[0]; }, 0) / n;
+  const mb = p.reduce(function (s, x) { return s + x[1]; }, 0) / n;
+  let sab = 0, sa = 0, sb = 0;
+  p.forEach(function (x) { sab += (x[0] - ma) * (x[1] - mb); sa += (x[0] - ma) * (x[0] - ma); sb += (x[1] - mb) * (x[1] - mb); });
+  return sab / Math.sqrt(sa * sb);
+}
+ok('rescale-only changes the scale and nothing else',
+  Math.abs(tgtCorr(tgtComp.cols[1], precip.cols[1]) - 1) < 1e-9 &&
+  Math.abs(tgtCorr(tgtComp.cols[2], pdsi.cols[1]) - 1) < 1e-9,
+  tgtCorr(tgtComp.cols[1], precip.cols[1]).toFixed(6));
+// ...where curve-fitting a zero-crossing target does not: the ratio blows up
+const splined = AppCore.compositeChron([
+  { name: 'recon_precip.csv', frame: precip, method: 3 },
+  { name: 'nada_pdsi.csv', frame: pdsi, method: 3 }], detrendUI);
+ok('splining a target that crosses zero destroys it, as expected',
+  Math.abs(tgtCorr(splined.cols[2], pdsi.cols[1])) < 0.9,
+  'r to the original ' + tgtCorr(splined.cols[2], pdsi.cols[1]).toFixed(3) +
+  ' vs ' + tgtCorr(tgtComp.cols[2], pdsi.cols[1]).toFixed(3) + ' rescaled');
+// the composite is a mean of its members: chronologyWorkflow builds it from
+// the frame above with chronIsDetrended, so a member must not be re-detrended
+const twoChron = AppCore.runAnalysis({
+  mode: 2, undated: undated, chron: tgtComp, chronIsDetrended: true,
+  detrend: detrendUI,
+  leadlag: { neg_lag: -20, pos_lag: 20, complete: true },
+  filter: { r_val: 0.5, p_val: 0.05, overlap: 30, target: 'mean_chronology' }
+});
+ok('a composite target runs as a chronology', !!(twoChron && twoChron.crossDatRes),
+  twoChron ? twoChron.crossDatRes.cols[0].length + ' rows' : 'null');
+ok('the composite needs two targets', (function () {
+  try { AppCore.compositeChron([TGT[0]], detrendUI); return false; } catch (e) { return /two targets/.test(e.message); }
+})());
+
+// 4c. is the composite worth averaging? ---------------------------------------
+// A mean is only a better target than its members if the members agree. These
+// are the five things that can be true of a pair, each built so the right
+// answer is known in advance.
+function tgtMk(name, fn, y0, y1) {
+  const yrs = [], v = [];
+  for (let y = y0; y <= y1; y++) { yrs.push(y); v.push(fn(y)); }
+  return { name: name + '.csv', frame: { names: ['year', name], cols: [yrs, v] }, method: 2 };
+}
+const tgtRnd = (function (s) { return function () { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff - 0.5; }; })(7);
+const tgtBase = [];
+for (let y = 1500; y <= 1999; y++) tgtBase.push(Math.sin(y / 7) + 0.6 * Math.sin(y / 3));
+const tgtAt = function (y) { return tgtBase[y - 1500]; };
+function checkOf(a, b) { return AppCore.compositeCheck([a, b], detrendUI); }
+
+const cAgree = checkOf(tgtMk('a', function (y) { return tgtAt(y) + tgtRnd() * 0.2; }, 1500, 1999),
+                       tgtMk('b', function (y) { return tgtAt(y) + tgtRnd() * 0.2; }, 1500, 1999));
+ok('two targets that track each other are passed',
+  cAgree.status === 'agree' && cAgree.rbar > 0.9 && cAgree.eps > 0.9 && cAgree.pairs[0].bestLag === 0,
+  'rbar ' + cAgree.rbar.toFixed(3) + ', EPS ' + cAgree.eps.toFixed(3));
+ok('...and EPS follows the n-series formula',
+  Math.abs(cAgree.eps - (2 * cAgree.rbar) / (1 + cAgree.rbar)) < 1e-12);
+
+// the dangerous one: a decent correlation as dated, a better one at a lag
+const cOffset = checkOf(tgtMk('a', function (y) { return tgtAt(y); }, 1500, 1999),
+                        tgtMk('b', function (y) { return tgtAt(y - 3); }, 1500, 1999));
+ok('a target dated three years out is caught, not averaged in silently',
+  cOffset.status === 'offset' && cOffset.pairs[0].bestLag === 3 && cOffset.offsets === 1,
+  'r ' + cOffset.pairs[0].r.toFixed(3) + ' as dated, ' + cOffset.pairs[0].rBest.toFixed(3) +
+  ' at lag ' + cOffset.pairs[0].bestLag);
+ok('...and the offset outranks a respectable r at lag 0',
+  cOffset.pairs[0].r > 0.8 && /dated wrong/.test(cOffset.pairs[0].note),
+  cOffset.pairs[0].note);
+// an offset can also hide behind r ~ 0 as dated
+const cHidden = checkOf(tgtMk('a', function (y) { return tgtAt(y); }, 1500, 1999),
+                        tgtMk('b', function (y) { return tgtAt(y - 4) + tgtRnd() * 0.9; }, 1500, 1999));
+ok('an offset is caught even when the dated correlation is unremarkable',
+  cHidden.status === 'offset' && cHidden.pairs[0].bestLag === 4, JSON.stringify({
+    r: Number(cHidden.pairs[0].r.toFixed(3)), best: Number(cHidden.pairs[0].rBest.toFixed(3)),
+    lag: cHidden.pairs[0].bestLag }));
+
+const cOpp = checkOf(tgtMk('a', function (y) { return tgtAt(y); }, 1500, 1999),
+                     tgtMk('b', function (y) { return -tgtAt(y); }, 1500, 1999));
+ok('an inverted target is called opposed, not offset',
+  cOpp.status === 'opposed' && cOpp.rbar < 0 && cOpp.eps === null,
+  'rbar ' + cOpp.rbar.toFixed(3) + ', EPS ' + cOpp.eps);
+ok('...and says averaging would cancel the signal', /cancels the signal/.test(cOpp.pairs[0].note));
+
+const cNone = checkOf(tgtMk('a', function (y) { return tgtAt(y); }, 1500, 1999),
+                      tgtMk('b', function () { return tgtRnd(); }, 1500, 1999));
+ok('two unrelated targets are not quietly averaged',
+  cNone.status === 'none' && Math.abs(cNone.rbar) < 0.15, 'rbar ' + cNone.rbar.toFixed(3));
+
+const cThin = checkOf(tgtMk('a', function (y) { return tgtAt(y); }, 1500, 1999),
+                      tgtMk('b', function (y) { return tgtAt(y); }, 1990, 1999));
+ok('too little overlap is reported as such rather than scored',
+  cThin.status === 'thin' && cThin.rbar === null, JSON.stringify({ shared: cThin.shared }));
+
+ok('the check reports the years every member covers',
+  cAgree.shared === 500 && cAgree.sharedFirst === 1500 && cAgree.sharedLast === 1999,
+  cAgree.shared + ' (' + cAgree.sharedFirst + '-' + cAgree.sharedLast + ')');
+ok('one target is nothing to check', AppCore.compositeCheck([tgtMk('a', function (y) { return tgtAt(y); }, 1500, 1999)], detrendUI) === null);
+ok('the members plot together, with their mean',
+  isSvg(AppCore.renderPlot(AppCore.compositePlot(cAgree))));
+
 // 5. re-filter the crossDatRes (results-tab filter controls) -------------------
 const refiltered = AppCore.refilter(result.crossDatRes, { r_val: 0.6, p_val: 0.01, overlap: 40, target: names[0] });
 ok('refilter returns a Frame with 17 cols', !!(refiltered && refiltered.names.length === 17),

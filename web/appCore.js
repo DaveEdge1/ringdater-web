@@ -1201,20 +1201,250 @@
     return String(name || '').replace(/\\/g, '/').split('/').pop().replace(/\.[A-Za-z0-9]+$/, '');
   }
   function compositeChron(chronList, detrendUiObj) {
-    if (!chronList || chronList.length < 2) throw new Error('The composite needs at least two loaded chronologies.');
+    if (!chronList || chronList.length < 2) throw new Error('The composite needs at least two targets.');
     var out = null, used = {};
     chronList.forEach(function (c) {
       var base = baseName(c.name) || 'chronology';
       var name = base, k = 2;
       while (used[name]) name = base + '_' + (k++);
       used[name] = true;
-      // each chronology is judged on its own: a .crn among .rwl files is not
-      // detrended a second time before it is averaged in.
-      var cOpt = detrendOptions(detrendUiObj, detectDetrended(c.frame, c.name).names);
-      var mean = RD.meanChronology(RD.normalise(c.frame, cOpt), name);
+      // Each target is treated on its own terms — its chosen method, or the
+      // pool's with the already-detrended detection applied. Every method but
+      // "raw" ends in z-scores + 1, so what gets averaged here is on ONE
+      // scale: without that, a precipitation reconstruction in millimetres
+      // (SD ~3) averaged with a PDSI (SD ~2.5) would weight the mean by
+      // whichever happened to be measured in bigger units.
+      var mean = RD.meanChronology(RD.normalise(c.frame, targetDetrend(detrendUiObj, c)), name);
       out = bindDated(out, mean);
     });
     return out;
+  }
+
+  // ---- is a composite worth averaging? --------------------------------------
+  // Averaging is not free. Two targets that disagree do not reinforce each
+  // other, they CANCEL: the mean of a pair correlating at zero is mostly the
+  // noise they do not share, and the mean of an anti-correlated pair is close
+  // to a flat line. Worse, a pair that agrees only at a lag is a pair where one
+  // of them is dated wrong — and a composite HIDES that, because the mean still
+  // comes out as a tidy series to crossdate against, now carrying a dating
+  // error into every date derived from it.
+  //
+  // So the composite is measured before it is used. For every pair of ticked
+  // targets, over the years they share: the correlation as they are dated, and
+  // the best correlation within a few years either way. Then the standard
+  // chronology statistics over the set — mean inter-series r, and the EPS it
+  // implies — because "is this mean worth more than its members" is exactly the
+  // question EPS was invented to answer.
+  var COMPOSITE_CHECK = {
+    maxLag: 10,        // a published target is dated: look for small offsets, not matches
+    minOverlap: 30,    // below this, a correlation says nothing either way
+    weak: 0.15,        // |r| under this is no agreement at all
+    ok: 0.35,          // over this they genuinely track one another
+    gain: 0.05         // a lag only counts as an offset if it beats lag 0 by this much
+  };
+  function corrAtLag(a, b, lag) {
+    var x = [], y = [];
+    for (var i = 0; i < a.length; i++) {
+      var j = i + lag;
+      if (j < 0 || j >= b.length) continue;
+      if (bad(a[i]) || bad(b[j])) continue;
+      x.push(Number(a[i])); y.push(Number(b[j]));
+    }
+    if (x.length < 3) return null;
+    var res = RD.pearsonCorTest(x, y);
+    if (res == null || !isFinite(res.r)) return null;
+    return { r: res.r, p: res.p, n: x.length };
+  }
+  // targets: the ticked [{name, frame, method}]. Returns null for fewer than two.
+  function compositeCheck(targets, detrendUiObj, opts) {
+    var cfg = {}, k;
+    for (k in COMPOSITE_CHECK) cfg[k] = COMPOSITE_CHECK[k];
+    for (k in (opts || {})) if (opts[k] != null) cfg[k] = opts[k];
+    if (!targets || targets.length < 2) return null;
+    var frame = compositeChron(targets, detrendUiObj);
+    var names = frame.names.slice(1);
+    var years = frame.cols[0];
+
+    // years every member covers — what the mean is actually built from
+    var shared = 0, sharedFirst = null, sharedLast = null;
+    for (var r = 0; r < years.length; r++) {
+      var all = true;
+      for (var c = 1; c < frame.cols.length; c++) if (bad(frame.cols[c][r])) { all = false; break; }
+      if (!all) continue;
+      shared++;
+      if (sharedFirst == null) sharedFirst = years[r];
+      sharedLast = years[r];
+    }
+
+    var pairs = [], rSum = 0, rN = 0, worst = null;
+    for (var i = 0; i < names.length; i++) {
+      for (var j = i + 1; j < names.length; j++) {
+        var A = frame.cols[i + 1], B = frame.cols[j + 1];
+        var at0 = corrAtLag(A, B, 0);
+        var best = at0, bestLag = 0;
+        for (var L = -cfg.maxLag; L <= cfg.maxLag; L++) {
+          if (L === 0) continue;
+          var s = corrAtLag(A, B, L);
+          if (!s || s.n < cfg.minOverlap) continue;
+          if (!best || s.r > best.r) { best = s; bestLag = L; }
+        }
+        var p = {
+          a: names[i], b: names[j],
+          overlap: at0 ? at0.n : 0,
+          r: at0 ? at0.r : null, p: at0 ? at0.p : null,
+          bestLag: bestLag, rBest: best ? best.r : null,
+          status: null, offset: false, note: ''
+        };
+        if (!at0 || at0.n < cfg.minOverlap) {
+          p.status = 'thin';
+          p.note = 'only ' + p.overlap + ' shared years — too few to judge';
+        } else {
+          // A pair that agrees BETTER a few years off is the dangerous case: the
+          // correlation as dated can look respectable (or like nothing at all),
+          // the mean still comes out tidy, and one member carries a dating error
+          // into every date taken from the composite. It outranks anything the
+          // correlation at lag 0 says — but only on a real match at the lag,
+          // not on the small positive r any long series can find somewhere.
+          var offset = bestLag !== 0 && best && (best.r - at0.r) >= cfg.gain && best.r >= cfg.ok;
+          p.status = offset ? 'offset'
+            : at0.r <= -cfg.weak ? 'opposed'
+            : at0.r < cfg.weak ? 'none'
+            : at0.r < cfg.ok ? 'weak' : 'agree';
+          if (offset) {
+            p.offset = true;
+            p.note = 'they agree better ' + Math.abs(bestLag) + ' year' + (Math.abs(bestLag) === 1 ? '' : 's') +
+              ' ' + (bestLag > 0 ? 'later' : 'earlier') + ' (r ' + fmtR(best.r) + ' at lag ' + bestLag +
+              ' against ' + fmtR(at0.r) + ' as dated), so one of them may be dated wrong';
+          } else if (p.status === 'opposed') {
+            p.note = 'they move in opposite directions — averaging them cancels the signal rather than building it';
+          } else if (p.status === 'none') {
+            p.note = 'no shared signal to average';
+          } else if (p.status === 'weak') {
+            p.note = 'they share some signal, but little of it';
+          }
+          rSum += at0.r; rN++;
+        }
+        if (!worst || rank(p.status) < rank(worst.status)) worst = p;
+        pairs.push(p);
+      }
+    }
+    var rbar = rN ? rSum / rN : null;
+    var n = names.length;
+    // EPS is only meaningful on a positive mean correlation; below zero there is
+    // no common signal for it to describe, so it is reported as nothing at all.
+    var eps = (rbar != null && rbar > 0) ? (n * rbar) / (1 + (n - 1) * rbar) : null;
+    return {
+      n: n, names: names, frame: frame,
+      shared: shared, sharedFirst: sharedFirst, sharedLast: sharedLast,
+      pairs: pairs, rbar: rbar, eps: eps,
+      worst: worst, status: worst ? worst.status : 'thin',
+      offsets: pairs.filter(function (x) { return x.offset; }).length,
+      cfg: cfg
+    };
+  }
+  // Most serious first: what the composite as a whole is judged by.
+  var STATUS_RANK = { opposed: 0, none: 1, offset: 2, weak: 3, thin: 4, agree: 5 };
+  function rank(status) { return STATUS_RANK[status] != null ? STATUS_RANK[status] : 9; }
+  function fmtR(v) { return v == null ? '—' : (Math.round(v * 1000) / 1000).toFixed(3); }
+  // The members on one axis, with their mean drawn through them: the picture
+  // that settles what the numbers only assert.
+  function compositePlot(check) {
+    if (!check || check.n < 2) return null;
+    return safe(function () {
+      var spec = RD.allSeries(check.frame);
+      spec.title = 'Composite target — ' + check.n + ' targets and their mean';
+      spec.yLabel = 'index (z + 1)';
+      return spec;
+    });
+  }
+
+  // ---- how ONE target is detrended -----------------------------------------
+  // A target is whatever you crossdate against: a tree-ring chronology, a set
+  // of indices, or — increasingly — a climate reconstruction (PDSI, precip,
+  // temperature). They are NOT the same kind of number, and the difference
+  // decides whether a curve should be fitted at all:
+  //
+  //   a raw ring-width chronology  has a growth trend to remove -> fit a curve
+  //   indices / a reconstruction   have none -> fitting one only removes signal
+  //
+  // and for a series that crosses zero, curve fitting is not merely lossy but
+  // invalid: spline/negexp/Hugershoff detrending is a RATIO, so a PDSI divided
+  // by a curve passing through zero comes back as noise. (Measured on the two
+  // files this was built for: a Utah precipitation reconstruction against the
+  // NADA PDSI correlates at r = 0.58 rescaled, r = 0.02 if both are splined.)
+  //
+  // So the method is the target's own property, asked for when it is loaded,
+  // rather than inherited from the pool. `method` is a detrending_select
+  // (2..7); null means "whatever the pool is using", which is the sensible
+  // reading of an ordinary tree-ring chronology loaded beside raw series.
+  function targetDetrend(ui, target) {
+    if (!target) return detrendOptions(ui);
+    if (target.method != null) {
+      return detrendOptions(assign({}, ui, { detrending_select: Number(target.method) }));
+    }
+    return detrendOptions(ui, detectDetrended(target.frame, target.name).names);
+  }
+  function assign(out) {
+    for (var i = 1; i < arguments.length; i++) {
+      var src = arguments[i] || {};
+      for (var k in src) if (Object.prototype.hasOwnProperty.call(src, k)) out[k] = src[k];
+    }
+    return out;
+  }
+
+  // The methods a target can be treated with, in the order they are offered.
+  // "raw" (1) is deliberately absent: every other method ends in z-scores + 1,
+  // so leaving one target in native units would put it on a different scale
+  // from everything it is plotted and averaged with.
+  var TARGET_METHODS = [
+    { value: 2, label: 'Rescale only — z-score, no curve fitted',
+      hint: 'For a climate reconstruction (PDSI, precipitation, temperature) or a series that is already an index (.crn, dplR output). Nothing is removed; it is only put on the common scale.' },
+    { value: 3, label: 'Spline', hint: 'For a raw tree-ring chronology: removes the growth trend with the spline window set in the rail.' },
+    { value: 4, label: 'Modified negative exponential', hint: 'For a raw tree-ring chronology: the classic ring-width standardisation.' },
+    { value: 5, label: 'Friedman super-smoother', hint: 'For a raw tree-ring chronology, where a spline is too stiff.' },
+    { value: 6, label: 'Modified Hugershoff', hint: 'For a raw tree-ring chronology with a juvenile rise.' },
+    { value: 7, label: 'First difference', hint: 'Year-to-year change only: the strongest high-pass, and it drops all low-frequency signal.' }
+  ];
+
+  // What this target most likely is, and therefore how to treat it. The
+  // numbers can only ever rule ring widths OUT (see src/detrend/detect.js for
+  // why that asymmetry is deliberate), so this recommends and explains — the
+  // choice is the user's, and it is asked for at load time.
+  var RING_WIDTH_MAX_MEAN = 10;      // mm. No chronology of ring widths averages a centimetre.
+  function recommendTarget(frame, name) {
+    var det = detectDetrended(frame, name);
+    if (det.names.length) {
+      var why = det.reasons[det.names[0]];
+      return {
+        method: 2,
+        reason: 'looks like it is already an index (' + why + '), so there is no trend left to remove',
+        confident: true
+      };
+    }
+    // a mean no ring width can have: not proof of what it IS, but proof of
+    // what it is not, which is enough to ask the question
+    var mean = meanOfSeries(frame);
+    if (mean != null && mean > RING_WIDTH_MAX_MEAN) {
+      return {
+        method: 2,
+        reason: 'averages ' + (Math.round(mean * 10) / 10) + ' — a ring-width series does not, so these are probably reconstructed units rather than measurements',
+        confident: false
+      };
+    }
+    return { method: null, reason: null, confident: false };
+  }
+  function meanOfSeries(frame) {
+    if (!frame || !frame.cols || frame.cols.length < 2) return null;
+    var n = 0, s = 0;
+    for (var c = 1; c < frame.cols.length; c++) {
+      var col = frame.cols[c];
+      for (var r = 0; r < col.length; r++) {
+        var v = col[r];
+        if (v == null || (typeof v === 'number' && isNaN(v))) continue;
+        s += Number(v); n++;
+      }
+    }
+    return n ? s / n : null;
   }
 
   // ---- detrend / leadlag / filter option objects (from raw UI values) ------
@@ -1987,6 +2217,10 @@
     CONSENSUS: CONSENSUS, consensusFromRows: consensusFromRows, statsAtLag: statsAtLag,
     slidingSelectPairwise: slidingSelectPairwise, slidingSelectVsReference: slidingSelectVsReference,
     compositeChron: compositeChron,
+    targetDetrend: targetDetrend, recommendTarget: recommendTarget,
+    TARGET_METHODS: TARGET_METHODS,
+    compositeCheck: compositeCheck, compositePlot: compositePlot,
+    COMPOSITE_CHECK: COMPOSITE_CHECK,
     ensureMeta: RD.ensureMeta, META_EDITABLE: RD.META_EDITABLE,
     detrendOptions: detrendOptions, detectDetrended: detectDetrended,
     runAnalysis: runAnalysis, analysisRunner: analysisRunner,
