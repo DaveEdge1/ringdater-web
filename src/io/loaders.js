@@ -32,6 +32,50 @@ const { parseDelimited } = require('./csv');
 const { readXlsx } = require('./xlsx');
 const { normalise } = require('../detrend/normalise');
 
+// ---- preamble before the header row -----------------------------------------
+// Archive exports routinely put prose in front of the table: NOAA/PReSto files
+// carry a dozen lines of provenance ("Dataset name: ...", "Notes: ...") before
+// the real header, and read.csv would take the first of them AS the header —
+// one nonsense column, no data, and nothing the user can do about it.
+//
+// So find where the table actually starts: the first line that splits into the
+// same number of fields (>= 2) as the lines under it, WITH those lines all
+// numeric. That is a header row sitting on top of data. A file whose table
+// starts at line 1 — every ordinary csv — is returned untouched, so this can
+// only ever rescue a file that would otherwise have failed.
+const NA_TOKENS = ["", "na", "nan", "n/a", "null", "-", "."];
+function numericRow(fields) {
+  let numbers = 0;
+  for (const f of fields) {
+    const t = String(f).trim();
+    if (NA_TOKENS.indexOf(t.toLowerCase()) >= 0) continue;   // a hole is not a word
+    if (!Number.isFinite(Number(t))) return false;
+    numbers++;
+  }
+  return numbers > 0;
+}
+function stripPreamble(text, sep) {
+  const src = String(text == null ? '' : text);
+  const lines = src.split(/\r\n|\r|\n/);
+  const LOOK = 2;                       // rows of data needed to believe it
+  for (let h = 0; h < lines.length - 1; h++) {
+    const head = lines[h].split(sep);
+    if (head.length < 2) continue;
+    let seen = 0, ok = true;
+    for (let d = 1; d <= LOOK && h + d < lines.length; d++) {
+      const row = lines[h + d];
+      if (row === '') continue;
+      const f = row.split(sep);
+      if (f.length !== head.length || !numericRow(f)) { ok = false; break; }
+      seen++;
+    }
+    if (!ok || !seen) continue;
+    if (numericRow(head)) continue;     // already data: no header here, leave it alone
+    return h === 0 ? src : lines.slice(h).join('\n');
+  }
+  return src;                           // nothing that looks like a table: unchanged
+}
+
 // ---- small helpers ----------------------------------------------------------
 const EMPTY = { names: [], cols: [] };
 function ext3(name) { return String(name).slice(-3); }
@@ -173,7 +217,7 @@ function loadUndated(files, opts = {}) {
         loading = C.setNames(loading, [col1, series]);
       }
     } else if (ftype === 'csv') {
-      const tmp = parseDelimited(file.text, { sep: ',', header: true, checkNames: false });
+      const tmp = parseDelimited(stripPreamble(file.text, ','), { sep: ',', header: true, checkNames: false });
       loading = checkLoadRingmeasurer(tmp, avgSer);
     } else if (ftype === 'lsx') {
       loading = readXlsx(file.buffer, { na: 'NA' });
@@ -228,7 +272,7 @@ function loadChron(file, opts = {}) {
   } else if (ftype === 'crn') {
     df = needReader(readers, 'crn')(file);       // ITRDB/Tucson standardized chronology
   } else if (ftype === 'csv') {
-    df = parseDelimited(file.text, { sep: ',', header: true, checkNames: true });
+    df = parseDelimited(stripPreamble(file.text, ','), { sep: ',', header: true, checkNames: true });
   } else if (ftype === 'lsx') {
     df = readXlsx(file.buffer, { na: 'NA' });
   } else if (ftype === 'txt') {
@@ -343,6 +387,7 @@ function ldUndatedChron(files, opts = {}) {
 }
 
 module.exports = {
+  stripPreamble,
   loadUndated, loadChron, loadDataTabs, ldUndatedChron,
   tbrm, chronStd, checkLoadRingmeasurer,
 };

@@ -14,6 +14,13 @@ Then `git push --follow-tags`.
 ## [Unreleased]
 
 ### Added
+- **Files whose table does not start on line 1 now load.** NOAA / PReSto exports put
+  provenance prose above the header — a dozen lines of "Dataset name:", "Notes:", `---` —
+  and `read.csv` took the first of them as the header, leaving one nonsense column and no
+  data. The csv loaders now find where the table actually starts: the first line that
+  splits into the same number of fields as the numeric rows under it. A file whose table
+  starts on line 1 is returned untouched, so this can only rescue a file that would
+  otherwise have failed. New `stripPreamble` in src/io/loaders.js.
 - **Measurements are auto-saved as you make them.** The Measure view was the one place in
   the app where the data existed nowhere else: a core arrives press by press, and until it
   was saved to a file or added to the pool, a closed tab was a re-measured core — hours at

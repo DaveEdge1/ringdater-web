@@ -70,5 +70,45 @@ for (const key of Object.keys(gt)) {
   if (!pass) allPass = false;
   console.log(key.padEnd(38), (pass ? 'PASS' : 'FAIL').padEnd(6), pass ? '' : errs.slice(0, 3).join('; '));
 }
+// ---- a preamble in front of the header row --------------------------------
+// NOAA / PReSto exports put provenance prose above the table. read.csv would
+// take the first line of it AS the header — one nonsense column and no data —
+// so the loaders find where the table actually starts. A file whose table
+// starts on line 1 must come through untouched.
+const { stripPreamble } = require('../src/io/loaders.js');
+function check(name, cond, detail) {
+  if (!cond) allPass = false;
+  console.log(name.padEnd(38), (cond ? 'PASS' : 'FAIL').padEnd(6), cond ? '' : (detail || ''));
+}
+(function () {
+  const PLAIN = ['Year,Recon', '1900,1.5', '1901,1.6', '1902,1.4'].join('\n');
+  const PREAMBLE = [
+    'Dataset name: North American Drought Atlas',
+    'Method(s): [\'NADA\']',
+    '---',
+    'Notes: Processed by PReSto',
+    '---',
+    'Year (CE),NADA mean (PDSI)',
+    '0.00,1.68',
+    '1.00,-0.53',
+    '2.00,-1.49',
+  ].join('\n');
+  check('a plain csv is untouched', stripPreamble(PLAIN, ',') === PLAIN);
+  check('a preamble is dropped down to the header row',
+    stripPreamble(PREAMBLE, ',').split('\n')[0] === 'Year (CE),NADA mean (PDSI)',
+    JSON.stringify(stripPreamble(PREAMBLE, ',').split('\n')[0]));
+  const f = loadChron({ name: 'nada.csv', text: PREAMBLE });
+  check('...and the file then loads as a year + series frame',
+    f.cols.length === 2 && f.cols[0].length === 3 && f.cols[1][0] === 1.68,
+    JSON.stringify(f.names) + ' ' + JSON.stringify(f.cols[1]));
+  // Junk that never resolves into a table must not be "fixed" into one.
+  check('prose with no table is left alone',
+    stripPreamble('just some text\nand more text', ',') === 'just some text\nand more text');
+  // A table with no header at all is data from line 1: leave it, so read.csv
+  // keeps behaving exactly as R does.
+  check('a headerless table is not re-cut',
+    stripPreamble('1900,1.5\n1901,1.6\n1902,1.4', ',') === '1900,1.5\n1901,1.6\n1902,1.4');
+})();
+
 console.log(allPass ? '\nALL PASS' : '\nFAILURES PRESENT');
 process.exit(allPass ? 0 : 1);
