@@ -18,6 +18,7 @@
 
 const { combNA, completeCases, isNA, NA } = require('./comb.js');
 const { rollcor } = require('./rollcor.js');
+const { rollcorFast } = require('./rollcorFast.js');
 
 // zoo::rollmean(x, k) — centered simple moving average, align="center",
 // na.pad=FALSE. Output length n-k+1; out[i] = mean(x[i..i+k-1]); any NA in the
@@ -39,6 +40,11 @@ function runningLeadLag(frame, opts = {}) {
   let posLag = opts.pos_lag != null ? opts.pos_lag : 20;
   let win = opts.win != null ? opts.win : 21;
   const complete = opts.complete != null ? opts.complete : true;
+  // `fast` swaps in rollcorFast, which produces the same numbers by running sums
+  // (pinned to rollcor in test/rollcor_fast_test.js). Off by default so the
+  // R-validated path is what every existing caller keeps getting; the
+  // crossdating verdict turns it on because it runs this once per lag per series.
+  const roll = opts.fast ? rollcorFast : rollcor;
 
   const iA = frame.names.indexOf(s1);
   const iB = frame.names.indexOf(s2);
@@ -89,7 +95,7 @@ function runningLeadLag(frame, opts = {}) {
     for (let i = 0; i < n; i++) if (!isNA(mod1[i]) && !isNA(mod2[i])) bothCount++;
 
     if (bothCount > win) {
-      const corTest = rollcor(mod1, mod2, win);         // length n - win + 1
+      const corTest = roll(mod1, mod2, win);            // length n - win + 1
       const corYear = rollmean(yrMod, win);             // length n - win + 1
       // comb.NA(cor_year, lag_ser, cor_test) then complete.cases
       for (let i = 0; i < corYear.length; i++) {

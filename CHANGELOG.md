@@ -14,6 +14,99 @@ Then `git push --follow-tags`.
 ## [Unreleased]
 
 ### Added
+- **One verdict per series, instead of one flag per segment.** COFECHA flags segments, and on real
+  data most of those flags are noise: on `ut550.rwl` — published and already crossdated — it raises
+  25, and every one of its twelve B flags fails COFECHA's own test (p.215: an alternate position
+  only matters if its correlation is roughly twice the dated one). All twelve sit at ratios of
+  1.0–1.3 with scattered shifts. Twenty-five false alarms teaches a reader to ignore flags.
+
+  `RD.crossdateVerdict()` correlates each series against a chronology built from every *other*
+  series, in a running window, at every dating position — the running-correlation heatmap the app
+  already draws — and traces the **ridge**: the best-fitting lag in each year. A ridge that holds
+  one lag is a dated series; one that steps and stays stepped is a dating error, and the step
+  locates it. Measured: a ring removed from RCB107B at 1500 gives `lag 0: 163–1480` then
+  `lag +1: 1481–1989`, while all nine series carrying ut550's B flags hold a single lag-0 ridge for
+  94–99% of their years. Across 48 injected errors (12 series × 2 positions × missing/extra ring)
+  it caught **48/48**, bracketed the true year **48/48**, and classified missing vs extra ring
+  correctly — with **zero** escalations across all 114 clean series. Brackets are the step year
+  ± half the window, because a single year would be false precision.
+
+  It also finds what COFECHA structurally cannot: inverted series (a sign or column error rather
+  than a dating error), and near-duplicate series (the same core entered twice, which silently
+  inflates sample depth and EPS).
+- **Chronology statistics, on trees rather than cores.** `RD.chronStats()` answers the question
+  COFECHA cannot: how far back is this chronology reliable? It reports running Rbar/EPS with the
+  year EPS crosses 0.85 stated in one line, plus SNR and subsample signal strength.
+
+  `src/rwi_stats.js` previously set `nCores = nTrees` — it could not tell a core from a tree. Two
+  radii of one tree share wood, not just climate (on ut550, mean r within a tree is 0.76 against
+  0.63 between), so counting cores as independent replicates overstates the sampling. The full dplR
+  within/between-tree machinery is now there (`rbar.wt`, `rbar.bt`, `rbar.eff`), with tree grouping
+  inferred from the core ids, shown in the report, and overridable. EPS is reported **both ways** so
+  the convention is never hidden. The default path is unchanged and still pinned by the R ground
+  truth.
+- **A COFECHA-format `.OUT` listing.** `RD.renderCofechaText()` writes the eight parts in COFECHA's
+  fixed-width layout so a user leaving COFECHA can diff our output against a real run. Verified by
+  round-tripping through `tools/cofecha_compare.js` — the parser written to read genuine COFECHA
+  listings, with no knowledge of the emitter: 114/114 series, 3037/3037 segment cells with both
+  correlations and A/B flags, 2519/2519 master rows. Column positions are compared byte-for-byte
+  against `UT550COF.OUT`. It identifies itself as RingdateR rather than impersonating COFECHA, and
+  anything that is not COFECHA's (the verdict) is labelled as such.
+- **The quality check moved onto the Build page, beside the chronology it checks.** It sits under
+  the chronology plot with its own button, because it is something you re-run as the build grows,
+  not something you reach for once at export time. It replaces the old *Generate chronology report*
+  button in the Export menu, which covered a strict subset of what this reports; the export menu now
+  just points at it. (`AppCore.builderReport` is unchanged and still exported.)
+- **The report leads with the answer.** Verdict and chronology statistics sit above the eight
+  COFECHA parts, which keep their numbering, vocabulary, A/B flags and critical value so they stay
+  readable by anyone used to COFECHA. A flagged series carries its heatmap inline, and years print
+  as calendar years (85 BC, not −84).
+
+- **A COFECHA-equivalent crossdating quality check.** COFECHA (Holmes 1983) is still the
+  standard by which crossdating is checked, and nothing in RingdateR did what it does: segment
+  the series, correlate each segment against a master built from every *other* series, and say
+  where a segment would fit better at a different date. `RD.cofecha()` now does, following the
+  program description in Grissino-Mayer (2001), Tree-Ring Research 57(2):205–221 — 32-year
+  spline, AR modelling, log transform (COFECHA's own constant of mean/6), arithmetic leave-one-out
+  master, 50-year segments lagged 25, Pearson correlations against the 99% one-tailed critical
+  level, and every segment retested at each dating position from −10 to +10 years.
+
+  Segments that fail carry COFECHA's two flags: **A** when nothing fits better anywhere in the
+  ±10 window, **B** when something does — and a B flag repeating at the *same* shift across
+  consecutive segments is the signature of a missing ring. On a correctly dated set the check
+  is silent; remove one ring from a member of the bundled example chronology and every segment
+  from that year on flags B at a systematic +1, with the error bracketed by the last clean
+  segment and the first flagged one.
+
+  `RD.renderCofecha()` renders the eight-part output: options and summary, time-span histogram,
+  master series with sample depth and absent rings, the bar plot with COFECHA's letter codes,
+  the segment correlation matrix, and the Part 6 diagnostics that were missing entirely —
+  correlations at every alternate dating position, the years that most lower and raise each
+  correlation, year-to-year changes diverging by 4 SD from all other series, absent rings
+  (flagged when the other series show no narrow ring that year), and outlier measurements.
+  Part 7 adds mean sensitivity, which nothing in RingdateR computed before.
+
+  Reachable from **Export → Crossdating quality check** in both Explore and Build. It runs on
+  the RAW ring widths behind the current alignment — COFECHA does its own detrending, so handing
+  it the app's indices would detrend twice and the correlations would mean nothing; anything with
+  no raw measurements behind it is named in the message rather than quietly left out. The segment
+  length is chosen from the data (about half the median series length, per the paper's advice on
+  p. 208, never below 20 years). New `AppCore.cofechaReport`, `AppCore.cofechaSegments`,
+  `RD.cofecha`, `RD.renderCofecha`, `RD.criticalR`, `RD.COFECHA_DEFAULTS`.
+
+  **Checked against the real program.** `Cofecha_MRWE.exe` (COFECHA 6.06) was run on
+  `chronologies/ut550.rwl` — 114 series, 504 BC to AD 2014 — with every Main Menu default
+  accepted, and `tools/cofecha_compare.js` diffs our output against that listing. It agrees
+  **exactly** on the series count, every series' interval and year count, the number of segments
+  tested per series (3037), and the sample depth and absent-ring count on all 2503 years; on the
+  unfiltered statistics (mean, standard deviation, autocorrelation) to COFECHA's printed
+  precision; and on mean sensitivity to 0.0003 across the run. The master dating series
+  correlates at r = 0.963, and **99.1% of segments reach the same verdict** — flagged or not, and
+  with the same letter. Two things do not reproduce and are documented in the module: COFECHA's
+  AR order (67% agreement; its selection rule is not published, and Schwarz/BIC with a low
+  ceiling fits it far better than the AIC that dplR uses), and Part 7's two "Filtered" columns,
+  whose printed maximum sits in a narrow band unrelated to series length and so is evidently not
+  the maximum of the index.
 - **The composite target is measured before it is used.** Combining targets is the one
   place the app BUILDS a target rather than reading one, and so the one place it can be
   wrong without looking wrong: the mean of two uncorrelated targets is a smooth, plausible
@@ -89,6 +182,27 @@ Then `git push --follow-tags`.
   it records an editing sitting rather than the wood. New `restoreMeasureSeries(state)` in
   src/measure/series.js (and on `RD`), with `createMeasureSeries` now accepting
   `rings`/`reference`/`lastPosition` so a saved state comes back exactly as it was.
+
+### Fixed
+- **Tree grouping collapsed series that only looked like cores of one tree.** Inferring trees by
+  stripping a trailing letter is only the ITRDB convention when what remains ends in a tree
+  *number*; without that guard `sample_a`…`sample_j` became the single tree `sample_`, and EPS was
+  computed on one replicate — silently, which is the dangerous part. The stem must now end in a
+  digit.
+
+- **`readRWL` invented absent rings where a series had been measured in two pieces.** A Tucson
+  file may carry the same series id in two stop-marked records — a core measured in two parts, or
+  a re-used id. The loader merged them into one column and filled the years between with **zero**,
+  which in ring-width data does not mean "not measured", it means an absent ring. `ut550.rwl`
+  splits RCB183A at 1314/1557, so 242 years of no sampling became 242 absent rings; four series
+  in that one file were affected, 306 phantom zeros in total. Those years are now missing, as they
+  should be. A year that a record did cover but whose value was dropped as a negative sentinel
+  (-999) still reads as zero, which is what R does — the two cases are now distinguished rather
+  than conflated.
+
+- Two test suites (`chrono_checker_test`, `engine_test`) hardcoded an absolute fixture path from
+  the machine they were written on and could not run anywhere else; they now read the fixtures
+  bundled in `test/fixtures/extdata`.
 
 ### Changed
 - **The heatmap can show every lag it scanned, not a band around the match.** The

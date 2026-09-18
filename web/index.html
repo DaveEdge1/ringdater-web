@@ -24,19 +24,18 @@
         <label class="inline"><input type="checkbox" id="rep_verbose"> Verbose (full per-window tables)</label>
         <button class="btn" id="reportBtn">Generate run report</button>
         <span class="msg" id="reportMsg"></span>
+        <h3>Crossdating quality check</h3>
+        <p class="hint">COFECHA-equivalent segment correlations, flagged dating positions and
+           problem diagnostics, computed on the ring widths behind the run.</p>
+        <button class="btn" id="cofechaBtn">Generate quality check</button>
+        <button class="btn ghost" id="cofechaTxtBtn" style="display:none">Download COFECHA-format listing</button>
+        <span class="msg" id="cofechaMsg"></span>
       </div>
 
       <div id="exportBuild" style="display:none">
         <h3>Built chronology</h3>
         <ul class="dl-list" id="buildDlList"></ul>
-        <h3>Chronology report</h3>
-        <label class="inline"><input type="checkbox" id="b_verbose"> Verbose (full per-window tables)</label>
-        <div class="plot-controls">
-          <div><label for="b_probs">Problem window</label><input type="number" id="b_probs" value="30"></div>
-          <div><label for="b_eps">EPS/Rbar window</label><input type="number" id="b_eps" value="30"></div>
-        </div>
-        <button class="btn" id="buildReportBtn">Generate chronology report</button>
-        <span class="msg" id="buildReportMsg"></span>
+        <p class="hint">The quality check lives on the Build page, beside the chronology it checks.</p>
       </div>
     </div>
     </div>
@@ -405,6 +404,16 @@
           <div class="tablewrap" id="memberList" style="max-height:220px"></div>
           <p class="hint" style="margin:8px 0 0">Scroll = zoom time; Shift+scroll = zoom width; drag = pan; double-click = reset. Hover a line to see its series.</p>
           <div class="plotwrap" id="buildChronPlot" style="margin-top:6px"></div>
+
+          <h3>Quality check</h3>
+          <p class="hint">Checks every member against the chronology built from the others: whether
+             it dates, and where it does not. Includes the COFECHA diagnostics and the Rbar/EPS
+             statistics. Run it again whenever you add a series.</p>
+          <div class="plot-controls">
+            <div><button class="btn" id="chronQcBtn">Run quality check</button></div>
+            <div><button class="btn ghost" id="chronQcTxtBtn" style="display:none">COFECHA-format listing</button></div>
+          </div>
+          <span class="msg" id="chronQcMsg"></span>
 
           <details id="dateSection">
             <summary>Date the chronology</summary>

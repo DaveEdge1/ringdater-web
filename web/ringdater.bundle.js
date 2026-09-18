@@ -14,7 +14,7 @@
     var msg = "ringdater: Node module \"zlib\" is not available in the browser bundle. (.xlsx reading needs a zlib shim — use CSV/TXT/RWL/.pos/.lps instead.)";
     module.exports = new Proxy({}, { get: function(){ return function(){ throw new Error(msg); }; } });
   });
-  define("m0", {"zlib":"ext:zlib","../index.js":"m1","./chronoChecker.js":"m53","../stats/chron.js":"m47"}, function(module, exports, require){
+  define("m0", {"zlib":"ext:zlib","../index.js":"m1","./chronoChecker.js":"m60","../stats/chron.js":"m55"}, function(module, exports, require){
 'use strict';
 // Browser entry for the RingdateR web apps. Bundled by tools/bundle.js into
 // web/ringdater.bundle.js and exposed as window.RD.
@@ -37,7 +37,7 @@ const { chronStd } = require('../stats/chron.js');
 module.exports = Object.assign({}, RD, { summaryTable, chronStd });
 
   });
-  define("m1", {"./version.js":"m2","./spline.js":"m3","./prewhiten.js":"m4","./curvefit.js":"m5","./supsmu.js":"m7","./rwi_stats.js":"m8","./corr_rwl_seg.js":"m9","./analysis/comb.js":"m11","./stats/cortest.js":"m12","./detrend/normalise.js":"m13","./detrend/detcurves.js":"m14","./detrend/detect.js":"m15","./analysis/autoCorrel.js":"m16","./analysis/rollcor.js":"m17","./analysis/leadLag.js":"m18","./analysis/runningLeadLag.js":"m19","./analysis/heatmap.js":"m20","./analysis/filterCrossdates.js":"m21","./analysis/align.js":"m22","./analysis/correlReplace.js":"m23","./analysis/removeSeries.js":"m24","./analysis/errorMessage.js":"m25","./analysis/checks.js":"m26","./stats/probCheck.js":"m27","./stats/rBarEps.js":"m28","./io/load.js":"m29","./io/csv.js":"m31","./io/xlsx.js":"m32","./io/year.js":"m41","./viz/chartUtils.js":"m42","./engine/store.js":"m43","./engine/actions.js":"m44","./engine/workflows.js":"m45","./engine/builder.js":"m46","./io/downloads.js":"m48","./report.js":"m52","./stats/chron.js":"m47","./engine/chronoChecker.js":"m53","./measure/vro.js":"m55","./measure/series.js":"m56","./viz/linePlot.js":"m50","./viz/datedLinePlot.js":"m57","./viz/allSeries.js":"m58","./viz/heatmapPlot.js":"m54","./viz/detrendPlot.js":"m59","./viz/leadLagBar.js":"m51","./viz/skelPlot.js":"m60","./analysis/skel.js":"m61","./viz/render.js":"m49"}, function(module, exports, require){
+  define("m1", {"./version.js":"m2","./spline.js":"m3","./prewhiten.js":"m4","./curvefit.js":"m5","./supsmu.js":"m7","./rwi_stats.js":"m8","./corr_rwl_seg.js":"m9","./analysis/comb.js":"m11","./stats/cortest.js":"m12","./detrend/normalise.js":"m13","./detrend/detcurves.js":"m14","./detrend/detect.js":"m15","./analysis/autoCorrel.js":"m16","./analysis/rollcor.js":"m17","./analysis/leadLag.js":"m18","./analysis/runningLeadLag.js":"m19","./analysis/heatmap.js":"m21","./analysis/filterCrossdates.js":"m22","./analysis/align.js":"m23","./analysis/correlReplace.js":"m24","./analysis/removeSeries.js":"m25","./analysis/errorMessage.js":"m26","./analysis/checks.js":"m27","./stats/probCheck.js":"m28","./stats/rBarEps.js":"m29","./stats/cofecha.js":"m30","./cofechaReport.js":"m31","./stats/crossdateVerdict.js":"m36","./stats/chronStats.js":"m37","./cofechaText.js":"m38","./io/load.js":"m39","./io/csv.js":"m41","./io/xlsx.js":"m42","./io/year.js":"m35","./viz/chartUtils.js":"m33","./engine/store.js":"m51","./engine/actions.js":"m52","./engine/workflows.js":"m53","./engine/builder.js":"m54","./io/downloads.js":"m56","./report.js":"m59","./stats/chron.js":"m55","./engine/chronoChecker.js":"m60","./measure/vro.js":"m61","./measure/series.js":"m62","./viz/linePlot.js":"m57","./viz/datedLinePlot.js":"m63","./viz/allSeries.js":"m64","./viz/heatmapPlot.js":"m32","./viz/detrendPlot.js":"m65","./viz/leadLagBar.js":"m58","./viz/skelPlot.js":"m66","./analysis/skel.js":"m67","./viz/render.js":"m34"}, function(module, exports, require){
 'use strict';
 // ringdater-js: JS port of the numeric core + analysis layer of dplR/ringdater
 // (crossdating). Every function is validated against R via tools/*.R + test/*.
@@ -78,6 +78,12 @@ const { nameCheck, nameCheckUnique, loadedDataCheck, pairwiseDataCheck } = requi
 // ---- chronology stats (wrappers over the dplR core) ------------------------
 const { probCheck } = require('./stats/probCheck.js');
 const { rBarEps } = require('./stats/rBarEps.js');
+const { cofecha, COFECHA_DEFAULTS, criticalR } = require('./stats/cofecha.js');
+const { renderCofecha } = require('./cofechaReport.js');
+const { crossdateVerdict, CROSSDATE_DEFAULTS } = require('./stats/crossdateVerdict.js');
+const { chronStats, CHRON_DEFAULTS } = require('./stats/chronStats.js');
+const { renderCofechaText } = require('./cofechaText.js');
+const { inferTrees, sss } = require('./rwi_stats.js');
 
 // ---- IO: parsers, loaders, writers (Phase 2) -------------------------------
 const io = require('./io/load.js');
@@ -139,6 +145,11 @@ module.exports = {
 
   // chronology stats
   probCheck, rBarEps,
+
+  // COFECHA-equivalent crossdating quality check + its eight-part report
+  cofecha, COFECHA_DEFAULTS, criticalR, renderCofecha,
+  crossdateVerdict, CROSSDATE_DEFAULTS,
+  chronStats, CHRON_DEFAULTS, inferTrees, sss, renderCofechaText,
 
   // validation / cleaning / messaging
   nameCheck, nameCheckUnique, loadedDataCheck, pairwiseDataCheck, RingdateR_error_message,
@@ -664,10 +675,22 @@ module.exports = { supsmu, friedman };
 //   method="pearson", running.window=TRUE, ids=NULL, prewhiten=FALSE, n=NULL,
 //   period="max", first.start=NULL, zero.is.missing=TRUE.
 //
-// In this regime every series is its own tree with a single core, so the
+// By default every series is its own tree with a single core, so the
 // between/within-tree machinery collapses: there is no within-tree term
-// (n.wt == 0 always) and rbar.tot == rbar.bt == rbar.eff. Multi-core trees
-// (the `ids` argument) are intentionally NOT ported; see note below.
+// (n.wt == 0 always) and rbar.tot == rbar.bt == rbar.eff. That is dplR's
+// behaviour with ids=NULL and is what R_bar_EPS has always produced here.
+//
+// TREES. Most collections take two or more radii from each tree, and two radii
+// of one tree share wood, not just climate — on chronologies/ut550.rwl (110
+// cores from 60 trees) the mean correlation within a tree is 0.663 against 0.361
+// between trees. Counting cores as independent replicates therefore overstates
+// how well a site is sampled. Pass `treeOf` (or `inferTrees`) and the full dplR
+// machinery runs: rbar.wt, rbar.bt, the effective correlation rbar.eff, and an
+// EPS on the number of TREES rather than cores. At full sample depth the
+// difference is cosmetic (EPS .985 vs .971 on ut550); at the old end of a
+// chronology, where the question is whether a stretch is usable at all, the two
+// conventions disagree — 12 cores from 6 trees give EPS .873 per core and .772
+// per tree, either side of the conventional .85.
 //
 // Also note: dplR normalises each column by its mean before correlating, but
 // Pearson correlation is scale-invariant, so that division is a no-op for the
@@ -682,7 +705,43 @@ module.exports = { supsmu, friedman };
 // Output: array of one object per running segment:
 //   { startYear, midYear, endYear, nCores, nTrees, n, rbarTot, eps }
 // mirroring test$start.year, mid.year, end.year, n.cores, n.trees, n,
-// rbar.tot and eps from rwi.stats.running.
+// rbar.tot and eps from rwi.stats.running. With `treeOf` supplied each row also
+// carries rbarWt, rbarBt, rbarEff, epsCores, snr and sss.
+
+// ---------------------------------------------------------------------------
+// inferTrees(ids) — group core ids into trees.
+//
+// The ITRDB convention is SITE + tree number + core letter, so RCB010A and
+// RCB010B are two radii of tree RCB010. Stripping trailing letters recovers
+// that. It is only applied where it actually groups something: if no two ids
+// share a stem the ids are left alone, so a collection that names cores some
+// other way is not silently mangled. Callers should show the grouping and let
+// it be corrected — it changes EPS.
+// ---------------------------------------------------------------------------
+function inferTrees(ids) {
+  // Strip a trailing run of letters ONLY when what remains ends in a digit, which
+  // is what the convention actually says: site code + tree NUMBER + core letter.
+  // Without that guard any ids ending in a letter collapse together — the test
+  // fixture's sample_a .. sample_j all became the single tree "sample_", and a
+  // wrong grouping silently changes EPS.
+  const stem = id => {
+    const t = String(id).replace(/[A-Za-z]+$/, '');
+    return (t.length && /\d$/.test(t)) ? t : String(id);
+  };
+  const groups = new Map();
+  for (const id of ids) {
+    const k = stem(id);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(id);
+  }
+  let grouped = false;
+  for (const v of groups.values()) if (v.length > 1) { grouped = true; break; }
+  const treeOf = {};
+  for (const id of ids) treeOf[id] = grouped ? stem(id) : String(id);
+  const trees = {};
+  for (const id of ids) (trees[treeOf[id]] = trees[treeOf[id]] || []).push(id);
+  return { treeOf, trees, nTrees: Object.keys(trees).length, grouped };
+}
 
 function isMissing(v) {
   return v === null || v === undefined || (typeof v === 'number' && isNaN(v));
@@ -729,6 +788,14 @@ function rwiStatsRunning(rwl, opts) {
     }
     return out;
   });
+
+  // Tree grouping. `treeOf` is an explicit {coreId: treeId} map; `inferTrees:true`
+  // derives one from the ids. Neither given = dplR's ids=NULL, every core its own
+  // tree, which is what every existing caller gets.
+  let treeOf = null;
+  if (opts.treeOf) treeOf = opts.treeOf;
+  else if (opts.inferTrees) treeOf = inferTrees(ids).treeOf;
+  const treeIdx = treeOf ? ids.map(id => (treeOf[id] != null ? String(treeOf[id]) : String(id))) : null;
 
   const windowLength = opts.windowLength;
   const windowOverlap = opts.windowOverlap != null
@@ -797,38 +864,68 @@ function rwiStatsRunning(rwl, opts) {
     const rows = [];                        // 0-based rows in window
     for (let r = s - 1; r <= eIdx - 1; r++) rows.push(r);
 
-    // between-tree pairwise correlations
-    let rsumBt = 0, nBt = 0;
+    // Pairwise correlations, split into pairs from the SAME tree (two radii of
+    // one stem) and pairs from different trees. With no tree map every pair is
+    // between-tree and this reduces exactly to what it did before.
+    let rsumBt = 0, nBt = 0, rsumWt = 0, nWt = 0;
     const goodFlag = new Array(nSeries).fill(false);
     for (let i = 0; i < nSeries - 1; i++) {
       for (let j = i + 1; j < nSeries; j++) {
         const { r, nGood } = pairCor(cols[i], cols[j], rows);
         if (nGood >= minCorrOverlap && nGood > 0 && !isNaN(r)) {
-          rsumBt += r; nBt++;
+          if (treeIdx && treeIdx[i] === treeIdx[j]) { rsumWt += r; nWt++; }
+          else { rsumBt += r; nBt++; }
           goodFlag[i] = true; goodFlag[j] = true;
         }
       }
     }
 
-    const rbarTot = nBt > 0 ? rsumBt / nBt : NaN;
+    const rbarWt = nWt > 0 ? rsumWt / nWt : NaN;
+    const rbarBt = nBt > 0 ? rsumBt / nBt : NaN;
+    const rbarTot = (nWt + nBt) > 0 ? (rsumWt + rsumBt) / (nWt + nBt) : NaN;
 
-    // presence counts over the window (cores == trees here)
-    let nTrees = 0;
+    // presence counts over the window
+    let nCores = 0;
+    const treesPresent = treeIdx ? new Set() : null;
     for (let j = 0; j < nSeries; j++) {
       let any = false;
       for (let k = 0; k < rows.length; k++) { if (notNA[rows[k]][j]) { any = true; break; } }
-      if (any) nTrees++;
+      if (any) { nCores++; if (treesPresent) treesPresent.add(treeIdx[j]); }
     }
-    const nCores = nTrees;
+    const nTrees = treesPresent ? treesPresent.size : nCores;
 
     let n = 0;
     for (let j = 0; j < nSeries; j++) if (goodFlag[j]) n++;
 
-    // n.wt == 0 branch: rbar.eff = rbar.bt = rbar.tot when nBt > 0.
-    const rbarEff = nBt > 0 ? rbarTot : NaN;
-    const eps = n * rbarEff / ((n - 1) * rbarEff + 1);
+    // dplR: with no within-tree pairs, rbar.eff = rbar.bt = rbar.tot. With them,
+    // the cores of a tree are averaged down to one effective series first —
+    // c.eff cores per tree, correlating rbar.wt among themselves — and EPS is
+    // then computed on the number of TREES.
+    let rbarEff, epsN;
+    if (nWt > 0 && Number.isFinite(rbarBt) && Number.isFinite(rbarWt)) {
+      const cEff = nTrees > 0 ? nCores / nTrees : 1;
+      rbarEff = rbarBt / (rbarWt + (1 - rbarWt) / cEff);
+      epsN = nTrees;
+    } else {
+      rbarEff = nBt > 0 ? rbarTot : NaN;
+      epsN = n;
+    }
+    const eps = epsN * rbarEff / ((epsN - 1) * rbarEff + 1);
 
-    out.push({ startYear, midYear, endYear, nCores, nTrees, n, rbarTot, eps });
+    const row = { startYear, midYear, endYear, nCores, nTrees, n, rbarTot, eps };
+    if (treeIdx) {
+      // EPS the old way (every core an independent replicate), kept beside the
+      // tree-aware one so the convention is visible rather than assumed.
+      const epsCores = n * rbarTot / ((n - 1) * rbarTot + 1);
+      // Signal-to-noise and subsample signal strength, both standard companions
+      // to EPS: SNR says how much common signal there is per unit of noise, SSS
+      // how well this many trees represents the full collection.
+      const snr = epsN * rbarEff / (1 - rbarEff);
+      row.rbarWt = rbarWt; row.rbarBt = rbarBt; row.rbarEff = rbarEff;
+      row.epsCores = epsCores; row.snr = snr;
+      row.nWt = nWt; row.nBt = nBt;
+    }
+    out.push(row);
   }
   return out;
 }
@@ -844,7 +941,13 @@ function rBarEps(rwl, window) {
   });
 }
 
-module.exports = { rwiStatsRunning, rBarEps };
+// subsample signal strength: how well `nTrees` trees represent `nMax` of them.
+function sss(nTrees, nMax, rbarEff) {
+  if (!(nTrees > 0) || !(nMax > 0) || !Number.isFinite(rbarEff)) return NaN;
+  return (nTrees * (1 + (nMax - 1) * rbarEff)) / (nMax * (1 + (nTrees - 1) * rbarEff));
+}
+
+module.exports = { rwiStatsRunning, rBarEps, inferTrees, sss };
 
   });
   define("m9", {"./ar.js":"m10"}, function(module, exports, require){
@@ -2169,7 +2272,7 @@ function leadLag(frame, opts = {}) {
 module.exports = { leadLag };
 
   });
-  define("m19", {"./comb.js":"m11","./rollcor.js":"m17"}, function(module, exports, require){
+  define("m19", {"./comb.js":"m11","./rollcor.js":"m17","./rollcorFast.js":"m20"}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // running_lead_lag — running lead-lag correlation between two series (port of
@@ -2190,6 +2293,7 @@ module.exports = { leadLag };
 
 const { combNA, completeCases, isNA, NA } = require('./comb.js');
 const { rollcor } = require('./rollcor.js');
+const { rollcorFast } = require('./rollcorFast.js');
 
 // zoo::rollmean(x, k) — centered simple moving average, align="center",
 // na.pad=FALSE. Output length n-k+1; out[i] = mean(x[i..i+k-1]); any NA in the
@@ -2211,6 +2315,11 @@ function runningLeadLag(frame, opts = {}) {
   let posLag = opts.pos_lag != null ? opts.pos_lag : 20;
   let win = opts.win != null ? opts.win : 21;
   const complete = opts.complete != null ? opts.complete : true;
+  // `fast` swaps in rollcorFast, which produces the same numbers by running sums
+  // (pinned to rollcor in test/rollcor_fast_test.js). Off by default so the
+  // R-validated path is what every existing caller keeps getting; the
+  // crossdating verdict turns it on because it runs this once per lag per series.
+  const roll = opts.fast ? rollcorFast : rollcor;
 
   const iA = frame.names.indexOf(s1);
   const iB = frame.names.indexOf(s2);
@@ -2261,7 +2370,7 @@ function runningLeadLag(frame, opts = {}) {
     for (let i = 0; i < n; i++) if (!isNA(mod1[i]) && !isNA(mod2[i])) bothCount++;
 
     if (bothCount > win) {
-      const corTest = rollcor(mod1, mod2, win);         // length n - win + 1
+      const corTest = roll(mod1, mod2, win);            // length n - win + 1
       const corYear = rollmean(yrMod, win);             // length n - win + 1
       // comb.NA(cor_year, lag_ser, cor_test) then complete.cases
       for (let i = 0; i < corYear.length; i++) {
@@ -2281,7 +2390,79 @@ function runningLeadLag(frame, opts = {}) {
 module.exports = { runningLeadLag, rollmean };
 
   });
-  define("m20", {"./runningLeadLag.js":"m19"}, function(module, exports, require){
+  define("m20", {}, function(module, exports, require){
+'use strict';
+// ============================================================================
+// rollcorFast — the same running Pearson correlation as rollcor.js, computed by
+// sliding running sums instead of re-reading the whole window each step.
+//
+// rollcor() is the faithful port of ringdater's R rollcor_function.R and stays
+// the reference implementation: it is what the R ground-truth tests compare
+// against, and it is what runningLeadLag uses by default. This module exists
+// only because the crossdating verdict needs the same numbers a few thousand
+// times over — one running correlation per lag per series — where rollcor's
+// O(n * width) becomes the dominant cost of a run.
+//
+// CONTRACT (identical to rollcor, deliberately):
+//   * `width` must be odd;
+//   * output length is len - (width - 1), one value per window position;
+//   * a window containing ANY missing value yields NaN, exactly as R's
+//     cor(use = "everything") does — running_lead_lag depends on that, since
+//     its shifted overlaps are NA-padded.
+//
+// NUMERICAL NOTE: adding and subtracting as the window slides accumulates
+// rounding that re-summing does not. Over a series of a few thousand detrended
+// indices the drift is ~1e-12 relative, far below anything that changes a
+// reported correlation, and rollcor_fast_test.js pins the two implementations
+// together at 1e-9. Where exactness against R matters, use rollcor.
+// ============================================================================
+
+const toNum = v => (v == null ? NaN : +v);
+
+function rollcorFast(x, y, width) {
+  const xv = Array.from(x, toNum);
+  const yv = Array.from(y, toNum);
+  if (xv.length !== yv.length) throw new Error('rollcorFast: length(x) must equal length(y)');
+  if (width % 2 === 0) throw new Error('rollcorFast: width must be an odd number');
+
+  const len = xv.length;
+  const nOut = len - (width - 1);
+  if (nOut <= 0) return [];
+  const out = new Array(nOut);
+
+  // Running window state. A missing value contributes nothing to the sums and
+  // is counted instead, so `bad > 0` marks a window that must return NaN
+  // without the sums ever having been polluted by it.
+  let sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0, bad = 0;
+
+  const add = i => {
+    const a = xv[i], b = yv[i];
+    if (Number.isNaN(a) || Number.isNaN(b)) { bad++; return; }
+    sx += a; sy += b; sxx += a * a; syy += b * b; sxy += a * b;
+  };
+  const drop = i => {
+    const a = xv[i], b = yv[i];
+    if (Number.isNaN(a) || Number.isNaN(b)) { bad--; return; }
+    sx -= a; sy -= b; sxx -= a * a; syy -= b * b; sxy -= a * b;
+  };
+
+  for (let i = 0; i < width; i++) add(i);
+  for (let w = 0; w < nOut; w++) {
+    if (w > 0) { drop(w - 1); add(w + width - 1); }
+    if (bad > 0) { out[w] = NaN; continue; }
+    const n = width;
+    const dxx = sxx - sx * sx / n;
+    const dyy = syy - sy * sy / n;
+    const den = Math.sqrt(dxx * dyy);
+    out[w] = den > 0 ? (sxy - sx * sy / n) / den : NaN;
+  }
+  return out;
+}
+
+module.exports = { rollcorFast };
+
+  });
+  define("m21", {"./runningLeadLag.js":"m19"}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // heatmap_analysis — data generator for the running-correlation heatmap (port
@@ -2314,13 +2495,14 @@ function heatmapAnalysis(frame, opts = {}) {
     pos_lag: posLag + center,
     win: opts.win != null ? opts.win : 21,
     complete: opts.complete != null ? opts.complete : true,
+    fast: !!opts.fast,
   });
 }
 
 module.exports = { heatmapAnalysis };
 
   });
-  define("m21", {"./comb.js":"m11"}, function(module, exports, require){
+  define("m22", {"./comb.js":"m11"}, function(module, exports, require){
 'use strict';
 // Port of ringdater::filter_crossdates.
 // Filters the `cross_dat_res` Frame produced by lead_lag_analysis (17 fixed
@@ -2406,7 +2588,7 @@ function filterCrossdates(the_data, opts = {}) {
 module.exports = { filterCrossdates, signif };
 
   });
-  define("m22", {"./comb.js":"m11"}, function(module, exports, require){
+  define("m23", {"./comb.js":"m11"}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // Port of ringdater's alignment functions (T1.8a/b/c):
@@ -2639,7 +2821,7 @@ function src0(col, i) { return isNA(col[i]) ? NA : col[i]; }
 module.exports = { alignSeries, alignToChron, ontoAlignDated, rawAligned };
 
   });
-  define("m23", {"./comb.js":"m11","../stats/cortest.js":"m12"}, function(module, exports, require){
+  define("m24", {"./comb.js":"m11","../stats/cortest.js":"m12"}, function(module, exports, require){
 'use strict';
 // Port of ringdater::correl_replace.
 // For each series (columns 2..ncol of the Frame; column 1 is years), build an
@@ -2718,7 +2900,7 @@ function correlReplace(the_data) {
 module.exports = { correlReplace, COLHEAD };
 
   });
-  define("m24", {"./comb.js":"m11"}, function(module, exports, require){
+  define("m25", {"./comb.js":"m11"}, function(module, exports, require){
 'use strict';
 // Port of ringdater::remove_series.
 // Removes every column whose name matches an entry of `series_id` from a Frame.
@@ -2758,7 +2940,7 @@ function removeSeries(the_data, series_id) {
 module.exports = { removeSeries };
 
   });
-  define("m25", {}, function(module, exports, require){
+  define("m26", {}, function(module, exports, require){
 'use strict';
 // Port of ringdater::RingdateR_error_message.
 // In R this renders a text placeholder as a ggplot when data is missing. There
@@ -2789,7 +2971,7 @@ function RingdateR_error_message(message = DEFAULT_MESSAGE, plot_err = true) {
 module.exports = { RingdateR_error_message, DEFAULT_MESSAGE };
 
   });
-  define("m26", {"./comb":"m11"}, function(module, exports, require){
+  define("m27", {"./comb":"m11"}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // Data validation / cleaning checks, ports of three ringdater R functions:
@@ -3063,7 +3245,7 @@ module.exports = {
 };
 
   });
-  define("m27", {"../corr_rwl_seg.js":"m9"}, function(module, exports, require){
+  define("m28", {"../corr_rwl_seg.js":"m9"}, function(module, exports, require){
 'use strict';
 // Port of ringdater::prob_check — a thin wrapper over dplR::corr.rwl.seg
 // (already ported as corrRwlSeg) that flags aligned samples whose segment
@@ -3141,7 +3323,7 @@ function probCheck(frame, opts) {
 module.exports = { probCheck };
 
   });
-  define("m28", {"../rwi_stats.js":"m8"}, function(module, exports, require){
+  define("m29", {"../rwi_stats.js":"m8"}, function(module, exports, require){
 'use strict';
 // Port of ringdater::R_bar_EPS — a thin wrapper over dplR::rwi.stats.running
 // (already ported as rBarEps/rwiStatsRunning) that returns a running Rbar / EPS
@@ -3208,7 +3390,2573 @@ function rBarEps(frame, opts) {
 module.exports = { rBarEps };
 
   });
-  define("m29", {"./loaders.js":"m30","./pos.js":"m33","./lps.js":"m34","./rwl.js":"m36","./crn.js":"m37","./ringMeasurer.js":"m38","./meta.js":"m39","./tridas.js":"m40","../analysis/comb.js":"m11"}, function(module, exports, require){
+  define("m30", {"../analysis/comb.js":"m11","../spline.js":"m3","../ar.js":"m10","./cortest.js":"m12"}, function(module, exports, require){
+'use strict';
+// ============================================================================
+// cofecha.js — a faithful re-implementation of the crossdating quality checks
+// performed by COFECHA (Holmes 1983), following the program description in
+//   Grissino-Mayer, H.D. (2001) "Evaluating crossdating accuracy: a manual and
+//   tutorial for the computer program COFECHA", Tree-Ring Research 57(2):205-221
+// (the copy in ringdater-web/GrissinoCOFECHA.pdf). Page references below are to
+// that paper.
+//
+// WHAT COFECHA DOES (p. 210, "WHAT COFECHA DOES"):
+//   1. Each measurement series is transformed: spline fit (Option 1), then
+//      autoregressive modelling (Option 3), then log transform (Option 4), then
+//      first differencing (Option F) if selected.
+//   2. Transformed values accumulate into a sum series and a counter series
+//      (number of series present per year); master = sum / counter, i.e. the
+//      ARITHMETIC mean of all transformed dated series.
+//   3. Each series is tested against the master with ITS OWN contribution
+//      removed ("to avoid comparing the tested series against itself").
+//   4. For each segment a correlation is computed, checked to be positive and
+//      significant at the chosen confidence level, and compared against the
+//      correlations obtained by shifting the segment -10..+10 years.
+//
+// FLAGS. The program prints its own legend above the Part 5 matrix, and it is
+// the authoritative statement of the rule:
+//   "A = correlation under <crit> but highest as dated;
+//    B = correlation higher at other than dated position"
+// So 'B' depends ONLY on a better alternate position existing: a segment can
+// correlate significantly as dated and still be flagged B. Only 'A' requires the
+// segment to have failed the critical value. Reading p. 212's prose as though
+// both flags required failing significance misses most of COFECHA's B flags —
+// on ut550 it flags RCB124B 200-249 at r = 0.39, well above the 0.3281 critical
+// value, because a shifted position scored higher.
+//
+// SEGMENTATION (p. 211, col. 1):
+//   "the first segment to be tested will always begin with the first year of the
+//    series, while the last segment to be tested always ends with the last year
+//    of the series. All segments tested, no matter when they begin, are of the
+//    same length ... Intermediate segments being tested will always begin on
+//    years evenly divisible by the lag value."
+//   Verified against the worked examples: LLC003B 1695-1887 gives 8 segments,
+//   the last being 1838-1887 (Table 8); LLC001B 1705-1858 gives 6 (Table 3).
+//
+// CRITICAL VALUES (p. 209, Table 2): the one-tailed Student-t critical value at
+//   `pcrit` on df = n-2, converted to r. Reproduces Table 2 exactly
+//   (n=50 -> 0.3281, n=10 -> 0.7155, n=100 -> 0.2324).
+//
+// INPUT is the shared Frame contract: cols[0] = years (ascending integers),
+// cols[1..] = RAW ring-width measurements (missing = null/NaN, absent ring = 0).
+//
+// VALIDATED against the real program: Cofecha_MRWE.exe (COFECHA 6.06) run on
+// chronologies/ut550.rwl (110 columns / 114 series, 504 BC - AD 2014) with every
+// Main Menu default accepted. See tools/cofecha_compare.js and the ut550 section
+// of test/cofecha_test.js. On that run:
+//   EXACT   series count, every series' interval, years, segments tested per
+//           series, sample depth and absent-ring count on all 2503 years, and
+//           the unfiltered statistics (mean, std dev, autocorrelation)
+//   ~EXACT  mean sensitivity (0.3867 vs COFECHA's 0.3864 over the run)
+//   CLOSE   master dating series r = 0.963 over 2503 years; correlation with
+//           master within 0.05 on 89% of series; 99.1% of segments reach the
+//           SAME verdict (flagged / not, and the same letter)
+//   OPEN    the AR order agrees on 67% of series, and Part 7's two "Filtered"
+//           columns (max value, std dev) do not reproduce — COFECHA's printed
+//           max sits in a narrow 2.35-2.84 band that is uncorrelated with series
+//           length, so it is evidently not a plain maximum of the index, and
+//           what it is has not been identified. Those two columns are reported
+//           here as the honest maximum and standard deviation of the detrended,
+//           AR-modelled series and will not match COFECHA's.
+//
+// Deliberate divergences from ringdater's own pipeline, all for COFECHA fidelity:
+//   * the log transform adds ONE SIXTH OF THE SERIES MEAN (p. 208, Option 4),
+//     not ringdater normalise()'s constant of (abs(min)+1)*7/6;
+//   * the master is the plain arithmetic mean, not dplR's Tukey biweight;
+//   * correlations are Pearson (p. 208-209, Option 5) and flags use the 99%
+//     ONE-TAILED level, not dplR / prob_check's two-sided p = 0.05.
+// ============================================================================
+
+const C = require('../analysis/comb.js');
+const { detrendSpline } = require('../spline.js');
+const { levinson, acov } = require('../ar.js');
+const { pt2sided } = require('./cortest.js');
+
+// The COFECHA Main Menu defaults (pp. 207-210).
+const COFECHA_DEFAULTS = {
+  splineLength: 32,   // Option 1: 50% frequency response at 32 years; <= 0 = no detrending
+  segLength: 50,      // Option 2: segment length to examine
+  segLag: 25,         // Option 2: lag between successive segments (50% overlap)
+  arModel: true,      // Option 3: autoregressive modelling
+  arMaxOrder: 3,      // highest AR order considered (see arFit)
+  arMinOrder: 1,      // COFECHA never reports order 0
+  standardize: true,  // z-score each transformed series before it joins the master
+  logTransform: true, // Option 4: log transform of the detrended, AR-modelled series
+  pcrit: 0.01,        // Option 5: 99% one-tailed confidence level
+  shift: 10,          // -10..+10 alternate dating positions (p. 210)
+  omitAbsent: true,   // Option 9: omit absent rings from the master
+  firstDiff: false,   // Option F: transform series using first differences
+  minOthers: 3,       // series needed before an "all other series" SD is meaningful
+  outlierHigh: 3.0,   // Part 6[E]: > 3.0 SD ABOVE the mean of the other series
+  outlierLow: 4.5,    // Part 6[E]: > 4.5 SD BELOW the mean of the other series
+  divergeSD: 4.0,     // Part 6[C]: consecutive year change diverging by >= 4 SD
+  leverageN: 4,       // Part 6[B]: the four years that most lower / raise r
+  keepSeries: true,   // return each series' transformed values + its leave-one-out master
+};
+
+const isNA = v => v == null || (typeof v === 'number' && Number.isNaN(v));
+
+// ---------------------------------------------------------------------------
+// Critical correlation coefficient: Table 2 (p. 209).
+// r_crit = t / sqrt(t^2 + df) where P(T_df > t) = alpha (ONE-tailed), df = n-2.
+// pt2sided(t, df) = P(|T| >= t) = 2 * P(T > t), so solve pt2sided = 2*alpha.
+// ---------------------------------------------------------------------------
+function criticalR(n, alpha) {
+  const df = n - 2;
+  if (!(df >= 1) || !(alpha > 0) || !(alpha < 0.5)) return NaN;
+  const target = 2 * alpha;
+  let lo = 0, hi = 1000;                     // pt2sided is monotone decreasing in t
+  for (let i = 0; i < 200; i++) {
+    const mid = (lo + hi) / 2;
+    if (pt2sided(mid, df) > target) lo = mid; else hi = mid;
+  }
+  const t = (lo + hi) / 2;
+  return t / Math.sqrt(t * t + df);
+}
+
+// ---------------------------------------------------------------------------
+// Correlation kernels. Sums are carried so a single observation can be dropped
+// in O(1) for the Part 6[B] leverage profile.
+// ---------------------------------------------------------------------------
+function rFromSums(n, sx, sy, sxx, syy, sxy) {
+  if (n < 3) return NaN;
+  const dxx = sxx - sx * sx / n;
+  const dyy = syy - sy * sy / n;
+  const den = Math.sqrt(dxx * dyy);
+  return den > 0 ? (sxy - sx * sy / n) / den : NaN;
+}
+
+function sumsOf(x, y) {
+  let n = 0, sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0;
+  for (let i = 0; i < x.length; i++) {
+    const a = x[i], b = y[i];
+    n++; sx += a; sy += b; sxx += a * a; syy += b * b; sxy += a * b;
+  }
+  return { n, sx, sy, sxx, syy, sxy };
+}
+
+function corr(x, y) {
+  const s = sumsOf(x, y);
+  return { n: s.n, r: rFromSums(s.n, s.sx, s.sy, s.sxx, s.syy, s.sxy) };
+}
+
+function meanOf(a) { let s = 0, n = 0; for (const v of a) if (!isNA(v)) { s += v; n++; } return n ? s / n : NaN; }
+
+function sdOf(a) {
+  const m = meanOf(a);
+  let ss = 0, n = 0;
+  for (const v of a) if (!isNA(v)) { const d = v - m; ss += d * d; n++; }
+  return n > 1 ? Math.sqrt(ss / (n - 1)) : NaN;
+}
+
+// Lag-1 autocorrelation (Part 7 "Auto corr").
+function ac1(a) {
+  const v = a.filter(x => !isNA(x));
+  if (v.length < 3) return NaN;
+  return corr(v.slice(0, -1), v.slice(1)).r;
+}
+
+// Mean sensitivity (Part 7 "Mean sens"): mean |2(x[t+1]-x[t]) / (x[t+1]+x[t])|.
+function meanSensitivity(a) {
+  const v = a.filter(x => !isNA(x));
+  let s = 0, n = 0;
+  for (let i = 0; i + 1 < v.length; i++) {
+    const sum = v[i + 1] + v[i];
+    if (sum === 0) continue;
+    s += Math.abs(2 * (v[i + 1] - v[i]) / sum); n++;
+  }
+  return n ? s / n : NaN;
+}
+
+// ---------------------------------------------------------------------------
+// Autoregressive model (Option 3). COFECHA reports the order it selected but
+// not the rule it used, and plain AIC is not it: on ut550 AIC keeps adding
+// terms until it hits whatever ceiling it is given (order 30+ uncapped), while
+// COFECHA reports order 1 for 75 of 114 series and never more than 9. The
+// Schwarz/BIC penalty of k*log(n) reproduces that parsimony — on RCB012A, where
+// AIC declines monotonically past order 12, BIC has its minimum at exactly the
+// order 1 COFECHA chose — and `arMaxOrder` bounds the search as COFECHA's
+// ceiling does. Matching it on ut550 is empirical, not documented: BIC with
+// arMaxOrder 3 agrees with COFECHA's order on 67% of series, against 16% for
+// uncapped AIC.
+//
+// Unlike dplR's ar.func, the first `order` values are NOT dropped. COFECHA
+// reports each series over its full measurement interval and counts it in the
+// sample depth from its first ring, so discarding the leading values would lose
+// real data from the master — with an order of 30 it emptied the early years of
+// ut550 entirely.
+// ---------------------------------------------------------------------------
+function arFit(x, o) {
+  const n = x.length;
+  const xm = meanOf(x);
+  const xc = x.map(v => v - xm);
+  const cap = Math.min(n - 1, o.arMaxOrder != null ? o.arMaxOrder : 3);
+  const floor = Math.max(0, Math.min(cap, o.arMinOrder != null ? o.arMinOrder : 1));
+  if (cap < 1) return { order: 0, resid: x.slice() };
+  const r = acov(Float64Array.from(xc), cap);
+  const { coefs, vars } = levinson(r, cap);
+  const varPred = [r[0]].concat(Array.from(vars));
+  let best = Infinity, order = floor;
+  for (let k = floor; k <= cap; k++) {
+    if (!(varPred[k] > 0)) continue;
+    const crit = n * Math.log(varPred[k]) + k * Math.log(n);   // Schwarz / BIC
+    if (crit < best) { best = crit; order = k; }
+  }
+  const ar = order > 0 ? coefs[order - 1] : [];
+  const resid = new Array(n);
+  for (let t = 0; t < n; t++) {
+    if (t < order) { resid[t] = x[t]; continue; }   // keep, do not discard
+    let e = xc[t];
+    for (let j = 1; j <= order; j++) e -= ar[j - 1] * xc[t - j];
+    resid[t] = e + xm;
+  }
+  return { order, resid };
+}
+
+// ---------------------------------------------------------------------------
+// The per-series transform chain (p. 210). `raw` is the full-length column; the
+// chain runs on the present values only and is written back in place, so
+// leading / trailing gaps stay NA.
+// ---------------------------------------------------------------------------
+function transformSeries(raw, o) {
+  const at = [];
+  for (let i = 0; i < raw.length; i++) if (!isNA(raw[i])) at.push(i);
+  const out = new Array(raw.length).fill(NaN);
+  if (at.length < 5) return { values: out, preLog: out.slice(), arOrder: 0, nLogFailed: 0 };
+
+  let v = at.map(i => Number(raw[i]));
+
+  // Option 1 — spline. detrendSpline replaces zeros with 0.001 and returns the
+  // ratio series/curve, exactly as dplR::detrend.series does. A non-positive
+  // splineLength means "no detrending": test the untransformed measurements.
+  if (o.splineLength > 0) v = Array.from(detrendSpline(v, o.splineLength, 0.5).detrended);
+
+  // Option 3 — AR modelling.
+  let arOrder = 0;
+  if (o.arModel) { const fit = arFit(v, o); arOrder = fit.order; v = fit.resid; }
+
+  // Part 7's "Filtered" statistics are quoted on the detrended, AR-modelled
+  // series BEFORE the log transform — COFECHA prints a max around 2.5 and a
+  // standard deviation around 0.35 for it, i.e. an index with mean 1, not log
+  // units. Keep that series alongside the one the correlations run on.
+  const preLog = v.slice();
+
+  // Option 4 — log transform, adding one sixth of the series mean (p. 208).
+  let nLogFailed = 0;
+  if (o.logTransform) {
+    const c = meanOf(v) / 6;
+    v = v.map(x => {
+      if (isNA(x)) return NaN;
+      const z = x + c;
+      if (!(z > 0)) { nLogFailed++; return NaN; }
+      return Math.log(z);
+    });
+  }
+
+  // Option F — first differences.
+  if (o.firstDiff) {
+    const d = new Array(v.length).fill(NaN);
+    for (let i = 1; i < v.length; i++) if (!isNA(v[i]) && !isNA(v[i - 1])) d[i] = v[i] - v[i - 1];
+    v = d;
+  }
+
+  // Option 4b — put every series on one scale before it joins the master, so a
+  // variable series cannot outweigh a quiet one in the mean.
+  if (o.standardize) {
+    const mu = meanOf(v), sg = sdOf(v);
+    if (sg > 0) v = v.map(x => (isNA(x) ? NaN : (x - mu) / sg));
+  }
+
+  const out2 = new Array(raw.length).fill(NaN);
+  for (let k = 0; k < at.length; k++) { out[at[k]] = v[k]; out2[at[k]] = preLog[k]; }
+  return { values: out, preLog: out2, arOrder, nLogFailed };
+}
+
+// ---------------------------------------------------------------------------
+// Segment layout for one series (p. 211). Returns [[start, end], ...].
+// ---------------------------------------------------------------------------
+function buildSegments(start, end, segLength, segLag) {
+  if (!(end - start + 1 >= segLength)) return [];
+  const starts = new Set([start]);                       // first segment: series start
+  const firstMult = Math.ceil(start / segLag) * segLag;  // intermediates: divisible by lag
+  for (let b = firstMult; b + segLength - 1 <= end; b += segLag) starts.add(b);
+  starts.add(end - segLength + 1);                       // last segment: ends at series end
+  return [...starts].sort((a, b) => a - b).map(b => [b, b + segLength - 1]);
+}
+
+// ---------------------------------------------------------------------------
+// cofecha(frame, opts)
+// ---------------------------------------------------------------------------
+function cofecha(frame, opts) {
+  if (!frame || !Array.isArray(frame.names) || !Array.isArray(frame.cols)) {
+    throw new Error('cofecha: input must be a Frame { names, cols }');
+  }
+  const o = Object.assign({}, COFECHA_DEFAULTS, opts || {});
+  if (C.ncol(frame) - 1 < 2) throw new Error('cofecha: at least two series are required');
+  if (!(o.segLag > 0) || !(o.segLength > o.segLag)) {
+    throw new Error('cofecha: segLength must exceed segLag, and segLag must be positive');
+  }
+
+  const years = frame.cols[0].map(Number);
+  const nrow = years.length;
+  const rowOfYear = new Map();
+  for (let i = 0; i < nrow; i++) rowOfYear.set(years[i], i);
+
+  // Each column becomes one or more ANALYSIS UNITS. A Tucson file may carry the
+  // same id in two stop-marked records (a core measured in two pieces, or a
+  // re-used id); the loader merges them into one column with a gap, and COFECHA
+  // treats them as two series — ut550 has four such ids, which is why it reports
+  // 114 series for 110 columns. Splitting on the gap also stops one spline being
+  // fitted across an interval that was never sampled.
+  const units = [];
+  for (let c = 1; c < frame.cols.length; c++) {
+    const col = frame.cols[c].map(v => (isNA(v) ? NaN : Number(v)));
+    let lo = -1;
+    for (let i = 0; i <= nrow; i++) {
+      const present = i < nrow && !isNA(col[i]);
+      if (present && lo < 0) lo = i;
+      if (!present && lo >= 0) {
+        const run = new Array(nrow).fill(NaN);
+        for (let k = lo; k < i; k++) run[k] = col[k];
+        units.push({ id: frame.names[c], raw: run });
+        lo = -1;
+      }
+    }
+  }
+  if (units.length < 2) throw new Error('cofecha: at least two series are required');
+  const nser = units.length;
+  units.forEach((u, i) => { u.seq = i + 1; });
+
+  // -- 1. transform every series --------------------------------------------
+  const tr = units.map(u => transformSeries(u.raw, o));
+  const idx = tr.map(t => t.values);                        // transformed indices
+  const zeroMask = units.map(u => u.raw.map(v => v === 0));  // absent rings
+
+  // -- 2. accumulate the master (sum + counter), Option 9 omitting absent ----
+  // Two counters, because they answer different questions: `depth` is how many
+  // series recorded a ring that year (Part 3's "No", which counts absent rings
+  // among them), while `cnt` is how many values went into the mean, which under
+  // Option 9 excludes them. Conflating the two put the sample depth out on every
+  // year that had an absent ring.
+  const sum = new Float64Array(nrow), cnt = new Float64Array(nrow);
+  const depth = new Int32Array(nrow), absentCount = new Int32Array(nrow);
+  for (let s = 0; s < nser; s++) {
+    for (let i = 0; i < nrow; i++) {
+      if (isNA(units[s].raw[i])) continue;
+      depth[i]++;
+      if (zeroMask[s][i]) absentCount[i]++;
+      if (isNA(idx[s][i])) continue;
+      if (o.omitAbsent && zeroMask[s][i]) continue;
+      sum[i] += idx[s][i]; cnt[i]++;
+    }
+  }
+  const masterIdx = new Array(nrow);
+  for (let i = 0; i < nrow; i++) masterIdx[i] = cnt[i] > 0 ? sum[i] / cnt[i] : NaN;
+  // Part 3: the printed master is standardized to mean 0, SD 1.
+  const mMean = meanOf(masterIdx), mSD = sdOf(masterIdx);
+  const masterZ = masterIdx.map(v => (isNA(v) ? NaN : (v - mMean) / mSD));
+
+  // -- 3. per-series analysis ----------------------------------------------
+  const seriesOut = [];
+  for (let s = 0; s < nser; s++) {
+    const x = idx[s], rawx = units[s].raw, pre = tr[s].preLog;
+
+    // leave-one-out master: remove this series' own contribution (p. 210).
+    const m = new Array(nrow);
+    for (let i = 0; i < nrow; i++) {
+      let si = sum[i], ci = cnt[i];
+      if (!isNA(x[i]) && !(o.omitAbsent && zeroMask[s][i])) { si -= x[i]; ci -= 1; }
+      m[i] = ci > 0 ? si / ci : NaN;
+    }
+
+    // measurement span (Part 7 "Interval") and the span with usable indices
+    let firstRow = -1, lastRow = -1, firstIdx = -1, lastIdx = -1;
+    for (let i = 0; i < nrow; i++) {
+      if (!isNA(rawx[i])) { if (firstRow < 0) firstRow = i; lastRow = i; }
+      if (!isNA(x[i]) && !isNA(m[i])) { if (firstIdx < 0) firstIdx = i; lastIdx = i; }
+    }
+    if (firstRow < 0) continue;                          // series is entirely missing
+
+    // ---- Part 5 / 6[A]: segments, shifts and flags ------------------------
+    // Segments span the MEASUREMENT interval. COFECHA reports each series over
+    // its full interval and tests segments across all of it.
+    const segments = [];
+    if (firstIdx >= 0) {
+      for (const [b, e] of buildSegments(years[firstRow], years[lastRow], o.segLength, o.segLag)) {
+        const rByShift = new Array(2 * o.shift + 1).fill(NaN);
+        const nByShift = new Array(2 * o.shift + 1).fill(0);
+        for (let d = -o.shift; d <= o.shift; d++) {
+          const xs = [], ms = [];
+          for (let y = b; y <= e; y++) {
+            const ri = rowOfYear.get(y), rj = rowOfYear.get(y + d);
+            if (ri === undefined || rj === undefined) continue;
+            if (isNA(x[ri]) || isNA(m[rj])) continue;
+            xs.push(x[ri]); ms.push(m[rj]);
+          }
+          const c0 = corr(xs, ms);
+          rByShift[d + o.shift] = c0.r; nByShift[d + o.shift] = c0.n;
+        }
+        const n0 = nByShift[o.shift], r0 = rByShift[o.shift];
+        if (!(n0 >= 3)) continue;                        // nothing to test here
+        const crit = criticalR(n0, o.pcrit);
+        const ok = Number.isFinite(r0) && r0 > 0 && r0 >= crit;
+
+        // best ALTERNATE position (the zero shift is the dated position)
+        let high = 0, rHigh = -Infinity;
+        for (let d = -o.shift; d <= o.shift; d++) {
+          if (d === 0) continue;
+          const rr = rByShift[d + o.shift];
+          if (Number.isFinite(rr) && rr > rHigh) { rHigh = rr; high = d; }
+        }
+        const haveAlt = Number.isFinite(rHigh);
+        if (!haveAlt) { rHigh = NaN; high = 0; }
+
+        // COFECHA's own legend, printed above its Part 5 matrix, is the exact
+        // rule and it is NOT the one the paper's prose suggests:
+        //   "A = correlation under <crit> but highest as dated;
+        //    B = correlation higher at other than dated position"
+        // A 'B' therefore depends only on a better alternate position existing —
+        // a segment can correlate significantly as dated and still be flagged B.
+        // Requiring it to fail significance first (the obvious reading of p.212)
+        // missed most of COFECHA's B flags on ut550: it flags RCB124B 200-249 at
+        // r = 0.39, comfortably above the 0.3281 critical value.
+        let flag = null;
+        if (haveAlt && rHigh > r0) flag = 'B';
+        else if (!ok) flag = 'A';
+
+        segments.push({
+          start: b, end: e, n: n0, r: r0, crit,
+          significant: ok, flag,
+          high: flag === 'B' ? high : 0,
+          rHigh,
+          rHighSignificant: haveAlt && rHigh >= criticalR(nByShift[high + o.shift], o.pcrit),
+          rByShift, nByShift, shiftMin: -o.shift,
+        });
+      }
+    }
+    const nFlags = segments.filter(g => g.flag).length;
+
+    // ---- whole-series correlation with master (Part 7 "Corr with Master") --
+    const wx = [], wm = [];
+    for (let i = 0; i < nrow; i++) if (!isNA(x[i]) && !isNA(m[i])) { wx.push(x[i]); wm.push(m[i]); }
+    const whole = corr(wx, wm);
+
+    // ---- Part 6[B]: years that most lower / raise the correlation ---------
+    const leverageOver = (rowsFrom, rowsTo) => {
+      const px = [], pm = [], py = [];
+      for (let i = rowsFrom; i <= rowsTo; i++) {
+        if (isNA(x[i]) || isNA(m[i])) continue;
+        px.push(x[i]); pm.push(m[i]); py.push(years[i]);
+      }
+      const S = sumsOf(px, pm);
+      const rAll = rFromSums(S.n, S.sx, S.sy, S.sxx, S.syy, S.sxy);
+      if (!Number.isFinite(rAll) || S.n < 5) return null;
+      const eff = [];
+      for (let k = 0; k < px.length; k++) {
+        const a = px[k], b2 = pm[k];
+        const rMinus = rFromSums(S.n - 1, S.sx - a, S.sy - b2,
+          S.sxx - a * a, S.syy - b2 * b2, S.sxy - a * b2);
+        if (Number.isFinite(rMinus)) eff.push({ year: py[k], delta: rAll - rMinus });
+      }
+      eff.sort((p, q) => p.delta - q.delta);
+      return {
+        r: rAll,
+        lower: eff.slice(0, o.leverageN),
+        higher: eff.slice(-o.leverageN).reverse(),
+      };
+    };
+    const entireLeverage = firstIdx >= 0 ? leverageOver(firstIdx, lastIdx) : null;
+    const segLeverage = [];
+    for (const g of segments) {
+      if (!g.flag) continue;
+      const a = rowOfYear.get(g.start), b2 = rowOfYear.get(g.end);
+      if (a === undefined || b2 === undefined) continue;
+      const lv = leverageOver(a, b2);
+      if (lv) segLeverage.push(Object.assign({ start: g.start, end: g.end, flag: g.flag }, lv));
+    }
+
+    // ---- Part 6[C]: consecutive year changes diverging by >= 4 SD ---------
+    const divergent = [];
+    for (let i = 1; i < nrow; i++) {
+      if (isNA(x[i]) || isNA(x[i - 1])) continue;
+      const mine = x[i] - x[i - 1];
+      const others = [];
+      for (let t = 0; t < nser; t++) {
+        if (t === s) continue;
+        if (isNA(idx[t][i]) || isNA(idx[t][i - 1])) continue;
+        others.push(idx[t][i] - idx[t][i - 1]);
+      }
+      if (others.length < o.minOthers) continue;
+      const mu = meanOf(others), sd = sdOf(others);
+      if (!(sd > 0)) continue;
+      const z = (mine - mu) / sd;
+      if (Math.abs(z) >= o.divergeSD) {
+        divergent.push({ year: years[i], change: mine, meanOther: mu, sdOther: sd, sd: z });
+      }
+    }
+
+    // ---- Part 6[D]: absent rings -----------------------------------------
+    // "ring is not normally narrow" (p. 213) — the master does not show a narrow
+    // ring in the year this series recorded no growth.
+    const absent = [];
+    for (let i = 0; i < nrow; i++) {
+      if (!zeroMask[s][i]) continue;
+      const mz = isNA(m[i]) ? NaN : (m[i] - mMean) / mSD;
+      absent.push({
+        year: years[i], masterZ: mz, sampleDepth: depth[i],
+        totalAbsent: absentCount[i], notNarrow: Number.isFinite(mz) && mz >= 0,
+      });
+    }
+
+    // ---- Part 6[E]: outliers vs the other series in the same year ---------
+    const outliers = [];
+    for (let i = 0; i < nrow; i++) {
+      if (isNA(x[i])) continue;
+      const others = [];
+      for (let t = 0; t < nser; t++) { if (t !== s && !isNA(idx[t][i])) others.push(idx[t][i]); }
+      if (others.length < o.minOthers) continue;
+      const mu = meanOf(others), sd = sdOf(others);
+      if (!(sd > 0)) continue;
+      const z = (x[i] - mu) / sd;
+      if (z > o.outlierHigh) outliers.push({ year: years[i], value: x[i], meanOther: mu, sdOther: sd, sd: z, side: 'high' });
+      else if (z < -o.outlierLow) outliers.push({ year: years[i], value: x[i], meanOther: mu, sdOther: sd, sd: z, side: 'low' });
+    }
+
+    // ---- Part 7: descriptive statistics ----------------------------------
+    const msmt = [];
+    for (let i = firstRow; i <= lastRow; i++) if (!isNA(rawx[i])) msmt.push(rawx[i]);
+    const indexVals = pre.filter(v => !isNA(v));
+
+    seriesOut.push({
+      seq: units[s].seq, id: units[s].id,
+      // The transformed series and the master it was actually tested against.
+      // crossdateVerdict re-correlates these two through a running window, so it
+      // has to be the SAME leave-one-out master the segment correlations used —
+      // rebuilding it from the run master would compare the series partly
+      // against itself. `keepSeries` suppresses these when the caller only wants
+      // the tables, since together they are two arrays per series.
+      transformed: o.keepSeries === false ? null : x.slice(),
+      looMaster: o.keepSeries === false ? null : m.slice(),
+      first: years[firstRow], last: years[lastRow], nYears: msmt.length,
+      arOrder: tr[s].arOrder, nLogFailed: tr[s].nLogFailed,
+      corrWithMaster: whole.r, overlapWithMaster: whole.n,
+      nSegments: segments.length, nFlags,
+      segments,
+      stats: {
+        meanMsmt: meanOf(msmt), maxMsmt: msmt.length ? Math.max(...msmt) : NaN,
+        sdMsmt: sdOf(msmt), ac1Msmt: ac1(msmt), meanSens: meanSensitivity(msmt),
+        maxIndex: indexVals.length ? Math.max(...indexVals) : NaN,
+        sdIndex: sdOf(indexVals), ac1Index: ac1(indexVals),
+      },
+      problems: {
+        leverage: { entire: entireLeverage, segments: segLeverage },
+        divergent, absent, outliers,
+      },
+    });
+  }
+
+  // -- 4. the Part 5 display grid ------------------------------------------
+  // COFECHA prints the segment matrix on a global grid of bins stepping by the
+  // lag. A series' FIRST segment is printed under the last bin starting strictly
+  // before the series begins, and the remaining segments fill columns in order —
+  // which is why a segment's true span can differ from its column heading
+  // (Table 3: LLC001A's 1725-1774 segment prints under the 1700-1749 heading).
+  // True spans stay on each segment; this is the classic layout only.
+  let gridMin = Infinity, gridMax = -Infinity;
+  for (const sr of seriesOut) {
+    if (sr.first < gridMin) gridMin = sr.first;
+    if (sr.last > gridMax) gridMax = sr.last;
+  }
+  const binStarts = [];
+  if (Number.isFinite(gridMin)) {
+    const b0 = Math.floor((gridMin - 1) / o.segLag) * o.segLag;
+    for (let b = b0; b <= gridMax; b += o.segLag) binStarts.push(b);
+  }
+  let usedCols = 0;
+  for (const sr of seriesOut) {
+    if (!sr.segments.length) { sr.gridOffset = 0; continue; }
+    const b0 = Math.floor((sr.segments[0].start - 1) / o.segLag) * o.segLag;
+    const off = Math.max(0, binStarts.indexOf(b0));
+    sr.gridOffset = off;
+    sr.segments.forEach((g, k) => { g.col = off + k; });
+    usedCols = Math.max(usedCols, off + sr.segments.length);
+  }
+  if (usedCols > 0) binStarts.length = Math.min(binStarts.length, usedCols);
+
+  // -- 5. run summary (Part 1 / Part 7 totals) ------------------------------
+  const totSeg = seriesOut.reduce((a, b) => a + b.nSegments, 0);
+  const totFlag = seriesOut.reduce((a, b) => a + b.nFlags, 0);
+  const corrs = seriesOut.map(s => s.corrWithMaster).filter(Number.isFinite);
+  const senss = seriesOut.map(s => s.stats.meanSens).filter(Number.isFinite);
+  const lens = seriesOut.map(s => s.nYears);
+
+  return {
+    options: o,
+    years,
+    master: {
+      index: masterIdx, z: masterZ,
+      sampleDepth: Array.from(depth), absent: Array.from(absentCount),
+    },
+    timeSpans: seriesOut.map(s => ({ seq: s.seq, id: s.id, first: s.first, last: s.last, nYears: s.nYears })),
+    grid: { binStarts, segLength: o.segLength, segLag: o.segLag },
+    series: seriesOut,
+    summary: {
+      nSeries: seriesOut.length,
+      interval: [gridMin, gridMax],
+      nSegments: totSeg,
+      nFlags: totFlag,
+      pctFlagged: totSeg ? 100 * totFlag / totSeg : NaN,
+      meanCorr: meanOf(corrs),
+      meanSens: meanOf(senss),
+      meanLength: meanOf(lens),
+      totalAbsent: seriesOut.reduce((a, b) => a + b.problems.absent.length, 0),
+    },
+  };
+}
+
+module.exports = { cofecha, COFECHA_DEFAULTS, criticalR, buildSegments, meanSensitivity };
+
+  });
+  define("m31", {"./stats/cofecha.js":"m30","./viz/heatmapPlot.js":"m32","./viz/render.js":"m34","./io/year.js":"m35"}, function(module, exports, require){
+'use strict';
+// ============================================================================
+// cofechaReport.js — renders a cofecha() result as the eight-part output
+// described in Grissino-Mayer (2001), pp. 210-214 ("OUTPUT PRODUCED BY
+// COFECHA"), as a self-contained HTML string (inline CSS, no external deps).
+//
+//   Part 1  Title page, options selected, summary, absent rings
+//   Part 2  Histogram of time spans
+//   Part 3  Master series with sample depth and absent rings
+//   Part 4  Bar plot of the master dating series
+//   Part 5  Correlation of each series with the master
+//   Part 6  Potential problems  [A] alternate positions  [B] year leverage
+//           [C] divergent year-to-year change  [D] absent rings  [E] outliers
+//   Part 7  Descriptive statistics
+//   Part 8  Undated series adjustments  (see note in the rendered output)
+//
+// Option 8 (p. 210) lets the user choose which parts to print; `opts.parts`
+// reproduces that — an array or set of part numbers, default all of 1-7.
+//
+// Two places where the presentation deliberately improves on the 1982 output,
+// both noted in the page itself so the reader is never misled:
+//   * Part 5 prints each segment's TRUE span in its tooltip. COFECHA lays the
+//     matrix on a fixed global grid and fills columns in order, so a segment's
+//     heading can differ from the years it covers (Table 3: LLC001A's 1725-1774
+//     segment prints under the 1700-1749 heading).
+//   * Part 4's letter codes are kept (they are a real COFECHA convention) but
+//     drawn as bars rather than typewriter overstrike.
+// ============================================================================
+
+const { cofecha } = require('./stats/cofecha.js');
+const { heatmapPlot } = require('./viz/heatmapPlot.js');
+const { toSVG } = require('./viz/render.js');
+const { formatCal } = require('./io/year.js');
+
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+const isNum = v => typeof v === 'number' && Number.isFinite(v);
+const fx = (v, d) => (isNum(v) ? v.toFixed(d) : '');
+// COFECHA prints correlations without the leading zero (".67", "-.13").
+const fr = (v, d = 2) => (isNum(v) ? (v < 0 ? '-' : '') + Math.abs(v).toFixed(d).replace(/^0/, '') : '');
+
+// ---------------------------------------------------------------------------
+// Part 4 letter code (p. 212): "@" is a value very close to the mean; each
+// successive letter is a further 0.25 SD departure, upper case for rings wider
+// than the mean and lower case for narrower.
+// ---------------------------------------------------------------------------
+const ALPHA = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+function letterCode(z) {
+  if (!isNum(z)) return ' ';
+  const k = Math.floor(Math.abs(z) / 0.25);
+  if (k === 0) return '@';
+  const ch = ALPHA[Math.min(k - 1, ALPHA.length - 1)];
+  return z > 0 ? ch : ch.toLowerCase();
+}
+
+function kv(label, value) {
+  return '<p class="kv"><b>' + esc(label) + '</b>' + esc(value) + '</p>';
+}
+
+// Years are astronomical in the data (0 = 1 BC) but read as calendar years, so
+// anything shown to a person goes through formatCal. Only matters for the BC
+// chronologies, which ut550 and ut528 both are.
+const yr = y => (Number.isFinite(+y) ? (+y <= 0 ? formatCal(y) : String(+y)) : '');
+
+// ---- Verdict page ----------------------------------------------------------
+// Everything below this on the page is evidence. This is the answer.
+function verdictSection(verdict) {
+  if (!verdict) return '';
+  const S = verdict.summary;
+  const need = verdict.series.filter(v => v.status !== 'dated' && v.status !== 'too-short');
+  const short = verdict.series.filter(v => v.status === 'too-short');
+
+  const headline = need.length === 0
+    ? '<p class="ok-big">All ' + S.nSeries + ' series date against the rest of the collection.</p>'
+    : '<p class="bad-big">' + need.length + ' of ' + S.nSeries + ' series need attention.</p>';
+
+  const rows = need.map(v => {
+    const where = v.bracket ? yr(v.bracket[0]) + ' to ' + yr(v.bracket[1]) : '—';
+    return '<tr>' +
+      '<td class="l">' + esc(v.id) + '</td>' +
+      '<td class="l"><span class="tag t-' + esc(v.status) + '">' + esc(v.status) + '</span></td>' +
+      '<td>' + yr(v.first) + '&ndash;' + yr(v.last) + '</td>' +
+      '<td>' + (Number.isFinite(v.corrWithMaster) ? fx(v.corrWithMaster, 3) : '') + '</td>' +
+      '<td>' + esc(where) + '</td>' +
+      '<td class="l">' + esc(v.message) + '</td></tr>';
+  }).join('');
+
+  const table = need.length
+    ? '<table><thead><tr><th class="l">Series</th><th class="l">Verdict</th><th>Span</th>' +
+      '<th>r</th><th>Where</th><th class="l">What it looks like</th></tr></thead><tbody>' +
+      rows + '</tbody></table>'
+    : '';
+
+  const coll = verdict.collection && verdict.collection.length
+    ? '<h3>Across the collection</h3><ul class="coll">' +
+      verdict.collection.map(c => '<li><b>' + esc(c.kind) + '</b> &mdash; ' + esc(c.message) + '</li>').join('') +
+      '</ul>'
+    : '';
+
+  const shortNote = short.length
+    ? '<p class="note">' + short.length + ' series ' + (short.length === 1 ? 'is' : 'are') +
+      ' too short for a running window (' + short.map(v => esc(v.id)).join(', ') +
+      '); judge those from the segment table in Part 5.</p>'
+    : '';
+
+  return '<h2 class="verdict-h">Verdict</h2>' + headline +
+    '<p class="note">Each series is correlated against a chronology built from every <em>other</em> ' +
+    'series, in a ' + esc(verdict.options.win) + '-year running window, at every dating position ' +
+    'from &minus;' + esc(verdict.options.shift) + ' to +' + esc(verdict.options.shift) + '. ' +
+    'A series whose best-fitting position holds steady is dated; one where it steps and stays ' +
+    'stepped has a dating error, and the step locates it. The bracket is the step year ' +
+    '&plusmn; half the window &mdash; a single year would be false precision.</p>' +
+    table + coll + shortNote;
+}
+
+// ---- Chronology statistics -------------------------------------------------
+function chronSection(cs) {
+  if (!cs) return '';
+  if (cs.error) return '<h2>Chronology statistics</h2><p class="muted">' + esc(cs.error) + '</p>';
+  const S = cs.summary, T = cs.trees;
+  const num = (v, d) => (Number.isFinite(v) ? v.toFixed(d == null ? 3 : d) : '—');
+
+  const grouping = T.grouped
+    ? '<p class="kv"><b>Grouping: </b>' + T.nCores + ' cores in ' + T.nTrees + ' trees (' +
+      T.multiCore + ' trees contributed more than one core)' +
+      (T.inferred ? ', inferred from the core ids' : ', supplied') + '.</p>' +
+      '<p class="note">Two radii of one tree share wood, not just climate, so counting them as ' +
+      'independent replicates overstates the sampling. EPS is given both ways; the tree basis is ' +
+      'the conservative one. If this grouping is wrong for your naming scheme, supply it.</p>'
+    : '<p class="note">No tree grouping was detected in the series ids, so every series is ' +
+      'treated as its own tree &mdash; the same convention COFECHA and dplR use by default.</p>';
+
+  const eps = cs.windows.length
+    ? '<div class="scroll"><table class="mat"><thead><tr><th>Window</th><th>Cores</th><th>Trees</th>' +
+      '<th>rbar.wt</th><th>rbar.bt</th><th>rbar.eff</th><th>EPS (trees)</th><th>EPS (cores)</th>' +
+      '<th>SNR</th></tr></thead><tbody>' +
+      cs.windows.map(w => {
+        const ok = Number.isFinite(w.eps) && w.eps >= S.epsThreshold;
+        return '<tr><td>' + yr(w.startYear) + '&ndash;' + yr(w.endYear) + '</td>' +
+          '<td>' + w.nCores + '</td><td>' + w.nTrees + '</td>' +
+          '<td>' + num(w.rbarWt) + '</td><td>' + num(w.rbarBt) + '</td><td>' + num(w.rbarEff) + '</td>' +
+          '<td class="' + (ok ? 'good' : 'bad') + '">' + num(w.eps) + '</td>' +
+          '<td>' + num(w.epsCores) + '</td><td>' + num(w.snr, 1) + '</td></tr>';
+      }).join('') + '</tbody></table></div>'
+    : '<p class="muted">Not enough overlap for a running window.</p>';
+
+  return '<h2>Chronology statistics</h2>' +
+    '<p class="statement">' + esc(S.statement) + '</p>' +
+    grouping +
+    '<p class="kv"><b>Mean correlation: </b>within tree ' + num(S.rbarWt) +
+    ', between trees ' + num(S.rbarBt) + ', effective ' + num(S.rbarEff) + '</p>' +
+    '<p class="kv"><b>EPS: </b>mean ' + num(S.epsMean) + ', most recent window ' + num(S.epsLatest) +
+    '  &middot;  <b>SNR </b>' + num(S.snr, 1) + '</p>' +
+    '<p class="note">EPS asks whether enough trees agree, not whether they are correctly dated: a ' +
+    'chronology can score well here and still carry a dating error in one member, which is what ' +
+    'the Verdict above is for. COFECHA reports neither statistic.</p>' +
+    eps;
+}
+
+// ---- Per-series evidence ---------------------------------------------------
+// The heatmap IS the evidence for the verdict, so it is drawn for any series
+// that did not come back cleanly dated.
+function heatmapFor(v) {
+  if (!v || !v.heatmap) return '';
+  let svg;
+  try {
+    svg = toSVG(heatmapPlot(v.heatmap, {
+      s1: 'chronology without this series', s2: v.id, width: 820, height: 260,
+    }));
+  } catch (e) { return ''; }
+  const ridge = v.runs && v.runs.length
+    ? '<p class="note">Best-fitting position: ' +
+      v.runs.map(r => 'lag ' + (r.lag > 0 ? '+' : '') + r.lag + ' from ' + yr(r.from) + ' to ' +
+        yr(r.to) + ' (mean r ' + r.meanR.toFixed(2) + ')').join('; ') + '.</p>'
+    : '';
+  return '<div class="hm">' + svg + ridge + '</div>';
+}
+
+// ---- Part 1 ---------------------------------------------------------------
+function part1(res, opts) {
+  const o = res.options, S = res.summary;
+  const det = o.splineLength > 0
+    ? o.splineLength + '-year spline (50% frequency response)'
+    : 'none — untransformed measurements';
+  const rows = [
+    ['1  Spline rigidity for filtering', det],
+    ['2  Segment length / lag', o.segLength + ' years, lagged ' + o.segLag +
+      ' (' + Math.round(100 * (1 - o.segLag / o.segLength)) + '% overlap)'],
+    ['3  Autoregressive modelling', o.arModel ? 'yes' : 'no'],
+    ['4  Log transformation', o.logTransform ? 'yes (constant = mean/6)' : 'no'],
+    ['5  Critical level', (100 * (1 - o.pcrit)).toFixed(0) + '% one-tailed (p = ' + o.pcrit + '), Pearson'],
+    ['9  Absent rings in the master', o.omitAbsent ? 'omitted' : 'included'],
+    ['F  First differences', o.firstDiff ? 'yes' : 'no'],
+    ['   Alternate dating positions', '-' + o.shift + ' to +' + o.shift + ' years'],
+  ].map(r => '<tr><td class="l">' + esc(r[0]) + '</td><td class="l">' + esc(r[1]) + '</td></tr>').join('');
+
+  // absent rings listed by series (p. 211) — flagged when the master is not narrow
+  const withAbsent = res.series.filter(s => s.problems.absent.length);
+  let absentHtml;
+  if (!withAbsent.length) {
+    absentHtml = '<p class="muted">No absent rings (zero measurements) in the data set.</p>';
+  } else {
+    absentHtml = '<table><thead><tr><th class="l">Series</th><th class="l">Absent rings</th></tr></thead><tbody>' +
+      withAbsent.map(s => '<tr><td class="l">' + esc(s.id) + '</td><td class="l">' +
+        s.problems.absent.map(a => esc(a.year) + (a.notNarrow ? '<span class="bad" title="ring is not normally narrow — the master shows no narrow ring that year">&#8810;</span>' : '')).join(', ') +
+        '</td></tr>').join('') + '</tbody></table>' +
+      '<p class="note">&#8810; marks an absent ring that is <em>not</em> narrow in the other series — check the placement of the missing ring.</p>';
+  }
+
+  const interp = S.meanCorr >= 0.5
+    ? 'At or above the 0.50 generally considered desirable for a site chronology (p. 214), though the value that counts as high depends on species, location and climate.'
+    : 'Below the 0.50 generally considered desirable for a site chronology (p. 214) — expected for some species and settings, but worth checking against the flagged segments below.';
+
+  return '<h2>Part 1 &mdash; Options, summary and absent rings</h2>' +
+    '<h3>Options selected</h3>' +
+    '<table class="opts"><tbody>' + rows + '</tbody></table>' +
+    '<h3>Summary</h3>' +
+    kv('Series analysed: ', S.nSeries) +
+    kv('Interval covered: ', S.interval[0] + ' to ' + S.interval[1]) +
+    kv('Average series length: ', fx(S.meanLength, 1) + ' years') +
+    kv('Segments tested: ', S.nSegments) +
+    kv('Segments flagged: ', S.nFlags + (isNum(S.pctFlagged) ? '  (' + S.pctFlagged.toFixed(1) + '%)' : '')) +
+    kv('Average interseries correlation: ', fx(S.meanCorr, 3)) +
+    kv('Average mean sensitivity: ', fx(S.meanSens, 3)) +
+    '<p class="note">' + esc(interp) + '</p>' +
+    '<h3>Absent rings by series</h3>' + absentHtml;
+}
+
+// ---- Part 2 ---------------------------------------------------------------
+function part2(res) {
+  const lo = res.summary.interval[0], hi = res.summary.interval[1];
+  const span = Math.max(1, hi - lo);
+  const rows = res.timeSpans.map(t => {
+    const left = 100 * (t.first - lo) / span;
+    const width = Math.max(0.6, 100 * (t.last - t.first) / span);
+    return '<tr><td class="l">' + esc(t.seq) + '</td><td class="l">' + esc(t.id) + '</td>' +
+      '<td class="bar"><span style="left:' + left.toFixed(3) + '%;width:' + width.toFixed(3) + '%"></span></td>' +
+      '<td>' + esc(t.first) + '</td><td>' + esc(t.last) + '</td><td>' + esc(t.nYears) + '</td></tr>';
+  }).join('');
+  return '<h2>Part 2 &mdash; Histogram of time spans</h2>' +
+    '<p class="note">Each series against the ' + esc(lo) + '&ndash;' + esc(hi) + ' range covered by all series. ' +
+    'SEQ is the position of the series in the data file and is used throughout the rest of the output.</p>' +
+    '<table><thead><tr><th class="l">Seq</th><th class="l">Series</th>' +
+    '<th class="l">' + esc(lo) + '&nbsp;&rarr;&nbsp;' + esc(hi) + '</th>' +
+    '<th>First</th><th>Last</th><th>Years</th></tr></thead><tbody>' + rows + '</tbody></table>';
+}
+
+// ---- Part 3 + Part 4 ------------------------------------------------------
+function part34(res, wantMaster, wantBar) {
+  const y = res.years, M = res.master;
+  const rows = [];
+  for (let i = 0; i < y.length; i++) {
+    if (!isNum(M.z[i])) continue;
+    const z = M.z[i];
+    const code = letterCode(z);
+    // bar: centre at 50%, extend left for narrow rings and right for wide ones
+    const mag = Math.min(Math.abs(z), 3) / 3 * 50;
+    const bar = z >= 0
+      ? '<span class="pos" style="left:50%;width:' + mag.toFixed(2) + '%"></span>'
+      : '<span class="neg" style="left:' + (50 - mag).toFixed(2) + '%;width:' + mag.toFixed(2) + '%"></span>';
+    rows.push('<tr><td>' + esc(y[i]) + '</td><td>' + fx(z, 3) + '</td>' +
+      '<td>' + esc(M.sampleDepth[i]) + '</td><td>' + (M.absent[i] || '') + '</td>' +
+      (wantBar ? '<td class="code">' + esc(code) + '</td><td class="bar mbar">' + bar + '</td>' : '') +
+      '</tr>');
+  }
+  let out = '';
+  if (wantMaster || wantBar) {
+    out += '<h2>Part 3' + (wantBar ? ' &amp; 4' : '') + ' &mdash; Master dating series' +
+      (wantBar ? ', with bar plot' : ' with sample depth and absent rings') + '</h2>' +
+      '<p class="note">The master is standardized to mean 0 and standard deviation 1. Negative values are ' +
+      'narrow rings, positive values wide; values beyond &plusmn;2.0 are rare and make useful marker rings. ' +
+      '<b>No</b> is the sample depth for that year and <b>Ab</b> the number of absent rings.' +
+      (wantBar ? ' In the bar plot each letter is a further 0.25 SD from the mean &mdash; upper case wider, lower case narrower, <b>@</b> very close to the mean.' : '') +
+      '</p>' +
+      '<div class="scroll"><table><thead><tr><th>Year</th><th>Index</th><th>No</th><th>Ab</th>' +
+      (wantBar ? '<th>Code</th><th class="l">narrow &nbsp;&larr;&nbsp;|&nbsp;&rarr;&nbsp; wide</th>' : '') +
+      '</tr></thead><tbody>' + rows.join('') + '</tbody></table></div>';
+  }
+  return out;
+}
+
+// ---- Part 5 ---------------------------------------------------------------
+function part5(res) {
+  const bins = res.grid.binStarts, L = res.grid.segLength;
+  const head1 = bins.map(b => '<th>' + esc(b) + '</th>').join('');
+  const head2 = bins.map(b => '<th>' + esc(b + L - 1) + '</th>').join('');
+  const rows = res.series.map(s => {
+    const cells = new Array(bins.length).fill('<td></td>');
+    for (const g of s.segments) {
+      if (!(g.col >= 0 && g.col < bins.length)) continue;
+      const cls = g.flag === 'B' ? 'flagB' : (g.flag === 'A' ? 'flagA' : '');
+      const tip = 'segment ' + g.start + '–' + g.end + ', n = ' + g.n +
+        ', r = ' + fx(g.r, 3) + ', critical r = ' + fx(g.crit, 3) +
+        (g.flag === 'B' ? '; higher r = ' + fx(g.rHigh, 3) + ' at shift ' + (g.high > 0 ? '+' : '') + g.high : '');
+      cells[g.col] = '<td class="' + cls + '" title="' + esc(tip) + '">' + fr(g.r) + (g.flag || '') + '</td>';
+    }
+    return '<tr><td class="l">' + esc(s.seq) + '</td><td class="l">' + esc(s.id) + '</td>' +
+      '<td class="l">' + esc(s.first) + ' ' + esc(s.last) + '</td>' + cells.join('') + '</tr>';
+  }).join('');
+  return '<h2>Part 5 &mdash; Correlation of each series with the master</h2>' +
+    '<p class="note">Each segment is correlated against the master with the tested series removed from it. ' +
+    'A segment is flagged when its correlation is not positive and significant at the chosen level: ' +
+    '<span class="flagA k">A</span> no better match was found within &plusmn;' + esc(res.options.shift) +
+    ' years, <span class="flagB k">B</span> a higher correlation was found at another dating position. ' +
+    'Hover a cell for the segment&rsquo;s true span, <em>n</em>, and critical value &mdash; segments at the ' +
+    'start and end of a series do not line up with the column headings.</p>' +
+    '<div class="scroll"><table class="mat"><thead>' +
+    '<tr><th class="l">Seq</th><th class="l">Series</th><th class="l">Time span</th>' + head1 + '</tr>' +
+    '<tr><th></th><th></th><th></th>' + head2 + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+}
+
+// ---- Part 6 ---------------------------------------------------------------
+function part6(res, vmap) {
+  const shifts = [];
+  for (let d = -res.options.shift; d <= res.options.shift; d++) shifts.push(d);
+  const blocks = [];
+
+  for (const s of res.series) {
+    const P = s.problems;
+    const hasAny = s.nFlags || P.divergent.length || P.absent.length || P.outliers.length;
+    if (!hasAny) continue;
+    const parts = [];
+
+    // [A] alternate dating positions for flagged segments
+    const flagged = s.segments.filter(g => g.flag);
+    if (flagged.length) {
+      const hd = shifts.map(d => '<th>' + (d > 0 ? '+' : '') + d + '</th>').join('');
+      const rows = flagged.map(g => {
+        const cells = shifts.map(d => {
+          const r = g.rByShift[d - g.shiftMin];
+          const n = g.nByShift[d - g.shiftMin];
+          const sig = isNum(r) && r > 0 && n >= 3 && r >= g.crit;
+          const best = d !== 0 && d === g.high && g.flag === 'B';
+          return '<td class="' + (best ? 'best' : '') + '">' + fr(r) + (sig ? '<sup>*</sup>' : '') + '</td>';
+        }).join('');
+        return '<tr><td class="l">' + esc(g.start) + ' ' + esc(g.end) + '</td>' +
+          '<td class="hi">' + (g.flag === 'B' ? (g.high > 0 ? '+' : '') + g.high : '') + '</td>' + cells + '</tr>';
+      }).join('');
+      parts.push('<h4>[A] Correlations at alternate dating positions</h4>' +
+        '<div class="scroll"><table class="mat"><thead><tr><th class="l">Segment</th><th>High</th>' + hd +
+        '</tr></thead><tbody>' + rows + '</tbody></table></div>' +
+        '<p class="note"><b>High</b> is the shift giving the best correlation: +1 means the segment correlates ' +
+        'better one year later. <sup>*</sup> marks a correlation significant at the chosen level.</p>');
+    }
+
+    // [B] years that most lower / raise the correlation
+    const lev = P.leverage;
+    if (lev.entire || lev.segments.length) {
+      const fmtPairs = a => a.map(e => esc(e.year) + '&nbsp;' + fr(e.delta, 3)).join('&nbsp;&nbsp; ');
+      const bits = [];
+      if (lev.entire) {
+        bits.push('<p class="lev"><b>Entire series</b>, effect on correlation (' + fr(lev.entire.r, 3) + ') is:<br>' +
+          '<span class="lo">Lower &nbsp;</span>' + fmtPairs(lev.entire.lower) + '<br>' +
+          '<span class="hiy">Higher</span> ' + fmtPairs(lev.entire.higher) + '</p>');
+      }
+      for (const g of lev.segments) {
+        bits.push('<p class="lev"><b>' + esc(g.start) + ' to ' + esc(g.end) + '</b> segment (' + fr(g.r, 3) + '):<br>' +
+          '<span class="lo">Lower &nbsp;</span>' + fmtPairs(g.lower) + '<br>' +
+          '<span class="hiy">Higher</span> ' + fmtPairs(g.higher) + '</p>');
+      }
+      parts.push('<h4>[B] Years most affecting the correlation</h4>' + bits.join('') +
+        '<p class="note">A negative value is the amount by which including that year&rsquo;s ring <em>lowers</em> ' +
+        'the correlation. In a misdated segment these years cluster in the errant portion.</p>');
+    }
+
+    // [C] divergent year-to-year change
+    if (P.divergent.length) {
+      parts.push('<h4>[C] Year-to-year changes diverging from all other series</h4>' +
+        '<table><thead><tr><th>Year</th><th>Change</th><th>Mean change</th><th>SD</th><th>Departure</th></tr></thead><tbody>' +
+        P.divergent.map(d => '<tr><td>' + esc(d.year) + '</td><td>' + fx(d.change, 3) + '</td><td>' +
+          fx(d.meanOther, 3) + '</td><td>' + fx(d.sdOther, 3) + '</td><td class="bad">' +
+          fx(d.sd, 1) + ' SD</td></tr>').join('') + '</tbody></table>' +
+        '<p class="note">A change of &plusmn;' + esc(res.options.divergeSD) + ' SD or more from the mean change in ' +
+        'all other series &mdash; where a false ring was inserted or a missing ring passed over.</p>');
+    }
+
+    // [D] absent rings
+    if (P.absent.length) {
+      parts.push('<h4>[D] Absent rings</h4>' +
+        '<table><thead><tr><th>Year</th><th>Master</th><th>Depth</th><th>Absent in all series</th><th class="l"></th></tr></thead><tbody>' +
+        P.absent.map(a => '<tr><td>' + esc(a.year) + '</td><td>' + fx(a.masterZ, 3) + '</td><td>' +
+          esc(a.sampleDepth) + '</td><td>' + esc(a.totalAbsent) + '</td><td class="l' + (a.notNarrow ? ' bad' : '') + '">' +
+          (a.notNarrow ? 'ring is not normally narrow' : '') + '</td></tr>').join('') + '</tbody></table>');
+    }
+
+    // [E] outliers
+    if (P.outliers.length) {
+      parts.push('<h4>[E] Outlier measurements</h4>' +
+        '<table><thead><tr><th>Year</th><th>Index</th><th>Mean of others</th><th>SD</th><th>Departure</th></tr></thead><tbody>' +
+        P.outliers.map(x => '<tr><td>' + esc(x.year) + '</td><td>' + fx(x.value, 3) + '</td><td>' +
+          fx(x.meanOther, 3) + '</td><td>' + fx(x.sdOther, 3) + '</td><td class="bad">' +
+          fx(x.sd, 1) + ' SD ' + esc(x.side) + '</td></tr>').join('') + '</tbody></table>' +
+        '<p class="note">More than ' + esc(res.options.outlierHigh) + ' SD above or ' + esc(res.options.outlierLow) +
+        ' SD below the mean of all other series for that year &mdash; re-measure, or a clue to where a segment is misdated.</p>');
+    }
+
+    // The verdict for this series, and the heatmap it came from, lead the block:
+    // a reader should know whether this series is actually misdated before
+    // reading the segment diagnostics that follow.
+    const v = vmap ? vmap[s.id + '|' + s.first + '|' + s.last] : null;
+    const head = v && v.status !== 'dated'
+      ? '<p class="v-lead v-' + esc(v.status) + '">' + esc(v.message) + '</p>' + heatmapFor(v)
+      : (v ? '<p class="v-lead v-dated">' + esc(v.message) +
+             ' The diagnostics below are worth a look for measurement problems, ' +
+             'but none of them indicates a dating error.</p>' : '');
+
+    blocks.push('<div class="ser"><h3>' + esc(s.seq) + '&nbsp; ' + esc(s.id) + '&nbsp; <span class="muted">' +
+      yr(s.first) + ' to ' + yr(s.last) + ' (' + esc(s.nYears) + ' years), ' + s.nFlags + ' flagged segment' +
+      (s.nFlags === 1 ? '' : 's') + '</span></h3>' + head + parts.join('') + '</div>');
+  }
+
+  return '<h2>Part 6 &mdash; Potential problems</h2>' +
+    (blocks.length ? blocks.join('') : '<p class="muted">No series raised any of the Part 6 diagnostics.</p>');
+}
+
+// ---- Part 7 ---------------------------------------------------------------
+function part7(res) {
+  const S = res.summary;
+  const rows = res.series.map(s => '<tr>' +
+    '<td class="l">' + esc(s.seq) + '</td><td class="l">' + esc(s.id) + '</td>' +
+    '<td class="l">' + esc(s.first) + ' ' + esc(s.last) + '</td>' +
+    '<td>' + esc(s.nYears) + '</td><td>' + esc(s.nSegments) + '</td>' +
+    '<td class="' + (s.nFlags ? 'bad' : '') + '">' + esc(s.nFlags) + '</td>' +
+    '<td>' + fx(s.corrWithMaster, 3) + '</td>' +
+    '<td>' + fx(s.stats.meanMsmt, 3) + '</td><td>' + fx(s.stats.maxMsmt, 3) + '</td>' +
+    '<td>' + fx(s.stats.sdMsmt, 3) + '</td><td>' + fx(s.stats.ac1Msmt, 3) + '</td>' +
+    '<td>' + fx(s.stats.meanSens, 3) + '</td>' +
+    '<td>' + fx(s.stats.maxIndex, 3) + '</td><td>' + fx(s.stats.sdIndex, 3) + '</td>' +
+    '<td>' + fx(s.stats.ac1Index, 3) + '</td><td>' + esc(s.arOrder) + '</td></tr>').join('');
+  return '<h2>Part 7 &mdash; Descriptive statistics</h2>' +
+    '<div class="scroll"><table class="mat"><thead>' +
+    '<tr><th colspan="7"></th><th colspan="5">Unfiltered measurements</th><th colspan="4">Detrended series</th></tr>' +
+    '<tr><th class="l">Seq</th><th class="l">Series</th><th class="l">Interval</th><th>Years</th>' +
+    '<th>Segmt</th><th>Flags</th><th>Corr w/ master</th>' +
+    '<th>Mean</th><th>Max</th><th>Std dev</th><th>Auto corr</th><th>Mean sens</th>' +
+    '<th>Max</th><th>Std dev</th><th>Auto corr</th><th>AR</th></tr></thead><tbody>' + rows +
+    '<tr class="tot"><td colspan="3" class="l">Total or mean</td><td>' + fx(S.meanLength, 0) + '</td>' +
+    '<td>' + esc(S.nSegments) + '</td><td>' + esc(S.nFlags) + '</td><td>' + fx(S.meanCorr, 3) + '</td>' +
+    '<td colspan="4"></td><td>' + fx(S.meanSens, 3) + '</td><td colspan="4"></td></tr>' +
+    '</tbody></table></div>' +
+    '<p class="note">High standard deviation and mean sensitivity are desirable; low autocorrelation is. ' +
+    'Mean sensitivity below 0.20 is low, 0.20&ndash;0.29 intermediate, above 0.30 sensitive (p. 214). ' +
+    'Autocorrelation on the detrended series should be near zero once the AR model has done its work; ' +
+    '<b>AR</b> is the order selected.</p>';
+}
+
+const CSS = `
+:root{color-scheme:light dark;--fg:#1a1a1a;--bg:#fff;--mut:#6b7280;--line:#d4d9de;
+  --head:#f2f4f6;--bad:#a3322a;--badbg:#fbeceb;--warn:#8a6300;--warnbg:#fdf4e0;
+  --ok:#2f6f4f;--bar:#8a6529;--barbg:#efe6d6}
+@media (prefers-color-scheme:dark){:root{--fg:#e6e6e6;--bg:#16181a;--mut:#9aa3ad;
+  --line:#3a4046;--head:#22262a;--bad:#f09a92;--badbg:#3a2220;--warn:#e8c477;
+  --warnbg:#3a3020;--ok:#8fd4ae;--bar:#c8a86a;--barbg:#2c2a24}}
+*{box-sizing:border-box}
+body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.5;
+  color:var(--fg);background:var(--bg);max-width:1100px;margin:0 auto;padding:28px 20px}
+h1{font-size:1.7rem;margin:0 0 .2rem;border-bottom:2px solid var(--line);padding-bottom:.35rem}
+h2{font-size:1.25rem;margin:2.2rem 0 .5rem;border-bottom:1px solid var(--line);padding-bottom:.2rem}
+h3{font-size:1.05rem;margin:1.4rem 0 .4rem}
+h4{font-size:.95rem;margin:1rem 0 .3rem;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
+p{margin:.35rem 0}
+.sub{color:var(--mut);margin:0 0 1rem}
+.kv{margin:.1rem 0}.kv b{display:inline-block;min-width:16rem}
+.muted{color:var(--mut)}.note{color:var(--mut);font-size:.86rem;margin:.4rem 0 .2rem}
+.bad{color:var(--bad)}
+table{border-collapse:collapse;font-size:.85rem;width:100%;margin:.5rem 0}
+th,td{border:1px solid var(--line);padding:3px 7px;text-align:right;white-space:nowrap}
+th{background:var(--head);font-weight:600}
+.l{text-align:left}
+table.opts td{white-space:normal}table.opts{width:auto}
+.scroll{overflow-x:auto;max-width:100%}
+table.mat{width:auto;min-width:100%;font-variant-numeric:tabular-nums}
+td.flagA{background:var(--warnbg);color:var(--warn);font-weight:700}
+td.flagB{background:var(--badbg);color:var(--bad);font-weight:700}
+td.best{background:var(--badbg);font-weight:700}
+td.hi{font-weight:700}
+.k{display:inline-block;padding:0 5px;border-radius:3px;font-weight:700}
+td.code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-weight:700}
+td.bar{position:relative;width:45%;min-width:180px;background:var(--barbg);padding:0;height:1.1rem}
+td.bar>span{position:absolute;top:2px;bottom:2px;background:var(--bar);border-radius:1px}
+td.mbar>span.neg{background:var(--bad)}td.mbar>span.pos{background:var(--ok)}
+tr.tot td{font-weight:700;background:var(--head)}
+.ser{margin:1.4rem 0 1.8rem;padding-left:.8rem;border-left:3px solid var(--line)}
+.lev{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.82rem;
+  background:var(--head);padding:6px 9px;border-radius:4px;margin:.4rem 0}
+.lo{color:var(--bad);font-weight:700}.hiy{color:var(--ok);font-weight:700}
+sup{font-size:.7em}
+h2.verdict-h{margin-top:1rem;border-bottom-width:2px}
+h2.ev-h{margin-top:2.6rem;border-bottom-width:2px}
+.ok-big{font-size:1.15rem;font-weight:600;color:var(--ok);margin:.4rem 0}
+.bad-big{font-size:1.15rem;font-weight:600;color:var(--bad);margin:.4rem 0}
+.statement{background:var(--head);border-left:3px solid var(--bar);padding:.6rem .9rem;
+  margin:.6rem 0;font-size:.95rem}
+.tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:.72rem;font-weight:700;
+  text-transform:uppercase;letter-spacing:.03em}
+.t-dating-error{background:var(--badbg);color:var(--bad)}
+.t-offset{background:var(--badbg);color:var(--bad)}
+.t-unstable,.t-no-signal{background:var(--warnbg);color:var(--warn)}
+.t-dated{background:var(--head);color:var(--ok)}
+ul.coll{font-size:.9rem;margin:.4rem 0 .4rem 1.1rem}ul.coll li{margin:.25rem 0}
+.v-lead{font-size:.95rem;padding:.5rem .8rem;border-radius:4px;margin:.4rem 0;
+  background:var(--head);border-left:3px solid var(--line)}
+.v-lead.v-dating-error,.v-lead.v-offset{background:var(--badbg);border-left-color:var(--bad)}
+.v-lead.v-unstable,.v-lead.v-no-signal{background:var(--warnbg);border-left-color:var(--warn)}
+.hm{margin:.6rem 0}.hm svg{max-width:100%;height:auto;border:1px solid var(--line);border-radius:4px}
+td.good{color:var(--ok);font-weight:600}
+`;
+
+// ---------------------------------------------------------------------------
+// renderCofecha(resultOrFrame, opts) -> HTML string.
+// Accepts either a cofecha() result or a raw Frame (which it runs first).
+//   opts.title   run identification (COFECHA's job identification, p. 206)
+//   opts.file    name of the measurement file
+//   opts.date    run time
+//   opts.parts   array of part numbers to print (Option 8, p. 210); default 1-7
+// ---------------------------------------------------------------------------
+function renderCofecha(input, opts) {
+  opts = opts || {};
+  const res = (input && input.summary && input.series) ? input : cofecha(input, opts.cofecha || {});
+  const want = new Set(opts.parts || [1, 2, 3, 4, 5, 6, 7]);
+  const when = opts.date != null ? String(opts.date) : new Date().toString();
+
+  // The verdict and chronology statistics are optional: pass them in and the
+  // report leads with the answer, omit them and it is the plain COFECHA layout.
+  const verdict = opts.verdict || null;
+  const chron = opts.chron || null;
+  const vmap = {};
+  if (verdict) verdict.series.forEach(v => { vmap[v.id + '|' + v.first + '|' + v.last] = v; });
+
+  const body = [];
+  body.push('<h1>' + esc(opts.title || 'Crossdating quality check') + '</h1>');
+  body.push('<p class="sub">COFECHA-equivalent analysis &middot; ' + esc(when) +
+    (opts.file ? ' &middot; ' + esc(opts.file) : '') + '</p>');
+  if (verdict) body.push(verdictSection(verdict));
+  if (chron) body.push(chronSection(chron));
+  if (verdict || chron) {
+    body.push('<h2 class="ev-h">Evidence</h2><p class="note">Everything below is the COFECHA ' +
+      'output in its own numbering and vocabulary &mdash; the same eight parts, the same A/B flags, ' +
+      'the same critical value &mdash; so it can be read by anyone used to COFECHA and diffed ' +
+      'against a real run.</p>');
+  }
+  if (want.has(1)) body.push(part1(res, opts));
+  if (want.has(2)) body.push(part2(res));
+  if (want.has(3) || want.has(4)) body.push(part34(res, want.has(3), want.has(4)));
+  if (want.has(5)) body.push(part5(res));
+  if (want.has(6)) body.push(part6(res, vmap));
+  if (want.has(7)) body.push(part7(res));
+  body.push('<h2>Part 8 &mdash; Undated series</h2>' +
+    '<p class="note">COFECHA&rsquo;s Part 8 places undated series against the master. In RingdateR that is the ' +
+    'job of the crossdating run itself (Explore &rarr; lead/lag), which searches every possible overlap rather ' +
+    'than the eleven best matches per segment, so it is not duplicated here.</p>');
+  body.push('<p class="note">Diagnostics follow Grissino-Mayer, H.D. (2001) <em>Evaluating crossdating accuracy: ' +
+    'a manual and tutorial for the computer program COFECHA</em>, Tree-Ring Research 57(2):205&ndash;221; ' +
+    'COFECHA itself is by Richard L. Holmes (1983). Page references above are to that paper. ' +
+    'As its author stresses, this is a quality check on crossdating &mdash; not a substitute for it: the decision ' +
+    'whether a series is correctly dated rests with the dendrochronologist.</p>');
+
+  return '<!DOCTYPE html>\n<html lang="en"><head><meta charset="utf-8">' +
+    '<meta name="viewport" content="width=device-width,initial-scale=1">' +
+    '<title>' + esc(opts.title || 'Crossdating quality check') + '</title>' +
+    '<style>' + CSS + '</style></head>\n<body>\n' + body.join('\n') + '\n</body></html>\n';
+}
+
+module.exports = { renderCofecha, letterCode };
+
+  });
+  define("m32", {"../analysis/comb.js":"m11","./chartUtils.js":"m33","./render.js":"m34"}, function(module, exports, require){
+'use strict';
+// heatmapPlot — running-correlation raster (port of R/plotting_sing_hm_function.R).
+// Input `plotData` is the {year, lag, "R val"} Frame from runningLeadLag /
+// heatmapAnalysis. x = year, y = lag, fill = R interpolated across col_pal(sel)
+// clamped to [-1,1]. x breaks from x.scale.bar (rounded year range), y breaks
+// from y.scale.bar (lag range).
+
+const C = require('../analysis/comb.js');
+const { xScaleBar, yScaleBar, colPal } = require('./chartUtils.js');
+const { toSVG, roundR, valueToColor } = require('./render.js');
+
+function heatmapPlot(plotData, opts = {}) {
+  if (plotData == null) throw new Error('Insufficient overlap to perform running correlation analysis');
+  const s1 = opts.s1, s2 = opts.s2;
+  const selColPal = opts.sel_col_pal != null ? opts.sel_col_pal : 1;
+  const colScale = colPal(selColPal);
+
+  const year = C.col(plotData, 0).map(Number);
+  const lag = C.col(plotData, 1).map(Number);
+  const rval = C.col(plotData, 2).map(v => (C.isNA(v) ? null : +v));
+  const colors = rval.map(v => valueToColor(v, colScale, [-1, 1]));
+
+  const yMin = Math.min(...year), yMax = Math.max(...year);
+  const lMin = Math.min(...lag), lMax = Math.max(...lag);
+
+  const spec = {
+    type: 'heatmapPlot',
+    width: opts.width || 760,
+    height: opts.height || 340,
+    title: `${s1} vs ${s2}`,
+    xLabel: 'Year',
+    yLabel: `lag (years from ${s1})`,
+    scales: {
+      x: { domain: [yMin, yMax], breaks: xScaleBar(roundR(yMin, -1), roundR(yMax, -1)) },
+      y: { domain: [lMin, lMax], breaks: yScaleBar(lMin, lMax) },
+    },
+    marks: [{ type: 'raster', x: year, y: lag, fill: rval, colors }],
+    legend: null,
+    colourbar: { colors: colScale, limits: [-1, 1], label: 'Correl. (R)' },
+    data: { year, lag, R: rval },
+  };
+  return spec;
+}
+
+module.exports = { heatmapPlot, toSVG };
+
+  });
+  define("m33", {}, function(module, exports, require){
+'use strict';
+// ============================================================================
+// Shared visualization utilities, ports of four ringdater R helpers:
+//   x.scale.bar   -> xScaleBar    (R/x_scale_bar_function.R)
+//   y.scale.bar   -> yScaleBar    (R/y_scale_bar_function.R)
+//   col_pal       -> colPal       (R/col_pal_function.R)
+//   R_dateR_theme -> rDateRTheme  (R/R_dateR_theme_function.R)
+//
+// R is the oracle. xScaleBar/yScaleBar/colPal reproduce R exactly (validated
+// in test/chartutils_test.js). rDateRTheme is a ggplot theme; there is no
+// numeric R-parity target, so it is ported to a plain style-config object that
+// documents the meaningful ggplot::theme() -> web-style mapping.
+// ============================================================================
+
+// ---- base R seq(from, to, by) ----------------------------------------------
+// Faithful port of base R's seq.default when `by` is supplied, including the
+// integer fuzz on the step count and the final pmin/pmax overshoot clamp.
+function rSeqBy(from, to, by) {
+  const del = to - from;
+  // R: n <- as.integer(n + 1e-10); as.integer() truncates toward zero.
+  const n = Math.trunc(del / by + 1e-10);
+  const out = new Array(n + 1);
+  for (let i = 0; i <= n; i++) {
+    let x = from + i * by;
+    // R: if (by > 0) pmin(x, to) else pmax(x, to)  -- correct for fp overshoot
+    x = by > 0 ? Math.min(x, to) : Math.max(x, to);
+    out[i] = x;
+  }
+  return out;
+}
+
+// ---- x.scale.bar -----------------------------------------------------------
+// Bucketed axis tick breaks for the x-axis. Step chosen by span magnitude.
+function xScaleBar(xMin, xMax) {
+  if (typeof xMin !== 'number') {
+    throw new Error('Error in x.scale.bar: x.min is not a numeric integer');
+  }
+  if (typeof xMax !== 'number') {
+    throw new Error('Error in x.scale.bar: x.miax is not a numeric integer');
+  }
+  if (xMax <= xMin) {
+    throw new Error('Errpr in x.scale.bar: x.max must be greater than x.min');
+  }
+  const span = xMax - xMin;
+  let by;
+  if (span > 1000) by = 100;
+  else if (span > 500) by = 50;
+  else if (span > 100) by = 20;
+  else if (span > 50) by = 10;
+  else if (span > 20) by = 5;
+  else by = 2;
+  return rSeqBy(xMin, xMax, by);
+}
+
+// ---- y.scale.bar -----------------------------------------------------------
+// Bucketed axis tick breaks for the y-axis. NOTE: differs from x.scale.bar at
+// the mid buckets -- y switches to by=20 at span>250 (x switches at span>100).
+function yScaleBar(yMin, yMax) {
+  if (typeof yMin !== 'number') {
+    throw new Error('Error in y.scale.bar: y.min is not a numeric integer');
+  }
+  if (typeof yMax !== 'number') {
+    throw new Error('Error in y.scale.bar: y.miax is not a numeric integer');
+  }
+  if (yMax <= yMin) {
+    throw new Error('Error in y.scale.bar: y.max must be great than y.min');
+  }
+  const span = yMax - yMin;
+  let by;
+  if (span > 1000) by = 100;
+  else if (span > 500) by = 50;
+  else if (span > 250) by = 20;
+  else if (span > 50) by = 10;
+  else if (span > 20) by = 5;
+  else by = 2;
+  return rSeqBy(yMin, yMax, by);
+}
+
+// ---- col_pal ---------------------------------------------------------------
+// Hardcoded hex colour ramps for the RingdateR heatmaps. The (uneven) repeated
+// stops shift where white sits on the gradient:
+//   1 = blue -> white -> red   (diverging)
+//   2 = white -> red           (white held over the first half)
+//   3 = white -> blue          (white held over the first three fifths)
+//   4 = white -> black         (white held over the first half)
+const COL_PAL = {
+  1: ['#4575b4', '#e0f3f8', '#d73027'],
+  2: ['#ffffff', '#ffffff', '#ca0020'],
+  3: ['#ffffff', '#ffffff', '#ffffff', '#0571b0', '#00216d'],
+  4: ['#ffffff', '#ffffff', '#000000'],
+};
+function colPal(colourScale = 1) {
+  if (![1, 2, 3, 4].includes(colourScale)) {
+    throw new Error('Error in col_pal(). colour_scale must be a numeric from 1 to 4.');
+  }
+  return COL_PAL[colourScale].slice();
+}
+
+// ---- R_dateR_theme ---------------------------------------------------------
+// The R original is a ggplot2 theme() object. Ported here as a plain style
+// config capturing every meaningful parameter so a JS plotting layer can
+// reproduce the look. Values map 1:1 to the ggplot theme elements:
+//   panel.background = element_blank()            -> panel.background = 'none'
+//   axis.line/axis.ticks (colour black, linewidth)-> axis line/tick color+width
+//   axis.ticks.length = unit(.25,'cm')            -> tickLength ('0.25cm')
+//   panel.grid.major (grey, 0.5, 'dashed')        -> gridMajor
+//   legend.position = 'bottom'                    -> legend.position
+//   legend.key.width = unit(leg_size,'cm')        -> legend.keyWidth ('<leg_size>cm')
+//   plot.margin = margin(10,0,0,l)                -> plotMargin (T,R,B,L, px)
+//   axis.title.y margin(0,20,10,l)                -> axisTitleY.margin
+function rDateRTheme(opts = {}) {
+  const { text_size = 12, line_width = 1, l = 10, leg_size = 3 } = opts;
+  if (typeof text_size !== 'number' || text_size <= 0) {
+    throw new Error('Warning: an error occurred in R_dateR_theme: text_size was not a numeric value > 0');
+  }
+  if (typeof line_width !== 'number' || line_width <= 0) {
+    throw new Error('Warning: an error occurred in R_dateR_theme: line_width was not a numeric value > 0');
+  }
+  if (typeof leg_size !== 'number' || leg_size <= 0) {
+    throw new Error('Warning: an error occurred in R_dateR_theme: leg_size was not a numeric value > 0');
+  }
+  if (typeof l !== 'number') {
+    throw new Error('Warning: an error occurred in R_dateR_theme: l (left margin) was not a numeric value');
+  }
+  return {
+    text: { size: text_size },
+    panel: { background: 'none' },
+    axis: {
+      line: { color: 'black', width: line_width },
+      ticks: { color: 'black', width: line_width },
+      tickLength: '0.25cm',
+      text: { size: text_size, color: 'black' },
+      titleY: { size: text_size, margin: { t: 0, r: 20, b: 10, l } }, // px
+    },
+    gridMajor: { color: 'grey', width: 0.5, lineType: 'dashed' },
+    gridMinor: { color: 'none' },
+    legend: {
+      position: 'bottom',
+      key: { borderWidth: 1 },
+      keyWidth: `${leg_size}cm`,
+      text: { size: text_size },
+    },
+    plotMargin: { t: 10, r: 0, b: 0, l }, // px, ggplot margin(T,R,B,L)
+  };
+}
+
+module.exports = { xScaleBar, yScaleBar, colPal, rDateRTheme };
+
+  });
+  define("m34", {}, function(module, exports, require){
+'use strict';
+// ============================================================================
+// Shared, dependency-free SVG renderer for the six RingdateR plot builders.
+//
+// The builders (linePlot, datedLinePlot, allSeries, heatmapPlot, detrendPlot,
+// leadLagBar) each return a framework-agnostic PLOT SPEC — a plain object:
+//
+//   { type, width, height, title, xLabel, yLabel,
+//     scales: { x:{domain:[min,max], breaks:[...]}, y:{domain, breaks} },
+//     marks:  [ line | segment | raster | bar ... ],
+//     legend: null | { entries:[{label,color}] },
+//     colourbar: null | { colors:[...], limits:[lo,hi], label },
+//     panels: undefined | [ subSpec, subSpec, subSpec ] }   // stacked vertically
+//
+// Mark shapes (all data arrays are the REAL plotted numbers, NA === null):
+//   line    { type:'line',    x:[], y:[], color, width, alpha }
+//   segment { type:'segment', x0:[], x1:[], y0:[], y1:[], color, width, labels:[] }
+//   raster  { type:'raster',  x:[], y:[], fill:[], colors:[] }     // colors: per-cell hex
+//   bar     { type:'bar',     x:[], y:[], colors:[], baseline }    // colors: per-bar hex
+//
+// toSVG(spec) turns a spec into a well-formed, self-contained <svg> string.
+// Layout fidelity is deliberately simple (fixed margins): the load-bearing part
+// is the DATA carried in the marks, not the pixels.
+//
+// Colour: valueToColor() reproduces the STRUCTURE of ggplot's
+// scale_fill_gradientn(colours = col_pal(...), limits = c(-1,1)) — clamp to the
+// limits, then piecewise-linear interpolate across the (evenly spaced) colPal
+// stops. ggplot interpolates in CIE-Lab; we interpolate in sRGB, so hex values
+// are close but not identical (pixel fidelity is explicitly not required). The
+// diverging structure, the clamp, and the stop colours are preserved exactly.
+// ============================================================================
+
+// ---- colour helpers ---------------------------------------------------------
+function hexToRgb(h) {
+  const s = h.replace('#', '');
+  return [parseInt(s.slice(0, 2), 16), parseInt(s.slice(2, 4), 16), parseInt(s.slice(4, 6), 16)];
+}
+function rgbToHex(c) {
+  return '#' + c.map(v => {
+    const n = Math.max(0, Math.min(255, Math.round(v)));
+    return n.toString(16).padStart(2, '0');
+  }).join('');
+}
+// piecewise-linear ramp across evenly spaced stops; t in [0,1].
+function rampColor(stops, t) {
+  const tt = Math.max(0, Math.min(1, t));
+  if (stops.length === 1) return stops[0];
+  const pos = tt * (stops.length - 1);
+  const i = Math.min(stops.length - 2, Math.floor(pos));
+  const frac = pos - i;
+  const a = hexToRgb(stops[i]);
+  const b = hexToRgb(stops[i + 1]);
+  return rgbToHex([0, 1, 2].map(k => a[k] + (b[k] - a[k]) * frac));
+}
+// map a value to a hex colour across `colors`, clamped to `limits` = [lo,hi].
+function valueToColor(v, colors, limits = [-1, 1]) {
+  if (v == null || Number.isNaN(v)) return null;
+  const [lo, hi] = limits;
+  const t = hi === lo ? 0 : (v - lo) / (hi - lo);
+  return rampColor(colors, t);
+}
+
+// ---- scale helper -----------------------------------------------------------
+function linScale(domain, range) {
+  const [d0, d1] = domain, [r0, r1] = range;
+  const span = d1 - d0 || 1;
+  return v => r0 + (v - d0) / span * (r1 - r0);
+}
+
+// ---- xml helpers ------------------------------------------------------------
+function esc(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+const isNum = v => typeof v === 'number' && !Number.isNaN(v);
+
+// build an SVG polyline path, breaking the path wherever x or y is NA.
+function linePath(xs, ys, sx, sy) {
+  let d = '', pen = false;
+  for (let i = 0; i < xs.length; i++) {
+    const x = xs[i], y = ys[i];
+    if (!isNum(x) || !isNum(y)) { pen = false; continue; }
+    d += (pen ? 'L' : 'M') + sx(x).toFixed(2) + ',' + sy(y).toFixed(2) + ' ';
+    pen = true;
+  }
+  return d.trim();
+}
+
+// smallest positive gap between sorted unique finite values (fallback 1).
+function minGap(vals) {
+  const u = Array.from(new Set(vals.filter(isNum))).sort((a, b) => a - b);
+  let g = Infinity;
+  for (let i = 1; i < u.length; i++) { const d = u[i] - u[i - 1]; if (d > 0 && d < g) g = d; }
+  return Number.isFinite(g) ? g : 1;
+}
+
+// ---- one panel --------------------------------------------------------------
+// Renders a single spec's plotting area + axes into an SVG group at (0, offY).
+const M = { top: 34, right: 20, bottom: 40, left: 64 };
+
+function renderPanel(spec, offY, colourbarSpace) {
+  const w = spec.width;
+  const h = spec.height;
+  const cbSpace = colourbarSpace ? 26 : 0;
+  const left = M.left, right = w - M.right, top = offY + M.top, bottom = offY + h - M.bottom - cbSpace;
+  const xd = spec.scales.x.domain, yd = spec.scales.y.domain;
+  const sx = linScale(xd, [left, right]);
+  const sy = linScale(yd, [bottom, top]);
+  const out = [];
+
+  // title
+  if (spec.title) out.push(`<text x="${left}" y="${offY + 20}" font-family="sans-serif" font-size="13" font-weight="bold">${esc(spec.title)}</text>`);
+
+  // axes frame
+  out.push(`<line x1="${left}" y1="${bottom}" x2="${right}" y2="${bottom}" stroke="black" stroke-width="1"/>`);
+  out.push(`<line x1="${left}" y1="${top}" x2="${left}" y2="${bottom}" stroke="black" stroke-width="1"/>`);
+
+  // x ticks
+  for (const b of (spec.scales.x.breaks || [])) {
+    if (!isNum(b) || b < xd[0] || b > xd[1]) continue;
+    const X = sx(b);
+    out.push(`<line x1="${X.toFixed(2)}" y1="${bottom}" x2="${X.toFixed(2)}" y2="${bottom + 5}" stroke="black" stroke-width="1"/>`);
+    out.push(`<text x="${X.toFixed(2)}" y="${bottom + 17}" font-family="sans-serif" font-size="10" text-anchor="middle">${esc(b)}</text>`);
+  }
+  // y ticks
+  for (const b of (spec.scales.y.breaks || [])) {
+    if (!isNum(b) || b < yd[0] || b > yd[1]) continue;
+    const Y = sy(b);
+    out.push(`<line x1="${left - 5}" y1="${Y.toFixed(2)}" x2="${left}" y2="${Y.toFixed(2)}" stroke="black" stroke-width="1"/>`);
+    out.push(`<text x="${left - 8}" y="${(Y + 3).toFixed(2)}" font-family="sans-serif" font-size="10" text-anchor="end">${esc(b)}</text>`);
+  }
+  // axis labels
+  if (spec.xLabel) out.push(`<text x="${((left + right) / 2).toFixed(1)}" y="${bottom + 32}" font-family="sans-serif" font-size="11" text-anchor="middle">${esc(spec.xLabel)}</text>`);
+  if (spec.yLabel) out.push(`<text x="${left - 46}" y="${((top + bottom) / 2).toFixed(1)}" font-family="sans-serif" font-size="11" text-anchor="middle" transform="rotate(-90 ${left - 46} ${((top + bottom) / 2).toFixed(1)})">${esc(spec.yLabel)}</text>`);
+
+  // clip marks to the panel
+  const clipId = 'clip' + Math.round(offY) + '_' + Math.round(w);
+  out.push(`<clipPath id="${clipId}"><rect x="${left}" y="${top}" width="${(right - left).toFixed(2)}" height="${(bottom - top).toFixed(2)}"/></clipPath>`);
+  out.push(`<g clip-path="url(#${clipId})">`);
+
+  for (const mk of (spec.marks || [])) {
+    if (mk.type === 'line') {
+      const d = linePath(mk.x, mk.y, sx, sy);
+      if (d) out.push(`<path d="${d}" fill="none" stroke="${mk.color || 'black'}" stroke-width="${mk.width || 1}" ${mk.alpha != null && mk.alpha < 1 ? `stroke-opacity="${mk.alpha}"` : ''}/>`);
+    } else if (mk.type === 'segment') {
+      for (let i = 0; i < mk.x0.length; i++) {
+        if (![mk.x0[i], mk.x1[i], mk.y0[i], mk.y1[i]].every(isNum)) continue;
+        out.push(`<line x1="${sx(mk.x0[i]).toFixed(2)}" y1="${sy(mk.y0[i]).toFixed(2)}" x2="${sx(mk.x1[i]).toFixed(2)}" y2="${sy(mk.y1[i]).toFixed(2)}" stroke="${mk.color || 'black'}" stroke-width="${mk.width || 2}"/>`);
+      }
+    } else if (mk.type === 'raster') {
+      const cw = Math.abs(sx(xd[0] + minGap(mk.x)) - sx(xd[0]));
+      const ch = Math.abs(sy(yd[0] + minGap(mk.y)) - sy(yd[0]));
+      for (let i = 0; i < mk.x.length; i++) {
+        const col = mk.colors[i];
+        if (!isNum(mk.x[i]) || !isNum(mk.y[i]) || !col) continue;
+        out.push(`<rect x="${(sx(mk.x[i]) - cw / 2).toFixed(2)}" y="${(sy(mk.y[i]) - ch / 2).toFixed(2)}" width="${cw.toFixed(2)}" height="${ch.toFixed(2)}" fill="${col}" shape-rendering="crispEdges"/>`);
+      }
+    } else if (mk.type === 'bar') {
+      const bw = Math.abs(sx(xd[0] + minGap(mk.x)) - sx(xd[0])) * 0.85;
+      const base = sy(mk.baseline != null ? mk.baseline : 0);
+      for (let i = 0; i < mk.x.length; i++) {
+        if (!isNum(mk.x[i]) || !isNum(mk.y[i])) continue;
+        const Y = sy(mk.y[i]);
+        const y0 = Math.min(Y, base), hgt = Math.abs(Y - base);
+        out.push(`<rect x="${(sx(mk.x[i]) - bw / 2).toFixed(2)}" y="${y0.toFixed(2)}" width="${bw.toFixed(2)}" height="${hgt.toFixed(2)}" fill="${(mk.colors && mk.colors[i]) || mk.color || 'black'}"/>`);
+      }
+    }
+  }
+  out.push('</g>');
+
+  // Invisible hover-capture zone over the plot area, carrying the x-domain so
+  // browser-side code (web/plotLink.js) can map cursor position <-> data-x and
+  // link hover across plots. Emitted only when the builder declares linkAxis
+  // (e.g. 'year'), so unrelated axes (lags, ring counts) never cross-link.
+  //
+  // A comparison plot draws two series on ONE axis with the second shifted by
+  // the crossdate lag, so a hovered x is a different year in each of them —
+  // which is the whole question being asked of the plot. `spec.linkSeries`
+  // rides along to say what x means to each series:
+  //   [{ label, color, offset, span, unit }]  -> own value = x + offset,
+  // `span` being that series' own first..last value (so a cursor outside its
+  // data can be shown as the extrapolation it is) and `color` its legend
+  // colour, so the two labels are told apart the same way the lines are.
+  // `unit` is 'year' for a dated series and 'ring' for an undated one, whose
+  // numbering is ring counts, not years (see ownAxis).
+  if (spec.linkAxis) {
+    const ser = spec.linkSeries && spec.linkSeries.length
+      ? ` data-series="${esc(JSON.stringify(spec.linkSeries))}"` : '';
+    out.push(`<rect class="rd-hot" data-axis="${esc(spec.linkAxis)}" data-xmin="${xd[0]}" data-xmax="${xd[1]}"${ser} x="${left}" y="${top}" width="${(right - left).toFixed(2)}" height="${(bottom - top).toFixed(2)}" fill="none" pointer-events="all"/>`);
+  }
+
+  // colour bar (below panel)
+  if (spec.colourbar) {
+    const cb = spec.colourbar;
+    const bx = left, bw = Math.min(240, right - left), by = bottom + cbSpace + 8, bh = 8;
+    const gid = 'grad' + Math.round(offY);
+    const stops = cb.colors.map((c, i) => `<stop offset="${(i / (cb.colors.length - 1) * 100).toFixed(1)}%" stop-color="${c}"/>`).join('');
+    out.push(`<defs><linearGradient id="${gid}">${stops}</linearGradient></defs>`);
+    out.push(`<rect x="${bx}" y="${by}" width="${bw}" height="${bh}" fill="url(#${gid})" stroke="black" stroke-width="0.5"/>`);
+    out.push(`<text x="${bx}" y="${by + bh + 12}" font-family="sans-serif" font-size="9">${esc(cb.limits[0])}</text>`);
+    out.push(`<text x="${bx + bw}" y="${by + bh + 12}" font-family="sans-serif" font-size="9" text-anchor="end">${esc(cb.limits[1])}</text>`);
+    if (cb.label) out.push(`<text x="${bx + bw + 8}" y="${by + bh}" font-family="sans-serif" font-size="10">${esc(cb.label)}</text>`);
+  }
+  // discrete legend (top-right)
+  if (spec.legend && spec.legend.entries) {
+    let ly = offY + 14;
+    for (const e of spec.legend.entries) {
+      out.push(`<rect x="${w - 150}" y="${ly - 8}" width="10" height="10" fill="${e.color}"/>`);
+      out.push(`<text x="${w - 136}" y="${ly}" font-family="sans-serif" font-size="10">${esc(e.label)}</text>`);
+      ly += 14;
+    }
+  }
+  return out.join('\n');
+}
+
+// ---- public: toSVG ----------------------------------------------------------
+function toSVG(spec) {
+  const panels = spec.panels && spec.panels.length ? spec.panels : [spec];
+  const width = spec.width || Math.max(...panels.map(p => p.width));
+  let height = 0;
+  const parts = [];
+  for (const p of panels) {
+    parts.push(renderPanel(p, height, !!p.colourbar));
+    height += p.height;
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" font-family="sans-serif">\n` +
+    `<rect width="${width}" height="${height}" fill="white"/>\n` +
+    parts.join('\n') + '\n</svg>';
+}
+
+// ---- shared numeric helpers used by builders --------------------------------
+// R round(x, -1): round to nearest 10 with round-half-to-even (IEC 60559).
+function roundR(x, digits) {
+  const f = Math.pow(10, -digits); // digits=-1 -> f=10
+  const v = x / f;
+  const fl = Math.floor(v), diff = v - fl;
+  let r;
+  if (diff < 0.5) r = fl;
+  else if (diff > 0.5) r = fl + 1;
+  else r = (fl % 2 === 0) ? fl : fl + 1;
+  return r * f;
+}
+
+// One series' entry for spec.linkSeries. `span` is [first, last] where the
+// series was DRAWN (x units, so the lag is already in it) and `shift` how far
+// the lag moved it there.
+//
+// A DATED series is labelled in its own calendar years, so undoing the shift is
+// the whole mapping. An UNDATED series has no years to name — an undated series
+// is exactly what the plot is trying to date — so it is labelled by RING COUNT
+// from its own first ring, and its mapping also subtracts where that first ring
+// landed on the axis. Either way the label stays affine in x, so the browser
+// side (web/plotLink.js) remains one addition.
+function ownAxis(label, color, span, shift, ring) {
+  const sh = shift || 0;
+  if (!span) return { label, color, offset: ring ? 0 : -sh, span: null, unit: ring ? 'ring' : 'year' };
+  const lo = span[0], hi = span[1];
+  return ring
+    ? { label, color, offset: 1 - lo, span: [1, hi - lo + 1], unit: 'ring' }
+    : { label, color, offset: -sh, span: [lo - sh, hi - sh], unit: 'year' };
+}
+
+module.exports = {
+  toSVG, valueToColor, rampColor, linScale, roundR, ownAxis,
+  hexToRgb, rgbToHex, esc,
+};
+
+  });
+  define("m35", {}, function(module, exports, require){
+'use strict';
+// ============================================================================
+// Calendar-year conversion for the traditional dendrochronology convention:
+// AD/BC with NO year zero.
+//
+// RingdateR's internal computation axis is a contiguous integer sequence
+// (astronomical year numbering, which DOES have a year 0). Keeping the internal
+// axis contiguous is what lets the chronology builder's year-keyed merge and
+// integer offsets work without special-casing the BC/AD boundary
+// (see src/engine/builder.js). This module confines the "no year 0" convention
+// to the I/O and display boundary only.
+//
+//   internal (astronomical)      calendar (traditional)
+//        ...  2                        2 AD
+//             1                        1 AD
+//             0            <->         1 BC
+//            -1                        2 BC
+//            -2                        3 BC   ...
+//
+// So there is no internal value that maps to "year 0" in calendar terms: the
+// transition 0 <-> -1 is exactly the 1 BC <-> 2 BC step, and 0 <-> 1 is the
+// 1 BC <-> 1 AD step. TRiDaS carries a `suffix="BC"|"AD"` on <firstYear> /
+// <lastYear>; convert with calToAstro on read and astroToCal on write.
+// ============================================================================
+
+// internal astronomical int -> { year: >=1, suffix: 'AD'|'BC' }
+function astroToCal(y) {
+  const n = Math.trunc(Number(y));
+  return n <= 0 ? { year: 1 - n, suffix: 'BC' } : { year: n, suffix: 'AD' };
+}
+
+// { year, suffix } -> internal astronomical int. year must be >= 1 (no year 0).
+function calToAstro(year, suffix) {
+  const yr = Math.trunc(Number(year));
+  if (!(yr >= 1)) throw new Error('calToAstro: calendar year must be >= 1 (no year 0), got ' + year);
+  const s = String(suffix == null ? 'AD' : suffix).toUpperCase();
+  if (s !== 'AD' && s !== 'BC') throw new Error('calToAstro: suffix must be AD or BC, got ' + suffix);
+  return s === 'BC' ? 1 - yr : yr;
+}
+
+// "12 BC" / "1450 AD" — display string for reports and dated plots.
+function formatCal(y) {
+  const c = astroToCal(y);
+  return c.year + ' ' + c.suffix;
+}
+
+module.exports = { astroToCal, calToAstro, formatCal };
+
+  });
+  define("m36", {"../analysis/heatmap.js":"m21"}, function(module, exports, require){
+'use strict';
+// ============================================================================
+// crossdateVerdict.js — one verdict per series, instead of one flag per segment.
+//
+// WHY THIS EXISTS
+// COFECHA flags segments, and on real data most of those flags are noise. On
+// chronologies/ut550.rwl — published, already crossdated — COFECHA raises 25
+// flags, and every one of its 12 'B' flags fails COFECHA's own test (manual
+// p. 215: an alternate dating position only matters if its correlation is
+// roughly twice the dated one). All twelve sit at ratios of 1.0-1.3 with
+// scattered shifts (+6 -10 +1 +5 -5 -9 +8 +8 +9 +5 -1 -5). A reader who checks
+// twenty-five segments and finds nothing wrong learns to ignore flags.
+//
+// A real dating error looks completely different. Removing one ring from
+// RCB107B at 1500 produced 21 flags, ALL at +1, with ratios from 3.2 to 180.
+// The difference is not the size of any single correlation — it is that a real
+// error is SUSTAINED and SYSTEMATIC, and noise is neither.
+//
+// HOW IT WORKS
+// For each series, run a correlation against the chronology built from every
+// OTHER series, in a sliding window, at every dating position from -shift to
+// +shift. That is the running-correlation heatmap the app already draws
+// (analysis/heatmap.js -> analysis/runningLeadLag.js), with the leave-one-out
+// master cofecha() already computed on the other axis. Then trace the RIDGE:
+// the best-fitting lag in each year. Measured on ut550:
+//
+//   RCB107B with a ring removed at 1500   ridge: lag 0 for 163-1480,
+//                                                then lag +1 for 1481-1989
+//   all nine series carrying ut550's       ridge: one run at lag 0, holding for
+//   twelve 'B' flags                              94-99% of their years
+//
+// A ridge that holds one lag is a dated series. A ridge that steps from one lag
+// to another, and stays there, is a dating error, and the step locates it.
+//
+// WHERE THE ERROR IS. The window is centred, so a step is detected about half a
+// window early: the step above lands at 1480 for an error at 1500, because the
+// window centred on 1480 already covers 1455-1505. The reported bracket is
+// therefore the step year +/- win/2, which contains the true year. Reporting a
+// single year would be false precision.
+//
+// DIRECTION. Reading from pith to bark, a MISSING ring makes everything after it
+// dated one year too early, so the later portion fits at a HIGHER lag. An extra
+// or false ring does the reverse. That is the sign convention used below, and
+// it is the one the injected-error tests check.
+// ============================================================================
+
+const { heatmapAnalysis } = require('../analysis/heatmap.js');
+
+const DEFAULTS = {
+  win: null,        // running window; default segLength+1 from the cofecha run
+  shift: null,      // +/- dating positions; default the cofecha run's shift
+  minRun: 30,       // years a ridge run must hold before it counts as sustained...
+  minRunFrac: 0.5,  // ...but never more than this share of the ridge that exists
+  minRunFloor: 8,   // ...and never fewer than this many years
+  minWin: 21,       // shortest running window to fall back to on a short series
+  minRidgeR: 0.2,   // ignore years where even the best lag correlates this weakly
+  dominantFrac: 0.9,// a ridge this much at one lag is a clean single-lag ridge
+  invertedR: -0.3,  // whole-series correlation at or below this = inverted
+  duplicateR: 0.98, // pair correlation at or above this = the same core twice
+  minOverlap: 100,  // years two series must share before a duplicate check counts
+};
+
+const isNA = v => v == null || (typeof v === 'number' && Number.isNaN(v));
+
+// ---------------------------------------------------------------------------
+// Ridge: the best-correlating lag in each year, compressed into runs.
+// ---------------------------------------------------------------------------
+function traceRidge(hm, optsIn) {
+  const opts = Object.assign({}, DEFAULTS, optsIn || {});
+  const Y = hm.cols[0], L = hm.cols[1], R = hm.cols[2];
+  const best = new Map();
+  for (let i = 0; i < Y.length; i++) {
+    const y = Math.round(Y[i]), r = R[i];
+    if (isNA(r)) continue;
+    const cur = best.get(y);
+    if (!cur || r > cur.r) best.set(y, { lag: L[i], r });
+  }
+  const years = [...best.keys()].sort((a, b) => a - b).filter(y => best.get(y).r >= opts.minRidgeR);
+  const points = years.map(y => ({ year: y, lag: best.get(y).lag, r: best.get(y).r }));
+
+  const runs = [];
+  let cur = null;
+  for (const p of points) {
+    // a gap in years breaks a run just as a change of lag does
+    if (cur && p.lag === cur.lag && p.year === cur.to + 1) { cur.to = p.year; cur.n++; cur.rSum += p.r; }
+    else { if (cur) runs.push(cur); cur = { lag: p.lag, from: p.year, to: p.year, n: 1, rSum: p.r }; }
+  }
+  if (cur) runs.push(cur);
+  runs.forEach(r => { r.years = r.to - r.from + 1; r.meanR = r.rSum / r.n; delete r.rSum; delete r.n; });
+  return { points, runs };
+}
+
+// ---------------------------------------------------------------------------
+// Verdict from the ridge runs.
+// ---------------------------------------------------------------------------
+function verdictFrom(ridge, win, optsIn) {
+  // Exported and callable on its own, so it fills in its own defaults rather
+  // than trusting the caller to have merged them.
+  const opts = Object.assign({}, DEFAULTS, optsIn || {});
+  const total = ridge.points.length;
+  // A run has to hold for `minRun` years to count — but a 75-year series gives
+  // only ~25 ridge points under a 51-year window, so an absolute 30 could never
+  // be met and every short series came back "unstable" however well it dated
+  // (CMP34A in ut585 correlates at 0.874 and was being escalated). Scale the
+  // threshold to the ridge that actually exists, with a floor so it stays a
+  // real test.
+  const need = Math.max(opts.minRunFloor,
+    Math.min(opts.minRun, Math.ceil(opts.minRunFrac * total)));
+  const sustained = ridge.runs.filter(r => r.years >= need);
+  const atZero = ridge.points.filter(p => p.lag === 0).length;
+  const fracZero = total ? atZero / total : 0;
+  const half = Math.floor(win / 2);
+
+  if (!total) {
+    return { status: 'no-signal', fracZero, sustained, problems: [],
+      message: 'No window correlates well enough with the rest of the chronology to place this series.' };
+  }
+  if (!sustained.length) {
+    return { status: 'unstable', fracZero, sustained, problems: [],
+      message: 'The best-fitting dating position never holds for ' + need +
+        ' years together — this series does not crossdate against the others.' };
+  }
+
+  // Merge consecutive sustained runs that share a lag (a short interruption
+  // between them is not a dating change).
+  const merged = [];
+  for (const r of sustained) {
+    const last = merged[merged.length - 1];
+    if (last && last.lag === r.lag) { last.to = r.to; last.years = last.to - last.from + 1; }
+    else merged.push(Object.assign({}, r));
+  }
+
+  if (merged.length === 1) {
+    const only = merged[0];
+    if (only.lag === 0) {
+      return { status: 'dated', fracZero, sustained: merged, problems: [],
+        message: 'Dated. The best fit is the dated position throughout (' +
+          Math.round(100 * fracZero) + '% of years).' };
+    }
+    return {
+      status: 'offset', fracZero, sustained: merged,
+      problems: [{ kind: 'offset', shift: only.lag, from: only.from, to: only.to }],
+      message: 'The whole series fits better ' + Math.abs(only.lag) + ' year' +
+        (Math.abs(only.lag) === 1 ? '' : 's') + (only.lag > 0 ? ' later' : ' earlier') +
+        ' than dated — it looks uniformly misdated rather than damaged at one point.',
+    };
+  }
+
+  // Two or more sustained runs at different lags: each step is a dating error.
+  const problems = [];
+  for (let i = 1; i < merged.length; i++) {
+    const a = merged[i - 1], b = merged[i];
+    if (a.lag === b.lag) continue;
+    const step = b.lag - a.lag;
+    const at = Math.round((a.to + b.from) / 2);
+    problems.push({
+      kind: step > 0 ? 'missing-ring' : 'extra-ring',
+      shift: step, at,
+      bracket: [at - half, at + half],
+      before: { lag: a.lag, from: a.from, to: a.to },
+      after: { lag: b.lag, from: b.from, to: b.to },
+    });
+  }
+  const first = problems[0];
+  const msg = problems.map(p =>
+    (p.kind === 'missing-ring' ? 'a ring is likely missing' : 'an extra ring has likely been counted') +
+    ' between ' + p.bracket[0] + ' and ' + p.bracket[1] +
+    ' (everything after it fits ' + Math.abs(p.shift) + ' year' + (Math.abs(p.shift) === 1 ? '' : 's') +
+    (p.shift > 0 ? ' later' : ' earlier') + ')').join('; ');
+  return {
+    status: 'dating-error', fracZero, sustained: merged, problems,
+    message: msg.charAt(0).toUpperCase() + msg.slice(1) + '.',
+    at: first.at, bracket: first.bracket, shift: first.shift,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Severity — what to put at the top of the list.
+// A dating error dominates; within that, a longer sustained run after the step
+// and a bigger jump in correlation at the alternate position rank higher.
+// ---------------------------------------------------------------------------
+function severityOf(v, series) {
+  if (v.status === 'dated') return 0;
+  const flagged = (series.segments || []).filter(g => g.flag);
+  const ratios = flagged
+    .map(g => (g.r > 0 && Number.isFinite(g.rHigh) ? g.rHigh / g.r : (Number.isFinite(g.rHigh) ? 10 : 1)))
+    .filter(Number.isFinite);
+  const maxRatio = ratios.length ? Math.max(...ratios) : 1;
+  const runLen = v.sustained.length ? Math.max(...v.sustained.filter(r => r.lag !== 0).map(r => r.years), 0) : 0;
+  const base = { 'dating-error': 100, 'offset': 80, 'unstable': 60, 'no-signal': 40 }[v.status] || 0;
+  return base + Math.min(30, runLen / 20) + Math.min(20, 4 * Math.log(Math.max(1, maxRatio)));
+}
+
+// ---------------------------------------------------------------------------
+// crossdateVerdict(cofechaResult, opts)
+//   Consumes the result of cofecha() (which must have been run with the default
+//   keepSeries:true, so each series carries its transformed values and the
+//   leave-one-out master it was tested against).
+// ---------------------------------------------------------------------------
+function crossdateVerdict(res, opts) {
+  if (!res || !res.series || !res.years) {
+    throw new Error('crossdateVerdict: expected the result of cofecha()');
+  }
+  const o = Object.assign({}, DEFAULTS, opts || {});
+  const shift = o.shift != null ? o.shift : res.options.shift;
+  let win = o.win != null ? o.win : res.options.segLength + 1;
+  if (win % 2 === 0) win += 1;                 // runningLeadLag forces odd anyway
+  const half = Math.floor(win / 2);
+
+  const years = res.years;
+  const out = [];
+  for (const s of res.series) {
+    if (!s.transformed || !s.looMaster) {
+      throw new Error('crossdateVerdict: cofecha() must be run with keepSeries enabled');
+    }
+    const frame = {
+      names: ['year', '__master', '__series'],
+      cols: [years.slice(), s.looMaster.slice(), s.transformed.slice()],
+    };
+    // A series shorter than the window gets a narrower one rather than no
+    // verdict at all. Narrower means noisier, so the window used is reported
+    // per series and the report says when it differs from the run's.
+    let useWin = win;
+    if (s.nYears < win * 1.5) {
+      useWin = Math.max(o.minWin, Math.floor(0.6 * s.nYears));
+      if (useWin % 2 === 0) useWin -= 1;
+      if (useWin > win) useWin = win;
+    }
+    let hm = null;
+    try {
+      hm = heatmapAnalysis(frame, {
+        s1: '__master', s2: '__series',
+        neg_lag: -shift, pos_lag: shift, win: useWin, complete: false, fast: true,
+      });
+    } catch (e) { hm = null; }
+
+    let ridge = { points: [], runs: [] };
+    let v;
+    if (!hm) {
+      v = { status: 'too-short', fracZero: NaN, sustained: [], problems: [],
+        message: 'Too short for even a ' + useWin +
+          '-year running window — judge this one from the segment table.' };
+    } else {
+      ridge = traceRidge(hm, o);
+      v = verdictFrom(ridge, useWin, o);
+    }
+
+    out.push({
+      seq: s.seq, id: s.id, first: s.first, last: s.last,
+      status: v.status, message: v.message,
+      fracZero: v.fracZero, problems: v.problems, runs: v.sustained,
+      at: v.at, bracket: v.bracket, shift: v.shift,
+      corrWithMaster: s.corrWithMaster, nFlags: s.nFlags, nSegments: s.nSegments,
+      severity: severityOf(v, s),
+      ridge, heatmap: hm, win: useWin, winDefault: win,
+    });
+  }
+  out.sort((a, b) => b.severity - a.severity || a.seq - b.seq);
+
+  // ---- collection-level checks the per-series pass cannot see ---------------
+  const collection = [];
+
+  // Inverted series: a strong NEGATIVE correlation is a sign or column error,
+  // not a dating error, and it reads as "just a bad series" without this.
+  for (const s of res.series) {
+    if (Number.isFinite(s.corrWithMaster) && s.corrWithMaster <= o.invertedR) {
+      collection.push({
+        kind: 'inverted', ids: [s.id], r: s.corrWithMaster,
+        message: s.id + ' correlates NEGATIVELY with the rest of the chronology (r = ' +
+          s.corrWithMaster.toFixed(2) + '). That is usually a sign error or a column read ' +
+          'in the wrong direction rather than a dating problem.',
+      });
+    }
+  }
+
+  // Near-duplicate series: the same core entered twice inflates sample depth and
+  // EPS while looking like excellent agreement.
+  const S = res.series;
+  for (let i = 0; i < S.length; i++) {
+    for (let j = i + 1; j < S.length; j++) {
+      const a = S[i].transformed, b = S[j].transformed;
+      if (!a || !b) continue;
+      let n = 0, sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0;
+      for (let k = 0; k < a.length; k++) {
+        if (isNA(a[k]) || isNA(b[k])) continue;
+        n++; sx += a[k]; sy += b[k]; sxx += a[k] * a[k]; syy += b[k] * b[k]; sxy += a[k] * b[k];
+      }
+      if (n < o.minOverlap) continue;
+      const den = Math.sqrt((sxx - sx * sx / n) * (syy - sy * sy / n));
+      if (!(den > 0)) continue;
+      const r = (sxy - sx * sy / n) / den;
+      if (r >= o.duplicateR) {
+        collection.push({
+          kind: 'duplicate', ids: [S[i].id, S[j].id], r, overlap: n,
+          message: S[i].id + ' and ' + S[j].id + ' correlate at r = ' + r.toFixed(3) +
+            ' over ' + n + ' years. Two radii of one tree do not agree this closely; ' +
+            'this is usually the same measurement entered twice, and it inflates sample depth and EPS.',
+        });
+      }
+    }
+  }
+
+  const counts = {};
+  out.forEach(v => { counts[v.status] = (counts[v.status] || 0) + 1; });
+  const attention = out.filter(v => v.status !== 'dated' && v.status !== 'too-short');
+
+  return {
+    options: { win, shift, minRun: o.minRun, minRidgeR: o.minRidgeR },
+    series: out,
+    collection,
+    summary: {
+      nSeries: out.length,
+      counts,
+      nAttention: attention.length,
+      attention: attention.map(v => v.id),
+    },
+  };
+}
+
+module.exports = { crossdateVerdict, traceRidge, verdictFrom, CROSSDATE_DEFAULTS: DEFAULTS };
+
+  });
+  define("m37", {"../rwi_stats.js":"m8"}, function(module, exports, require){
+'use strict';
+// ============================================================================
+// chronStats.js — the chronology-level statistics COFECHA does not produce.
+//
+// COFECHA reports the average interseries correlation and the average mean
+// sensitivity, and stops. Neither answers the question a chronology is usually
+// built to answer: HOW FAR BACK IS IT RELIABLE? That is what Rbar and EPS are
+// for, and the app already has the dplR machinery for them (../rwi_stats.js).
+// This module puts it on the same footing as the crossdating check — same
+// transformed series, same tree grouping — and states the reliability cutoff in
+// one line instead of leaving it to be read off a table.
+//
+// TREES, NOT CORES. Two radii of one tree share wood, not just climate, so
+// counting them as independent replicates overstates the sampling. rwi_stats
+// now carries the full dplR within/between-tree machinery; this module infers
+// the grouping from the core ids, and reports EPS BOTH ways so the convention
+// is never hidden. At full sample depth the difference is cosmetic; at the far
+// end of a chronology it decides whether a stretch is usable at all.
+//
+// A note on what EPS is not: it measures whether enough trees agree, not
+// whether they are correctly dated. A misdated series lowers it, but a
+// chronology can have excellent EPS and a dating error in one member — which is
+// why this sits beside crossdateVerdict rather than replacing it.
+// ============================================================================
+
+const { rwiStatsRunning, inferTrees, sss } = require('../rwi_stats.js');
+
+const DEFAULTS = {
+  window: 50,          // running window length, years
+  overlap: null,       // default: half the window (50% overlap, as elsewhere)
+  minCorrOverlap: 30,  // years two series must share before their r counts
+  epsThreshold: 0.85,  // the conventional bar
+  trees: true,         // infer tree grouping from the core ids
+  treeOf: null,        // or supply the grouping explicitly
+};
+
+// Build an rwl { years, series } from a cofecha() result, keeping ids unique
+// even when a file carries the same id in two records (cofecha splits those
+// into separate series, so the raw id is not a unique key).
+function rwlFromCofecha(res) {
+  const rwl = { years: res.years.slice(), series: {} };
+  const keyOf = {};                 // unique key -> original id, for tree grouping
+  const seen = {};
+  for (const s of res.series) {
+    if (!s.transformed) {
+      throw new Error('chronStats: cofecha() must be run with keepSeries enabled');
+    }
+    seen[s.id] = (seen[s.id] || 0) + 1;
+    const key = seen[s.id] === 1 ? s.id : s.id + '~' + seen[s.id];
+    rwl.series[key] = s.transformed.slice();
+    keyOf[key] = s.id;
+  }
+  return { rwl, keyOf };
+}
+
+// The earliest year from which EPS stays at or above the threshold all the way
+// to the end. Scanning backwards from the most recent window is the honest
+// reading: an isolated good window deep in the past does not make that period
+// usable if the windows after it fail.
+function reliableFrom(windows, threshold, key) {
+  if (!windows.length) return null;
+  let cutoff = null;
+  for (let i = windows.length - 1; i >= 0; i--) {
+    const v = windows[i][key];
+    if (Number.isFinite(v) && v >= threshold) cutoff = windows[i].startYear;
+    else break;
+  }
+  return cutoff;
+}
+
+function chronStats(res, opts) {
+  const o = Object.assign({}, DEFAULTS, opts || {});
+  if (!res || !res.series || !res.years) {
+    throw new Error('chronStats: expected the result of cofecha()');
+  }
+  const { rwl, keyOf } = rwlFromCofecha(res);
+  const keys = Object.keys(rwl.series);
+
+  // Tree grouping is inferred from the ORIGINAL ids, so two records of one core
+  // group with that core rather than becoming a tree of their own.
+  let treeOf = null, treeInfo = null;
+  if (o.treeOf) {
+    treeOf = {};
+    for (const k of keys) treeOf[k] = o.treeOf[keyOf[k]] != null ? o.treeOf[keyOf[k]] : keyOf[k];
+    treeInfo = { grouped: true, explicit: true };
+  } else if (o.trees) {
+    const inf = inferTrees([...new Set(Object.values(keyOf))]);
+    treeOf = {};
+    for (const k of keys) treeOf[k] = inf.treeOf[keyOf[k]];
+    treeInfo = { grouped: inf.grouped, explicit: false, trees: inf.trees };
+  }
+
+  const common = {
+    windowLength: o.window,
+    windowOverlap: o.overlap != null ? o.overlap : Math.floor(o.window / 2),
+    minCorrOverlap: Math.min(o.minCorrOverlap, o.window),
+    zeroIsMissing: true,
+  };
+
+  let perCore = [], perTree = [], error = null;
+  try { perCore = rwiStatsRunning(rwl, common); }
+  catch (e) { error = e.message; }
+  if (treeOf && !error) {
+    try { perTree = rwiStatsRunning(rwl, Object.assign({ treeOf }, common)); }
+    catch (e) { perTree = []; }
+  }
+
+  const useTree = perTree.length > 0;
+  const windows = useTree ? perTree : perCore;
+
+  // group sizes, for the report to show and the user to correct
+  const groups = {};
+  if (treeOf) for (const k of keys) (groups[treeOf[k]] = groups[treeOf[k]] || []).push(keyOf[k]);
+  const nTrees = treeOf ? Object.keys(groups).length : keys.length;
+
+  const cutoffTree = useTree ? reliableFrom(perTree, o.epsThreshold, 'eps') : null;
+  const cutoffCore = reliableFrom(perCore, o.epsThreshold, 'eps');
+
+  const last = windows.length ? windows[windows.length - 1] : null;
+  const maxTrees = windows.reduce((a, w) => Math.max(a, w.nTrees || 0), 0);
+
+  const mean = (a, k) => {
+    const v = a.map(x => x[k]).filter(Number.isFinite);
+    return v.length ? v.reduce((p, q) => p + q, 0) / v.length : NaN;
+  };
+
+  return {
+    options: o,
+    error,
+    trees: {
+      inferred: treeInfo ? !treeInfo.explicit : false,
+      grouped: treeInfo ? treeInfo.grouped : false,
+      nCores: keys.length,
+      nTrees,
+      groups,                       // treeId -> [core ids]
+      multiCore: Object.keys(groups).filter(t => groups[t].length > 1).length,
+    },
+    windows, perCore, perTree,
+    summary: {
+      nCores: keys.length,
+      nTrees,
+      rbarTot: mean(windows, 'rbarTot'),
+      rbarWt: useTree ? mean(perTree, 'rbarWt') : NaN,
+      rbarBt: useTree ? mean(perTree, 'rbarBt') : NaN,
+      rbarEff: useTree ? mean(perTree, 'rbarEff') : mean(perCore, 'rbarTot'),
+      epsMean: mean(windows, 'eps'),
+      epsLatest: last ? last.eps : NaN,
+      snr: useTree ? mean(perTree, 'snr') : NaN,
+      // how well four trees would represent the fullest sample depth reached
+      sss4: useTree && last ? sss(4, maxTrees, last.rbarEff) : NaN,
+      epsThreshold: o.epsThreshold,
+      reliableFromTree: cutoffTree,
+      reliableFromCore: cutoffCore,
+      // the headline: one sentence a reader can act on
+      statement: (() => {
+        const c = useTree ? cutoffTree : cutoffCore;
+        const basis = useTree ? 'trees' : 'series';
+        if (!windows.length) return 'Not enough overlap to compute running Rbar / EPS.';
+        if (c == null) {
+          return 'EPS never reaches ' + o.epsThreshold + ' and hold it to the present, so no ' +
+            'part of this chronology meets the conventional bar on ' + basis + ' alone.';
+        }
+        if (c === windows[0].startYear) {
+          return 'EPS stays at or above ' + o.epsThreshold + ' across the whole chronology (' +
+            basis + ' basis).';
+        }
+        return 'EPS stays at or above ' + o.epsThreshold + ' from ' + c + ' onward (' + basis +
+          ' basis); earlier than that the sample is too thin to rely on.';
+      })(),
+    },
+  };
+}
+
+module.exports = { chronStats, rwlFromCofecha, reliableFrom, CHRON_DEFAULTS: DEFAULTS };
+
+  });
+  define("m38", {"./io/year.js":"m35"}, function(module, exports, require){
+'use strict';
+// ============================================================================
+// cofechaText.js — write a cofecha() result in COFECHA's own fixed-width layout.
+//
+// WHY. Someone moving off COFECHA has no way to check a replacement except by
+// running both and comparing. An HTML report cannot be diffed against a .OUT
+// listing; this can. The layout below is taken from a real COFECHA 6.06 run
+// (UT550COF.OUT, produced by Cofecha_MRWE.exe on chronologies/ut550.rwl), and
+// tools/cofecha_compare.js — written to read COFECHA's output — parses what
+// this emits, which is how the round-trip test verifies the columns.
+//
+// It is a re-implementation of the LAYOUT, not a byte-exact forgery: the header
+// line names RingdateR rather than claiming to be COFECHA, and the parts that
+// are known not to reproduce (see cofecha.js) are the same ones that differ
+// here. Anything reading this should be able to tell where it came from.
+//
+// COFECHA prints correlations without a leading zero (".671", "-.132") and pads
+// to fixed columns; both are reproduced, because a diff tool keyed to those
+// columns is the entire point.
+// ============================================================================
+
+const { formatCal } = require('./io/year.js');
+
+const isNum = v => typeof v === 'number' && Number.isFinite(v);
+// ".67" / "-.13" — COFECHA's correlation format
+const fr = (v, w, d) => {
+  d = d == null ? 2 : d;
+  const t = isNum(v) ? (v < 0 ? '-' : '') + Math.abs(v).toFixed(d).replace(/^0/, '') : '';
+  return t.padStart(w == null ? 5 : w);
+};
+const fn = (v, w, d) => (isNum(v) ? v.toFixed(d) : '').padStart(w);
+const fi = (v, w) => String(v == null ? '' : v).padStart(w);
+const fs_ = (v, w) => String(v == null ? '' : v).padEnd(w);
+
+function rule(n) { return '-'.repeat(n); }
+
+// Part 5 spans several pages; its body emits this wherever a new page header
+// belongs, and the assembler swaps in a real one so numbering stays sequential.
+const PAGE_BREAK = 'PAGE';
+
+// COFECHA's page header, which is also how a reader (and tools/cofecha_compare)
+// finds each part:  "PART 5:  CORRELATION OF SERIES BY SEGMENTS: ut550 ... Page 5"
+const PART_TITLES = {
+  1: 'OPTIONS, SUMMARY AND ABSENT RINGS',
+  2: 'TIME PLOT OF TREE-RING SERIES',
+  3: 'Master Dating Series',
+  5: 'CORRELATION OF SERIES BY SEGMENTS',
+  6: 'POTENTIAL PROBLEMS',
+  7: 'DESCRIPTIVE STATISTICS',
+};
+function header(title, part, page) {
+  const left = 'PART ' + part + ':  ' + PART_TITLES[part] + ': ' + (title || '');
+  const right = 'RingdateR  Page ' + fi(page, 4);
+  const pad = Math.max(2, 132 - left.length - right.length);
+  return [left + ' '.repeat(pad) + right, rule(132), ''];
+}
+
+// ---------------------------------------------------------------------------
+// Part 1 — options, summary, absent rings by series
+// ---------------------------------------------------------------------------
+function part1(res, o) {
+  const op = res.options, S = res.summary;
+  const L = [];
+  L.push(' QUALITY CONTROL AND DATING CHECK OF TREE-RING MEASUREMENTS', '');
+  L.push(' Title of run:           ' + (o.title || ''));
+  L.push(' File of DATED series:   ' + (o.file || ''), '');
+  L.push(' RUN CONTROL OPTIONS SELECTED                             VALUE', '');
+  L.push('         1  Cubic smoothing spline 50% wavelength cutoff for filtering');
+  L.push(' '.repeat(60) + fi(op.splineLength, 4) + ' years');
+  L.push('         2  Segments examined are' + fi(op.segLength, 29) +
+    ' years lagged successively by ' + fi(op.segLag, 3) + ' years');
+  L.push('         3  Autoregressive model applied' + ' '.repeat(21) +
+    (op.arModel ? 'A  Residuals are used in master dating series and testing'
+                : 'N  Not applied'));
+  L.push('         4  Series transformed to logarithms' + ' '.repeat(17) +
+    (op.logTransform ? 'Y  Each series log-transformed for master dating series and testing'
+                     : 'N  Not transformed'));
+  L.push('         5  CORRELATION is Pearson (parametric, quantitative)');
+  L.push('            Critical correlation, ' +
+    (100 * (1 - op.pcrit)).toFixed(0) + '% confidence level  ' +
+    fn(res.series.length ? criticalOf(res) : NaN, 6, 4));
+  L.push('         9  Absent rings are ' +
+    (op.omitAbsent ? 'omitted from' : 'included in') +
+    ' master series and segment correlations', '');
+  L.push(' Time span of Master dating series is ' + fi(S.interval[0], 6) + ' to ' +
+    fi(S.interval[1], 6) + fi(S.interval[1] - S.interval[0] + 1, 6) + ' years', '');
+
+  // absent rings that are not narrow in the master — COFECHA's ">>" lines
+  for (const s of res.series) {
+    for (const a of s.problems.absent) {
+      if (!a.notNarrow) continue;
+      L.push(' >> ' + fs_(s.id, 10) + fi(a.year, 6) + ' absent in ' + fi(a.totalAbsent, 3) +
+        ' of ' + fi(a.sampleDepth, 3) + ' series, but is not usually narrow: master index is ' +
+        fn(a.masterZ, 7, 3));
+    }
+  }
+  L.push('');
+  return L;
+}
+
+// The critical value COFECHA prints is the one for a full-length segment.
+function criticalOf(res) {
+  for (const s of res.series) {
+    for (const g of s.segments) if (g.n === res.options.segLength) return g.crit;
+  }
+  const any = res.series.find(s => s.segments.length);
+  return any ? any.segments[0].crit : NaN;
+}
+
+// ---------------------------------------------------------------------------
+// Part 2 — time plot of the series
+// ---------------------------------------------------------------------------
+function part2(res) {
+  // COFECHA puts the time plot on the LEFT and the identification columns on the
+  // right: a row of year labels, a row of ticks, then one line per series with
+  // "." at each tick and "<===>" spanning the years it covers.
+  const L = [];
+  const [lo, hi] = res.summary.interval;
+  const span = Math.max(1, hi - lo);
+  // one 5-character column per step; choose a step so the plot stays ~100 wide
+  const step = Math.max(50, Math.ceil(span / 20 / 50) * 50);
+  const first = Math.floor(lo / step) * step;
+  const nCol = Math.floor((hi - first) / step) + 1;
+  const colOf = y => Math.round((y - first) / step * 5);   // character offset
+  const width = (nCol - 1) * 5 + 1;
+
+  let labels = '';
+  for (let c = 0; c < nCol; c++) labels += fi(first + c * step, 5);
+  let ticks = '';
+  for (let c = 0; c < nCol; c++) ticks += '    :';
+
+  L.push(labels + ' Ident   Seq Time-span  Yrs');
+  L.push(ticks + ' -------- --- ---- ---- ----');
+  for (const t of res.timeSpans) {
+    const row = ticks.split('').map(ch => (ch === ':' ? '.' : ' '));
+    const a = Math.max(0, Math.min(width - 1, colOf(t.first)));
+    const b = Math.max(a, Math.min(width - 1, colOf(t.last)));
+    row[a] = '<';
+    for (let i = a + 1; i < b; i++) row[i] = '=';
+    if (b > a) row[b] = '>';
+    L.push(row.join('') + ' ' + fs_(t.id, 8) + fi(t.seq, 4) + fi(t.first, 5) +
+      fi(t.last, 5) + fi(t.nYears, 5));
+  }
+  L.push('');
+  return L;
+}
+
+// ---------------------------------------------------------------------------
+// Part 3 — master dating series with sample depth and absent rings
+// ---------------------------------------------------------------------------
+function part3(res) {
+  const L = [];
+  const cols = 6;
+  const head = [], sep = [];
+  for (let c = 0; c < cols; c++) { head.push('  Year  Value  No Ab'); sep.push('  ' + rule(18)); }
+  L.push(head.join('  '), sep.join('  '));
+  const rows = [];
+  for (let i = 0; i < res.years.length; i++) {
+    if (!isNum(res.master.z[i])) continue;
+    rows.push(fi(res.years[i], 6) + fn(res.master.z[i], 7, 3) + fi(res.master.sampleDepth[i], 4) +
+      (res.master.absent[i] ? fi(res.master.absent[i], 3) : '   '));
+  }
+  const per = Math.ceil(rows.length / cols) || 1;
+  for (let r = 0; r < per; r++) {
+    const line = [];
+    for (let c = 0; c < cols; c++) {
+      const idx = c * per + r;
+      line.push(idx < rows.length ? rows[idx] : ' '.repeat(20));
+    }
+    L.push(line.join('  ').replace(/\s+$/, ''));
+  }
+  L.push('');
+  return L;
+}
+
+// ---------------------------------------------------------------------------
+// Part 5 — correlation of each series by segment, on COFECHA's global grid
+// ---------------------------------------------------------------------------
+function part5(res, perPage) {
+  perPage = perPage || 20;
+  const L = [];
+  const bins = res.grid.binStarts, len = res.grid.segLength;
+  const crit = criticalOf(res);
+  for (let p0 = 0; p0 < bins.length; p0 += perPage) {
+    const page = bins.slice(p0, p0 + perPage);
+    L.push(PAGE_BREAK);
+    L.push(' Correlations of ' + fi(len, 3) + '-year dated segments, lagged ' +
+      fi(res.grid.segLag, 3) + ' years');
+    L.push(' Flags:  A = correlation under ' + fn(crit, 7, 4) +
+      ' but highest as dated;  B = correlation higher at other than dated position', '');
+    L.push(' Seq Series  Time_span  ' + page.map(b => fi(b, 5)).join(''));
+    L.push('                        ' + page.map(b => fi(b + len - 1, 5)).join(''));
+    L.push(' --- -------- ---------  ' + page.map(() => '----').join(' '));
+    for (const s of res.series) {
+      const cells = page.map(() => '    ');
+      let any = false;
+      for (const g of s.segments) {
+        const c = g.col - p0;
+        if (c < 0 || c >= page.length) continue;
+        any = true;
+        cells[c] = (fr(g.r, 4) + (g.flag || '')).slice(-4).padStart(4);
+      }
+      if (!any) continue;
+      L.push(fi(s.seq, 4) + ' ' + fs_(s.id, 8) + fi(s.first, 5) + fi(s.last, 5) + '  ' +
+        cells.join(' ').replace(/\s+$/, ''));
+    }
+    L.push('');
+  }
+  return L;
+}
+
+// ---------------------------------------------------------------------------
+// Part 6 — potential problems, per series
+// ---------------------------------------------------------------------------
+function part6(res, verdict) {
+  const L = [];
+  const shift = res.options.shift;
+  const vmap = {};
+  if (verdict) verdict.series.forEach(v => { vmap[v.id + '|' + v.first + '|' + v.last] = v; });
+  let any = false;
+  for (const s of res.series) {
+    const P = s.problems;
+    if (!(s.nFlags || P.divergent.length || P.absent.length || P.outliers.length)) continue;
+    any = true;
+    L.push('', ' ' + fs_(s.id, 9) + fi(s.first, 6) + ' to ' + fi(s.last, 6) + fi(s.nYears, 7) +
+      ' years' + ' '.repeat(50) + 'Series ' + fi(s.seq, 4));
+
+    const v = vmap[s.id + '|' + s.first + '|' + s.last];
+    if (v && v.status !== 'dated') {
+      // Not a COFECHA section. Marked so, because a reader diffing this against a
+      // real listing must be able to see what is not COFECHA's.
+      L.push('', ' [V] VERDICT (RingdateR, not part of COFECHA output)');
+      L.push('     ' + v.message);
+    }
+
+    const flagged = s.segments.filter(g => g.flag);
+    if (flagged.length) {
+      L.push('', ' [A] Segment   High' +
+        Array.from({ length: 2 * shift + 1 }, (_, k) => fi((k - shift > 0 ? '+' : '') + (k - shift), 5)).join(''));
+      L.push('    ' + rule(9) + '  ' + rule(4) + '  ' +
+        Array.from({ length: 2 * shift + 1 }, () => '---').join('  '));
+      for (const g of flagged) {
+        const cells = [];
+        for (let d = -shift; d <= shift; d++) {
+          const r = g.rByShift[d - g.shiftMin];
+          const n = g.nByShift[d - g.shiftMin];
+          const sig = isNum(r) && r > 0 && n >= 3 && r >= g.crit;
+          cells.push((fr(r, 4) + (sig ? '*' : d === 0 ? '|' : ' ')).padStart(5));
+        }
+        L.push('    ' + fi(g.start, 4) + fi(g.end, 5) + fi(g.flag === 'B' ? g.high : 0, 5) + ' ' +
+          cells.join(''));
+      }
+    }
+
+    const lev = P.leverage;
+    if (lev.entire) {
+      const pair = a => a.map(e => fi(e.year, 6) + fr(e.delta, 7, 3)).join('  ');
+      L.push('', ' [B] Entire series, effect on correlation (' + fn(lev.entire.r, 6, 3) + ') is:');
+      L.push('       Lower  ' + pair(lev.entire.lower) + '   Higher  ' + pair(lev.entire.higher));
+      for (const g of lev.segments) {
+        L.push('     ' + g.start + ' to ' + g.end + ' segment:');
+        L.push('       Lower  ' + pair(g.lower) + '   Higher  ' + pair(g.higher));
+      }
+    }
+
+    if (P.divergent.length) {
+      L.push('', ' [C] Year-to-year changes diverging by ' + res.options.divergeSD +
+        ' SD or more from the mean change in all other series');
+      for (const d of P.divergent) L.push('     ' + fi(d.year, 6) + fn(d.sd, 8, 1) + ' SD');
+    }
+
+    if (P.absent.length) {
+      L.push('', ' [D] ' + fi(P.absent.length, 4) + ' Absent rings:  Year   Master  N series Absent');
+      for (const a of P.absent) {
+        L.push(' '.repeat(24) + fi(a.year, 6) + fn(a.masterZ, 9, 3) + fi(a.sampleDepth, 8) +
+          fi(a.totalAbsent, 8) + (a.notNarrow ? '   ring is not normally narrow' : ''));
+      }
+    }
+
+    if (P.outliers.length) {
+      L.push('', ' [E] Outliers   ' + fi(P.outliers.length, 4) + ' 3.0 SD above or 4.5 SD below mean for year');
+      for (const x of P.outliers) {
+        L.push(' '.repeat(5) + fi(x.year, 6) + fn(x.sd, 8, 1) + ' SD');
+      }
+    }
+  }
+  if (!any) L.push(' No series raised any of the Part 6 diagnostics.');
+  L.push('');
+  return L;
+}
+
+// ---------------------------------------------------------------------------
+// Part 7 — descriptive statistics
+// ---------------------------------------------------------------------------
+function part7(res) {
+  const S = res.summary;
+  const L = [];
+  L.push(' '.repeat(48) + 'Corr   //-------- Unfiltered --------\\\\  //---- Filtered -----\\\\');
+  L.push(' '.repeat(27) + 'No.    No.    No.    with   Mean   Max     Std   Auto   Mean   Max' +
+    '     Std   Auto  AR');
+  L.push(' Seq Series   Interval   Years  Segmt  Flags   Master  msmt   msmt    dev   corr' +
+    '   sens  value    dev   corr  ()');
+  L.push(' --- -------- ---------  -----  -----  -----   ------ -----  -----  -----  -----' +
+    '  -----  -----  -----  -----  --');
+  for (const s of res.series) {
+    const t = s.stats;
+    L.push(fi(s.seq, 4) + ' ' + fs_(s.id, 8) + fi(s.first, 5) + fi(s.last, 5) +
+      fi(s.nYears, 7) + fi(s.nSegments, 7) + fi(s.nFlags, 7) + '  ' +
+      fn(s.corrWithMaster, 6, 3) + fn(t.meanMsmt, 7, 2) + fn(t.maxMsmt, 7, 2) +
+      fn(t.sdMsmt, 7, 3) + fn(t.ac1Msmt, 7, 3) + fn(t.meanSens, 7, 3) +
+      fn(t.maxIndex, 7, 2) + fn(t.sdIndex, 7, 3) + fn(t.ac1Index, 7, 3) + fi(s.arOrder, 4));
+  }
+  L.push(' --- -------- ---------  -----  -----  -----   ------ -----  -----  -----  -----' +
+    '  -----  -----  -----  -----  --');
+  L.push(' Total or mean:' + fi(Math.round(S.meanLength), 21) + fi(S.nSegments, 7) +
+    fi(S.nFlags, 7) + '  ' + fn(S.meanCorr, 6, 3) + ' '.repeat(28) + fn(S.meanSens, 7, 3));
+  L.push('');
+  return L;
+}
+
+// ---------------------------------------------------------------------------
+// renderCofechaText(res, opts) -> string
+//   opts.title / opts.file  run identification
+//   opts.parts              which parts to print (default 1,2,3,5,6,7)
+//   opts.verdict            optional crossdateVerdict result, added to Part 6
+//                           under a [V] heading and clearly marked as ours
+// ---------------------------------------------------------------------------
+function renderCofechaText(res, opts) {
+  opts = opts || {};
+  const want = new Set(opts.parts || [1, 2, 3, 5, 6, 7]);
+  const title = opts.title || '';
+  let out = [];
+  let page = 1;
+  const add = (n, lines) => { out = out.concat(header(title, n, page++), lines); };
+  if (want.has(1)) add(1, part1(res, opts));
+  if (want.has(2)) add(2, part2(res));
+  if (want.has(3)) add(3, part3(res));
+  if (want.has(5)) {
+    for (const ln of part5(res)) {
+      if (ln === PAGE_BREAK) out = out.concat(header(title, 5, page++));
+      else out.push(ln);
+    }
+  }
+  if (want.has(6)) add(6, part6(res, opts.verdict));
+  if (want.has(7)) add(7, part7(res));
+  return out.join('\n') + '\n';
+}
+
+module.exports = { renderCofechaText };
+
+  });
+  define("m39", {"./loaders.js":"m40","./pos.js":"m43","./lps.js":"m44","./rwl.js":"m46","./crn.js":"m47","./ringMeasurer.js":"m48","./meta.js":"m49","./tridas.js":"m50","../analysis/comb.js":"m11"}, function(module, exports, require){
 'use strict';
 // T2.6 — IO dispatcher. Wires the format-specific parsers (pos/lps/rwl) into the
 // loaders' pluggable reader hooks and exposes the full RingdateR file surface:
@@ -3267,7 +6015,7 @@ module.exports = {
 };
 
   });
-  define("m30", {"../analysis/comb":"m11","../analysis/checks":"m26","./csv":"m31","./xlsx":"m32","../detrend/normalise":"m13"}, function(module, exports, require){
+  define("m40", {"../analysis/comb":"m11","../analysis/checks":"m27","./csv":"m41","./xlsx":"m42","../detrend/normalise":"m13"}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // T2.1c  Data loaders  (ports of the ringdater load_* functions)
@@ -3663,7 +6411,7 @@ module.exports = {
 };
 
   });
-  define("m31", {"../analysis/checks":"m26"}, function(module, exports, require){
+  define("m41", {"../analysis/checks":"m27"}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // T2.1a  Delimited text reader  (port of base R read.csv / read.table)
@@ -3818,7 +6566,7 @@ function parseDelimited(text, opts = {}) {
 module.exports = { parseDelimited, splitFields, isNumericToken, parseNumericToken };
 
   });
-  define("m32", {"zlib":"ext:zlib","../analysis/checks":"m26"}, function(module, exports, require){
+  define("m42", {"zlib":"ext:zlib","../analysis/checks":"m27"}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // T2.1b  XLSX reader  (port of readxl::read_excel(sheet = 1, na = "NA"))
@@ -4021,7 +6769,7 @@ function readXlsx(buffer, opts = {}) {
 module.exports = { readXlsx, unzip, parseSharedStrings, parseSheet };
 
   });
-  define("m33", {}, function(module, exports, require){
+  define("m43", {}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // loadPos: port of ringdater::load_pos (R/load_pos_function.R).
@@ -4185,7 +6933,7 @@ function loadPos(text, seriesName = 'series', col1Name = 'ring') {
 module.exports = { loadPos };
 
   });
-  define("m34", {"./xml.js":"m35"}, function(module, exports, require){
+  define("m44", {"./xml.js":"m45"}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // loadLps: port of ringdater::load_lps (Image-Pro `.lps` line-profile XML).
@@ -4289,7 +7037,7 @@ function loadLps(text, series) {
 module.exports = { loadLps, parseXml };  // parseXml re-exported for back-compat
 
   });
-  define("m35", {}, function(module, exports, require){
+  define("m45", {}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // Dependency-free XML reader + serializer.
@@ -4451,7 +7199,7 @@ module.exports = {
 };
 
   });
-  define("m36", {}, function(module, exports, require){
+  define("m46", {}, function(module, exports, require){
 'use strict';
 // Tucson / RWL decadal-format reader & writer -- a JS port of dplR's
 // read.rwl/read.tucson and write.rwl/write.tucson (Tucson format only), plus
@@ -4669,18 +7417,26 @@ function readRwl(text, opts) {
     let prec = 100;
     for (const r of srows) for (const v of r.vals) if (v === -9999) { prec = 1000; break; }
     const map = new Map();
+    // Years a record actually covered. A negative sentinel (-999) is prescaled
+    // away above but its slot WAS written in the file, and R reads that as a
+    // zero; a year no record covers at all is a different thing entirely and
+    // must stay missing. Only the two can be told apart here, so both are
+    // tracked (see the column fill below).
+    const covered = new Set();
     for (const r of srows) {
       for (let k = 0; k < r.vals.length; k++) {
-        let v = r.vals[k];
-        if (v == null) continue;
-        if (prec === 100 && v === 999) continue;    // stop marker / no-data
-        if (prec === 1000 && v === -9999) continue; // stop marker
-        map.set(r.year + k, v / prec);
+        const v = r.vals[k];
+        const y = r.year + k;
+        if (v == null) { covered.add(y); continue; }  // slot present, value dropped
+        if (prec === 100 && v === 999) continue;      // stop marker / no-data
+        if (prec === 1000 && v === -9999) continue;   // stop marker
+        covered.add(y);
+        map.set(y, v / prec);
       }
     }
     let min = Infinity, max = -Infinity;
     for (const y of map.keys()) { if (y < min) min = y; if (y > max) max = y; }
-    series.push({ id, map, min: map.size ? min : null, max: map.size ? max : null });
+    series.push({ id, map, covered, min: map.size ? min : null, max: map.size ? max : null });
   }
 
   // overall span from series that have data
@@ -4703,7 +7459,16 @@ function readRwl(text, opts) {
     for (let i = 0; i < years.length; i++) {
       const y = years[i];
       if (s.min == null || y < s.min || y > s.max) col[i] = null;      // outside span
-      else col[i] = s.map.has(y) ? s.map.get(y) : 0;                   // internal gap -> 0
+      // A year no record covers was never measured, so it stays missing. That
+      // happens when a file carries the SAME id in two stop-marked records (a
+      // core measured in two pieces, or a re-used id): the years between them
+      // are a gap in the sampling, not rings of width zero. Filling them with 0
+      // invented absent rings — ut550 splits RCB183A at 1314/1557, which became
+      // a 242-year run of "absent" rings in the crossdating diagnostics.
+      else if (s.map.has(y)) col[i] = s.map.get(y);
+      // covered by a record but with no usable value (a -999 sentinel): R reads
+      // it as zero, so we do too.
+      else col[i] = s.covered.has(y) ? 0 : null;
     }
     cols.push(col);
   }
@@ -4948,7 +7713,7 @@ function readRWL(text, opts) {
 module.exports = { readRwl, writeRwl, readRWL, locateID, readWOheader, fixNames, baseNameNoExt };
 
   });
-  define("m37", {}, function(module, exports, require){
+  define("m47", {}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // Tucson / ITRDB chronology reader (.crn) — "standardized site growth indices".
@@ -5051,7 +7816,7 @@ function readCrn(text, opts) {
 module.exports = { readCrn };
 
   });
-  define("m38", {}, function(module, exports, require){
+  define("m48", {}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // Ring Measurer CSV loader + combiner. Faithful port of ringdater's
@@ -5216,7 +7981,7 @@ function combineRMFiles(texts) {
 module.exports = { loadRingMeasurer, combineRMFiles, parseCSV };
 
   });
-  define("m39", {}, function(module, exports, require){
+  define("m49", {}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // Per-series metadata side-channel.
@@ -5277,7 +8042,7 @@ function ensureMeta(existing, names, titleFor) {
 module.exports = { EDITABLE, emptySeriesMeta, normalizeSeriesMeta, ensureMeta };
 
   });
-  define("m40", {"./xml.js":"m35","./year.js":"m41","./meta.js":"m39","../analysis/checks.js":"m26"}, function(module, exports, require){
+  define("m50", {"./xml.js":"m45","./year.js":"m35","./meta.js":"m49","../analysis/checks.js":"m27"}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // TRiDaS (Tree Ring Data Standard, v1.2.2) reader — the interchange format
@@ -5743,207 +8508,7 @@ function writeTridas(spec) {
 module.exports = { readTridas, writeTridas, mmPerUnit };
 
   });
-  define("m41", {}, function(module, exports, require){
-'use strict';
-// ============================================================================
-// Calendar-year conversion for the traditional dendrochronology convention:
-// AD/BC with NO year zero.
-//
-// RingdateR's internal computation axis is a contiguous integer sequence
-// (astronomical year numbering, which DOES have a year 0). Keeping the internal
-// axis contiguous is what lets the chronology builder's year-keyed merge and
-// integer offsets work without special-casing the BC/AD boundary
-// (see src/engine/builder.js). This module confines the "no year 0" convention
-// to the I/O and display boundary only.
-//
-//   internal (astronomical)      calendar (traditional)
-//        ...  2                        2 AD
-//             1                        1 AD
-//             0            <->         1 BC
-//            -1                        2 BC
-//            -2                        3 BC   ...
-//
-// So there is no internal value that maps to "year 0" in calendar terms: the
-// transition 0 <-> -1 is exactly the 1 BC <-> 2 BC step, and 0 <-> 1 is the
-// 1 BC <-> 1 AD step. TRiDaS carries a `suffix="BC"|"AD"` on <firstYear> /
-// <lastYear>; convert with calToAstro on read and astroToCal on write.
-// ============================================================================
-
-// internal astronomical int -> { year: >=1, suffix: 'AD'|'BC' }
-function astroToCal(y) {
-  const n = Math.trunc(Number(y));
-  return n <= 0 ? { year: 1 - n, suffix: 'BC' } : { year: n, suffix: 'AD' };
-}
-
-// { year, suffix } -> internal astronomical int. year must be >= 1 (no year 0).
-function calToAstro(year, suffix) {
-  const yr = Math.trunc(Number(year));
-  if (!(yr >= 1)) throw new Error('calToAstro: calendar year must be >= 1 (no year 0), got ' + year);
-  const s = String(suffix == null ? 'AD' : suffix).toUpperCase();
-  if (s !== 'AD' && s !== 'BC') throw new Error('calToAstro: suffix must be AD or BC, got ' + suffix);
-  return s === 'BC' ? 1 - yr : yr;
-}
-
-// "12 BC" / "1450 AD" — display string for reports and dated plots.
-function formatCal(y) {
-  const c = astroToCal(y);
-  return c.year + ' ' + c.suffix;
-}
-
-module.exports = { astroToCal, calToAstro, formatCal };
-
-  });
-  define("m42", {}, function(module, exports, require){
-'use strict';
-// ============================================================================
-// Shared visualization utilities, ports of four ringdater R helpers:
-//   x.scale.bar   -> xScaleBar    (R/x_scale_bar_function.R)
-//   y.scale.bar   -> yScaleBar    (R/y_scale_bar_function.R)
-//   col_pal       -> colPal       (R/col_pal_function.R)
-//   R_dateR_theme -> rDateRTheme  (R/R_dateR_theme_function.R)
-//
-// R is the oracle. xScaleBar/yScaleBar/colPal reproduce R exactly (validated
-// in test/chartutils_test.js). rDateRTheme is a ggplot theme; there is no
-// numeric R-parity target, so it is ported to a plain style-config object that
-// documents the meaningful ggplot::theme() -> web-style mapping.
-// ============================================================================
-
-// ---- base R seq(from, to, by) ----------------------------------------------
-// Faithful port of base R's seq.default when `by` is supplied, including the
-// integer fuzz on the step count and the final pmin/pmax overshoot clamp.
-function rSeqBy(from, to, by) {
-  const del = to - from;
-  // R: n <- as.integer(n + 1e-10); as.integer() truncates toward zero.
-  const n = Math.trunc(del / by + 1e-10);
-  const out = new Array(n + 1);
-  for (let i = 0; i <= n; i++) {
-    let x = from + i * by;
-    // R: if (by > 0) pmin(x, to) else pmax(x, to)  -- correct for fp overshoot
-    x = by > 0 ? Math.min(x, to) : Math.max(x, to);
-    out[i] = x;
-  }
-  return out;
-}
-
-// ---- x.scale.bar -----------------------------------------------------------
-// Bucketed axis tick breaks for the x-axis. Step chosen by span magnitude.
-function xScaleBar(xMin, xMax) {
-  if (typeof xMin !== 'number') {
-    throw new Error('Error in x.scale.bar: x.min is not a numeric integer');
-  }
-  if (typeof xMax !== 'number') {
-    throw new Error('Error in x.scale.bar: x.miax is not a numeric integer');
-  }
-  if (xMax <= xMin) {
-    throw new Error('Errpr in x.scale.bar: x.max must be greater than x.min');
-  }
-  const span = xMax - xMin;
-  let by;
-  if (span > 1000) by = 100;
-  else if (span > 500) by = 50;
-  else if (span > 100) by = 20;
-  else if (span > 50) by = 10;
-  else if (span > 20) by = 5;
-  else by = 2;
-  return rSeqBy(xMin, xMax, by);
-}
-
-// ---- y.scale.bar -----------------------------------------------------------
-// Bucketed axis tick breaks for the y-axis. NOTE: differs from x.scale.bar at
-// the mid buckets -- y switches to by=20 at span>250 (x switches at span>100).
-function yScaleBar(yMin, yMax) {
-  if (typeof yMin !== 'number') {
-    throw new Error('Error in y.scale.bar: y.min is not a numeric integer');
-  }
-  if (typeof yMax !== 'number') {
-    throw new Error('Error in y.scale.bar: y.miax is not a numeric integer');
-  }
-  if (yMax <= yMin) {
-    throw new Error('Error in y.scale.bar: y.max must be great than y.min');
-  }
-  const span = yMax - yMin;
-  let by;
-  if (span > 1000) by = 100;
-  else if (span > 500) by = 50;
-  else if (span > 250) by = 20;
-  else if (span > 50) by = 10;
-  else if (span > 20) by = 5;
-  else by = 2;
-  return rSeqBy(yMin, yMax, by);
-}
-
-// ---- col_pal ---------------------------------------------------------------
-// Hardcoded hex colour ramps for the RingdateR heatmaps. The (uneven) repeated
-// stops shift where white sits on the gradient:
-//   1 = blue -> white -> red   (diverging)
-//   2 = white -> red           (white held over the first half)
-//   3 = white -> blue          (white held over the first three fifths)
-//   4 = white -> black         (white held over the first half)
-const COL_PAL = {
-  1: ['#4575b4', '#e0f3f8', '#d73027'],
-  2: ['#ffffff', '#ffffff', '#ca0020'],
-  3: ['#ffffff', '#ffffff', '#ffffff', '#0571b0', '#00216d'],
-  4: ['#ffffff', '#ffffff', '#000000'],
-};
-function colPal(colourScale = 1) {
-  if (![1, 2, 3, 4].includes(colourScale)) {
-    throw new Error('Error in col_pal(). colour_scale must be a numeric from 1 to 4.');
-  }
-  return COL_PAL[colourScale].slice();
-}
-
-// ---- R_dateR_theme ---------------------------------------------------------
-// The R original is a ggplot2 theme() object. Ported here as a plain style
-// config capturing every meaningful parameter so a JS plotting layer can
-// reproduce the look. Values map 1:1 to the ggplot theme elements:
-//   panel.background = element_blank()            -> panel.background = 'none'
-//   axis.line/axis.ticks (colour black, linewidth)-> axis line/tick color+width
-//   axis.ticks.length = unit(.25,'cm')            -> tickLength ('0.25cm')
-//   panel.grid.major (grey, 0.5, 'dashed')        -> gridMajor
-//   legend.position = 'bottom'                    -> legend.position
-//   legend.key.width = unit(leg_size,'cm')        -> legend.keyWidth ('<leg_size>cm')
-//   plot.margin = margin(10,0,0,l)                -> plotMargin (T,R,B,L, px)
-//   axis.title.y margin(0,20,10,l)                -> axisTitleY.margin
-function rDateRTheme(opts = {}) {
-  const { text_size = 12, line_width = 1, l = 10, leg_size = 3 } = opts;
-  if (typeof text_size !== 'number' || text_size <= 0) {
-    throw new Error('Warning: an error occurred in R_dateR_theme: text_size was not a numeric value > 0');
-  }
-  if (typeof line_width !== 'number' || line_width <= 0) {
-    throw new Error('Warning: an error occurred in R_dateR_theme: line_width was not a numeric value > 0');
-  }
-  if (typeof leg_size !== 'number' || leg_size <= 0) {
-    throw new Error('Warning: an error occurred in R_dateR_theme: leg_size was not a numeric value > 0');
-  }
-  if (typeof l !== 'number') {
-    throw new Error('Warning: an error occurred in R_dateR_theme: l (left margin) was not a numeric value');
-  }
-  return {
-    text: { size: text_size },
-    panel: { background: 'none' },
-    axis: {
-      line: { color: 'black', width: line_width },
-      ticks: { color: 'black', width: line_width },
-      tickLength: '0.25cm',
-      text: { size: text_size, color: 'black' },
-      titleY: { size: text_size, margin: { t: 0, r: 20, b: 10, l } }, // px
-    },
-    gridMajor: { color: 'grey', width: 0.5, lineType: 'dashed' },
-    gridMinor: { color: 'none' },
-    legend: {
-      position: 'bottom',
-      key: { borderWidth: 1 },
-      keyWidth: `${leg_size}cm`,
-      text: { size: text_size },
-    },
-    plotMargin: { t: 10, r: 0, b: 0, l }, // px, ggplot margin(T,R,B,L)
-  };
-}
-
-module.exports = { xScaleBar, yScaleBar, colPal, rDateRTheme };
-
-  });
-  define("m43", {}, function(module, exports, require){
+  define("m51", {}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // store.js — a tiny, framework-agnostic state container that mirrors the 13
@@ -6033,7 +8598,7 @@ function createStore(opts = {}) {
 module.exports = { createStore, initialState, SLOTS };
 
   });
-  define("m44", {"../analysis/comb.js":"m11","../io/load.js":"m29","../analysis/checks.js":"m26","../detrend/normalise.js":"m13","../analysis/leadLag.js":"m18","../analysis/runningLeadLag.js":"m19","../analysis/filterCrossdates.js":"m21","../analysis/align.js":"m22","../analysis/removeSeries.js":"m24","../stats/probCheck.js":"m27","../stats/rBarEps.js":"m28","./workflows.js":"m45"}, function(module, exports, require){
+  define("m52", {"../analysis/comb.js":"m11","../io/load.js":"m39","../analysis/checks.js":"m27","../detrend/normalise.js":"m13","../analysis/leadLag.js":"m18","../analysis/runningLeadLag.js":"m19","../analysis/filterCrossdates.js":"m22","../analysis/align.js":"m23","../analysis/removeSeries.js":"m25","../stats/probCheck.js":"m28","../stats/rBarEps.js":"m29","./workflows.js":"m53"}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // actions.js — explicit, ordered actions over the store that reproduce the
@@ -6213,7 +8778,7 @@ module.exports = {
 };
 
   });
-  define("m45", {"../analysis/comb.js":"m11","../detrend/normalise.js":"m13","../analysis/leadLag.js":"m18","../analysis/filterCrossdates.js":"m21","../analysis/align.js":"m22","../stats/probCheck.js":"m27","../stats/rBarEps.js":"m28"}, function(module, exports, require){
+  define("m53", {"../analysis/comb.js":"m11","../detrend/normalise.js":"m13","../analysis/leadLag.js":"m18","../analysis/filterCrossdates.js":"m22","../analysis/align.js":"m23","../stats/probCheck.js":"m28","../stats/rBarEps.js":"m29"}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // workflows.js — the two headless RingdateR crossdating pipelines, expressed as
@@ -6389,7 +8954,7 @@ function chronologyWorkflow(input) {
 module.exports = { pairwiseWorkflow, chronologyWorkflow, meanChronology, dropYear };
 
   });
-  define("m46", {"../analysis/comb.js":"m11","../detrend/normalise.js":"m13","../analysis/leadLag.js":"m18","../analysis/align.js":"m22","./workflows.js":"m45","../stats/rBarEps.js":"m28","../stats/chron.js":"m47"}, function(module, exports, require){
+  define("m54", {"../analysis/comb.js":"m11","../detrend/normalise.js":"m13","../analysis/leadLag.js":"m18","../analysis/align.js":"m23","./workflows.js":"m53","../stats/rBarEps.js":"m29","../stats/chron.js":"m55"}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // builder.js — the headless INTERACTIVE CHRONOLOGY BUILDER engine.
@@ -6964,7 +9529,7 @@ function createBuilder({ undated, chron, detrend = {}, chronDated = true } = {})
 module.exports = { createBuilder, mergeMemberByYear };
 
   });
-  define("m47", {"../analysis/comb.js":"m11"}, function(module, exports, require){
+  define("m55", {"../analysis/comb.js":"m11"}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // T7.0  chron — port of dplR::chron(x, biweight = TRUE, prewhiten = FALSE).
@@ -7053,7 +9618,7 @@ function chron(frame, opts = {}) {
 module.exports = { chron, chronStd, tbrm };
 
   });
-  define("m48", {"./load.js":"m29","../analysis/align.js":"m22","../viz/render.js":"m49","../viz/linePlot.js":"m50","../viz/leadLagBar.js":"m51"}, function(module, exports, require){
+  define("m56", {"./load.js":"m39","../analysis/align.js":"m23","../viz/render.js":"m34","../viz/linePlot.js":"m57","../viz/leadLagBar.js":"m58"}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // downloads.js — Phase 5 download/export layer.
@@ -7267,276 +9832,7 @@ module.exports = {
 };
 
   });
-  define("m49", {}, function(module, exports, require){
-'use strict';
-// ============================================================================
-// Shared, dependency-free SVG renderer for the six RingdateR plot builders.
-//
-// The builders (linePlot, datedLinePlot, allSeries, heatmapPlot, detrendPlot,
-// leadLagBar) each return a framework-agnostic PLOT SPEC — a plain object:
-//
-//   { type, width, height, title, xLabel, yLabel,
-//     scales: { x:{domain:[min,max], breaks:[...]}, y:{domain, breaks} },
-//     marks:  [ line | segment | raster | bar ... ],
-//     legend: null | { entries:[{label,color}] },
-//     colourbar: null | { colors:[...], limits:[lo,hi], label },
-//     panels: undefined | [ subSpec, subSpec, subSpec ] }   // stacked vertically
-//
-// Mark shapes (all data arrays are the REAL plotted numbers, NA === null):
-//   line    { type:'line',    x:[], y:[], color, width, alpha }
-//   segment { type:'segment', x0:[], x1:[], y0:[], y1:[], color, width, labels:[] }
-//   raster  { type:'raster',  x:[], y:[], fill:[], colors:[] }     // colors: per-cell hex
-//   bar     { type:'bar',     x:[], y:[], colors:[], baseline }    // colors: per-bar hex
-//
-// toSVG(spec) turns a spec into a well-formed, self-contained <svg> string.
-// Layout fidelity is deliberately simple (fixed margins): the load-bearing part
-// is the DATA carried in the marks, not the pixels.
-//
-// Colour: valueToColor() reproduces the STRUCTURE of ggplot's
-// scale_fill_gradientn(colours = col_pal(...), limits = c(-1,1)) — clamp to the
-// limits, then piecewise-linear interpolate across the (evenly spaced) colPal
-// stops. ggplot interpolates in CIE-Lab; we interpolate in sRGB, so hex values
-// are close but not identical (pixel fidelity is explicitly not required). The
-// diverging structure, the clamp, and the stop colours are preserved exactly.
-// ============================================================================
-
-// ---- colour helpers ---------------------------------------------------------
-function hexToRgb(h) {
-  const s = h.replace('#', '');
-  return [parseInt(s.slice(0, 2), 16), parseInt(s.slice(2, 4), 16), parseInt(s.slice(4, 6), 16)];
-}
-function rgbToHex(c) {
-  return '#' + c.map(v => {
-    const n = Math.max(0, Math.min(255, Math.round(v)));
-    return n.toString(16).padStart(2, '0');
-  }).join('');
-}
-// piecewise-linear ramp across evenly spaced stops; t in [0,1].
-function rampColor(stops, t) {
-  const tt = Math.max(0, Math.min(1, t));
-  if (stops.length === 1) return stops[0];
-  const pos = tt * (stops.length - 1);
-  const i = Math.min(stops.length - 2, Math.floor(pos));
-  const frac = pos - i;
-  const a = hexToRgb(stops[i]);
-  const b = hexToRgb(stops[i + 1]);
-  return rgbToHex([0, 1, 2].map(k => a[k] + (b[k] - a[k]) * frac));
-}
-// map a value to a hex colour across `colors`, clamped to `limits` = [lo,hi].
-function valueToColor(v, colors, limits = [-1, 1]) {
-  if (v == null || Number.isNaN(v)) return null;
-  const [lo, hi] = limits;
-  const t = hi === lo ? 0 : (v - lo) / (hi - lo);
-  return rampColor(colors, t);
-}
-
-// ---- scale helper -----------------------------------------------------------
-function linScale(domain, range) {
-  const [d0, d1] = domain, [r0, r1] = range;
-  const span = d1 - d0 || 1;
-  return v => r0 + (v - d0) / span * (r1 - r0);
-}
-
-// ---- xml helpers ------------------------------------------------------------
-function esc(s) {
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-const isNum = v => typeof v === 'number' && !Number.isNaN(v);
-
-// build an SVG polyline path, breaking the path wherever x or y is NA.
-function linePath(xs, ys, sx, sy) {
-  let d = '', pen = false;
-  for (let i = 0; i < xs.length; i++) {
-    const x = xs[i], y = ys[i];
-    if (!isNum(x) || !isNum(y)) { pen = false; continue; }
-    d += (pen ? 'L' : 'M') + sx(x).toFixed(2) + ',' + sy(y).toFixed(2) + ' ';
-    pen = true;
-  }
-  return d.trim();
-}
-
-// smallest positive gap between sorted unique finite values (fallback 1).
-function minGap(vals) {
-  const u = Array.from(new Set(vals.filter(isNum))).sort((a, b) => a - b);
-  let g = Infinity;
-  for (let i = 1; i < u.length; i++) { const d = u[i] - u[i - 1]; if (d > 0 && d < g) g = d; }
-  return Number.isFinite(g) ? g : 1;
-}
-
-// ---- one panel --------------------------------------------------------------
-// Renders a single spec's plotting area + axes into an SVG group at (0, offY).
-const M = { top: 34, right: 20, bottom: 40, left: 64 };
-
-function renderPanel(spec, offY, colourbarSpace) {
-  const w = spec.width;
-  const h = spec.height;
-  const cbSpace = colourbarSpace ? 26 : 0;
-  const left = M.left, right = w - M.right, top = offY + M.top, bottom = offY + h - M.bottom - cbSpace;
-  const xd = spec.scales.x.domain, yd = spec.scales.y.domain;
-  const sx = linScale(xd, [left, right]);
-  const sy = linScale(yd, [bottom, top]);
-  const out = [];
-
-  // title
-  if (spec.title) out.push(`<text x="${left}" y="${offY + 20}" font-family="sans-serif" font-size="13" font-weight="bold">${esc(spec.title)}</text>`);
-
-  // axes frame
-  out.push(`<line x1="${left}" y1="${bottom}" x2="${right}" y2="${bottom}" stroke="black" stroke-width="1"/>`);
-  out.push(`<line x1="${left}" y1="${top}" x2="${left}" y2="${bottom}" stroke="black" stroke-width="1"/>`);
-
-  // x ticks
-  for (const b of (spec.scales.x.breaks || [])) {
-    if (!isNum(b) || b < xd[0] || b > xd[1]) continue;
-    const X = sx(b);
-    out.push(`<line x1="${X.toFixed(2)}" y1="${bottom}" x2="${X.toFixed(2)}" y2="${bottom + 5}" stroke="black" stroke-width="1"/>`);
-    out.push(`<text x="${X.toFixed(2)}" y="${bottom + 17}" font-family="sans-serif" font-size="10" text-anchor="middle">${esc(b)}</text>`);
-  }
-  // y ticks
-  for (const b of (spec.scales.y.breaks || [])) {
-    if (!isNum(b) || b < yd[0] || b > yd[1]) continue;
-    const Y = sy(b);
-    out.push(`<line x1="${left - 5}" y1="${Y.toFixed(2)}" x2="${left}" y2="${Y.toFixed(2)}" stroke="black" stroke-width="1"/>`);
-    out.push(`<text x="${left - 8}" y="${(Y + 3).toFixed(2)}" font-family="sans-serif" font-size="10" text-anchor="end">${esc(b)}</text>`);
-  }
-  // axis labels
-  if (spec.xLabel) out.push(`<text x="${((left + right) / 2).toFixed(1)}" y="${bottom + 32}" font-family="sans-serif" font-size="11" text-anchor="middle">${esc(spec.xLabel)}</text>`);
-  if (spec.yLabel) out.push(`<text x="${left - 46}" y="${((top + bottom) / 2).toFixed(1)}" font-family="sans-serif" font-size="11" text-anchor="middle" transform="rotate(-90 ${left - 46} ${((top + bottom) / 2).toFixed(1)})">${esc(spec.yLabel)}</text>`);
-
-  // clip marks to the panel
-  const clipId = 'clip' + Math.round(offY) + '_' + Math.round(w);
-  out.push(`<clipPath id="${clipId}"><rect x="${left}" y="${top}" width="${(right - left).toFixed(2)}" height="${(bottom - top).toFixed(2)}"/></clipPath>`);
-  out.push(`<g clip-path="url(#${clipId})">`);
-
-  for (const mk of (spec.marks || [])) {
-    if (mk.type === 'line') {
-      const d = linePath(mk.x, mk.y, sx, sy);
-      if (d) out.push(`<path d="${d}" fill="none" stroke="${mk.color || 'black'}" stroke-width="${mk.width || 1}" ${mk.alpha != null && mk.alpha < 1 ? `stroke-opacity="${mk.alpha}"` : ''}/>`);
-    } else if (mk.type === 'segment') {
-      for (let i = 0; i < mk.x0.length; i++) {
-        if (![mk.x0[i], mk.x1[i], mk.y0[i], mk.y1[i]].every(isNum)) continue;
-        out.push(`<line x1="${sx(mk.x0[i]).toFixed(2)}" y1="${sy(mk.y0[i]).toFixed(2)}" x2="${sx(mk.x1[i]).toFixed(2)}" y2="${sy(mk.y1[i]).toFixed(2)}" stroke="${mk.color || 'black'}" stroke-width="${mk.width || 2}"/>`);
-      }
-    } else if (mk.type === 'raster') {
-      const cw = Math.abs(sx(xd[0] + minGap(mk.x)) - sx(xd[0]));
-      const ch = Math.abs(sy(yd[0] + minGap(mk.y)) - sy(yd[0]));
-      for (let i = 0; i < mk.x.length; i++) {
-        const col = mk.colors[i];
-        if (!isNum(mk.x[i]) || !isNum(mk.y[i]) || !col) continue;
-        out.push(`<rect x="${(sx(mk.x[i]) - cw / 2).toFixed(2)}" y="${(sy(mk.y[i]) - ch / 2).toFixed(2)}" width="${cw.toFixed(2)}" height="${ch.toFixed(2)}" fill="${col}" shape-rendering="crispEdges"/>`);
-      }
-    } else if (mk.type === 'bar') {
-      const bw = Math.abs(sx(xd[0] + minGap(mk.x)) - sx(xd[0])) * 0.85;
-      const base = sy(mk.baseline != null ? mk.baseline : 0);
-      for (let i = 0; i < mk.x.length; i++) {
-        if (!isNum(mk.x[i]) || !isNum(mk.y[i])) continue;
-        const Y = sy(mk.y[i]);
-        const y0 = Math.min(Y, base), hgt = Math.abs(Y - base);
-        out.push(`<rect x="${(sx(mk.x[i]) - bw / 2).toFixed(2)}" y="${y0.toFixed(2)}" width="${bw.toFixed(2)}" height="${hgt.toFixed(2)}" fill="${(mk.colors && mk.colors[i]) || mk.color || 'black'}"/>`);
-      }
-    }
-  }
-  out.push('</g>');
-
-  // Invisible hover-capture zone over the plot area, carrying the x-domain so
-  // browser-side code (web/plotLink.js) can map cursor position <-> data-x and
-  // link hover across plots. Emitted only when the builder declares linkAxis
-  // (e.g. 'year'), so unrelated axes (lags, ring counts) never cross-link.
-  //
-  // A comparison plot draws two series on ONE axis with the second shifted by
-  // the crossdate lag, so a hovered x is a different year in each of them —
-  // which is the whole question being asked of the plot. `spec.linkSeries`
-  // rides along to say what x means to each series:
-  //   [{ label, color, offset, span, unit }]  -> own value = x + offset,
-  // `span` being that series' own first..last value (so a cursor outside its
-  // data can be shown as the extrapolation it is) and `color` its legend
-  // colour, so the two labels are told apart the same way the lines are.
-  // `unit` is 'year' for a dated series and 'ring' for an undated one, whose
-  // numbering is ring counts, not years (see ownAxis).
-  if (spec.linkAxis) {
-    const ser = spec.linkSeries && spec.linkSeries.length
-      ? ` data-series="${esc(JSON.stringify(spec.linkSeries))}"` : '';
-    out.push(`<rect class="rd-hot" data-axis="${esc(spec.linkAxis)}" data-xmin="${xd[0]}" data-xmax="${xd[1]}"${ser} x="${left}" y="${top}" width="${(right - left).toFixed(2)}" height="${(bottom - top).toFixed(2)}" fill="none" pointer-events="all"/>`);
-  }
-
-  // colour bar (below panel)
-  if (spec.colourbar) {
-    const cb = spec.colourbar;
-    const bx = left, bw = Math.min(240, right - left), by = bottom + cbSpace + 8, bh = 8;
-    const gid = 'grad' + Math.round(offY);
-    const stops = cb.colors.map((c, i) => `<stop offset="${(i / (cb.colors.length - 1) * 100).toFixed(1)}%" stop-color="${c}"/>`).join('');
-    out.push(`<defs><linearGradient id="${gid}">${stops}</linearGradient></defs>`);
-    out.push(`<rect x="${bx}" y="${by}" width="${bw}" height="${bh}" fill="url(#${gid})" stroke="black" stroke-width="0.5"/>`);
-    out.push(`<text x="${bx}" y="${by + bh + 12}" font-family="sans-serif" font-size="9">${esc(cb.limits[0])}</text>`);
-    out.push(`<text x="${bx + bw}" y="${by + bh + 12}" font-family="sans-serif" font-size="9" text-anchor="end">${esc(cb.limits[1])}</text>`);
-    if (cb.label) out.push(`<text x="${bx + bw + 8}" y="${by + bh}" font-family="sans-serif" font-size="10">${esc(cb.label)}</text>`);
-  }
-  // discrete legend (top-right)
-  if (spec.legend && spec.legend.entries) {
-    let ly = offY + 14;
-    for (const e of spec.legend.entries) {
-      out.push(`<rect x="${w - 150}" y="${ly - 8}" width="10" height="10" fill="${e.color}"/>`);
-      out.push(`<text x="${w - 136}" y="${ly}" font-family="sans-serif" font-size="10">${esc(e.label)}</text>`);
-      ly += 14;
-    }
-  }
-  return out.join('\n');
-}
-
-// ---- public: toSVG ----------------------------------------------------------
-function toSVG(spec) {
-  const panels = spec.panels && spec.panels.length ? spec.panels : [spec];
-  const width = spec.width || Math.max(...panels.map(p => p.width));
-  let height = 0;
-  const parts = [];
-  for (const p of panels) {
-    parts.push(renderPanel(p, height, !!p.colourbar));
-    height += p.height;
-  }
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" font-family="sans-serif">\n` +
-    `<rect width="${width}" height="${height}" fill="white"/>\n` +
-    parts.join('\n') + '\n</svg>';
-}
-
-// ---- shared numeric helpers used by builders --------------------------------
-// R round(x, -1): round to nearest 10 with round-half-to-even (IEC 60559).
-function roundR(x, digits) {
-  const f = Math.pow(10, -digits); // digits=-1 -> f=10
-  const v = x / f;
-  const fl = Math.floor(v), diff = v - fl;
-  let r;
-  if (diff < 0.5) r = fl;
-  else if (diff > 0.5) r = fl + 1;
-  else r = (fl % 2 === 0) ? fl : fl + 1;
-  return r * f;
-}
-
-// One series' entry for spec.linkSeries. `span` is [first, last] where the
-// series was DRAWN (x units, so the lag is already in it) and `shift` how far
-// the lag moved it there.
-//
-// A DATED series is labelled in its own calendar years, so undoing the shift is
-// the whole mapping. An UNDATED series has no years to name — an undated series
-// is exactly what the plot is trying to date — so it is labelled by RING COUNT
-// from its own first ring, and its mapping also subtracts where that first ring
-// landed on the axis. Either way the label stays affine in x, so the browser
-// side (web/plotLink.js) remains one addition.
-function ownAxis(label, color, span, shift, ring) {
-  const sh = shift || 0;
-  if (!span) return { label, color, offset: ring ? 0 : -sh, span: null, unit: ring ? 'ring' : 'year' };
-  const lo = span[0], hi = span[1];
-  return ring
-    ? { label, color, offset: 1 - lo, span: [1, hi - lo + 1], unit: 'ring' }
-    : { label, color, offset: -sh, span: [lo - sh, hi - sh], unit: 'year' };
-}
-
-module.exports = {
-  toSVG, valueToColor, rampColor, linScale, roundR, ownAxis,
-  hexToRgb, rgbToHex, esc,
-};
-
-  });
-  define("m50", {"../analysis/comb.js":"m11","./chartUtils.js":"m42","./render.js":"m49"}, function(module, exports, require){
+  define("m57", {"../analysis/comb.js":"m11","./chartUtils.js":"m33","./render.js":"m34"}, function(module, exports, require){
 'use strict';
 // linePlot — crossdating overlay of two standardized series (port of the DATA +
 // structure of R/line_plot_function.R). series_1 is drawn black; series_2 is
@@ -7613,7 +9909,7 @@ function linePlot(theData, series1Nm, series2Nm, lag = 0, opts = {}) {
 module.exports = { linePlot, toSVG };
 
   });
-  define("m51", {"../analysis/comb.js":"m11","./chartUtils.js":"m42","./render.js":"m49"}, function(module, exports, require){
+  define("m58", {"../analysis/comb.js":"m11","./chartUtils.js":"m33","./render.js":"m34"}, function(module, exports, require){
 'use strict';
 // leadLagBar — bar chart of T-value vs lag for one series pair, with the best,
 // 2nd and 3rd matches highlighted red / blue / green (port of
@@ -7694,7 +9990,7 @@ function leadLagBar(theData, sample1, sample2, opts = {}) {
 module.exports = { leadLagBar, leadLagBarData, toSVG };
 
   });
-  define("m52", {"./viz/render.js":"m49"}, function(module, exports, require){
+  define("m59", {"./viz/render.js":"m34"}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // report.js — headless port of RingdateR's run-report (inst/report.Rmd and
@@ -7883,7 +10179,7 @@ function fmtBool(v) {
 module.exports = { renderReport, detMethod, frameTable, probSummary, rbarTable };
 
   });
-  define("m53", {"../analysis/comb.js":"m11","../detrend/normalise.js":"m13","../stats/chron.js":"m47","../analysis/leadLag.js":"m18","../analysis/heatmap.js":"m20","../viz/linePlot.js":"m50","../viz/heatmapPlot.js":"m54","../viz/leadLagBar.js":"m51"}, function(module, exports, require){
+  define("m60", {"../analysis/comb.js":"m11","../detrend/normalise.js":"m13","../stats/chron.js":"m55","../analysis/leadLag.js":"m18","../analysis/heatmap.js":"m21","../viz/linePlot.js":"m57","../viz/heatmapPlot.js":"m32","../viz/leadLagBar.js":"m58"}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // chronoCheck — headless workflow for the RingdateR "Quick Chronology Checker"
@@ -8034,55 +10330,7 @@ function chronoCheck(input) {
 module.exports = { chronoCheck, summaryTable };
 
   });
-  define("m54", {"../analysis/comb.js":"m11","./chartUtils.js":"m42","./render.js":"m49"}, function(module, exports, require){
-'use strict';
-// heatmapPlot — running-correlation raster (port of R/plotting_sing_hm_function.R).
-// Input `plotData` is the {year, lag, "R val"} Frame from runningLeadLag /
-// heatmapAnalysis. x = year, y = lag, fill = R interpolated across col_pal(sel)
-// clamped to [-1,1]. x breaks from x.scale.bar (rounded year range), y breaks
-// from y.scale.bar (lag range).
-
-const C = require('../analysis/comb.js');
-const { xScaleBar, yScaleBar, colPal } = require('./chartUtils.js');
-const { toSVG, roundR, valueToColor } = require('./render.js');
-
-function heatmapPlot(plotData, opts = {}) {
-  if (plotData == null) throw new Error('Insufficient overlap to perform running correlation analysis');
-  const s1 = opts.s1, s2 = opts.s2;
-  const selColPal = opts.sel_col_pal != null ? opts.sel_col_pal : 1;
-  const colScale = colPal(selColPal);
-
-  const year = C.col(plotData, 0).map(Number);
-  const lag = C.col(plotData, 1).map(Number);
-  const rval = C.col(plotData, 2).map(v => (C.isNA(v) ? null : +v));
-  const colors = rval.map(v => valueToColor(v, colScale, [-1, 1]));
-
-  const yMin = Math.min(...year), yMax = Math.max(...year);
-  const lMin = Math.min(...lag), lMax = Math.max(...lag);
-
-  const spec = {
-    type: 'heatmapPlot',
-    width: opts.width || 760,
-    height: opts.height || 340,
-    title: `${s1} vs ${s2}`,
-    xLabel: 'Year',
-    yLabel: `lag (years from ${s1})`,
-    scales: {
-      x: { domain: [yMin, yMax], breaks: xScaleBar(roundR(yMin, -1), roundR(yMax, -1)) },
-      y: { domain: [lMin, lMax], breaks: yScaleBar(lMin, lMax) },
-    },
-    marks: [{ type: 'raster', x: year, y: lag, fill: rval, colors }],
-    legend: null,
-    colourbar: { colors: colScale, limits: [-1, 1], label: 'Correl. (R)' },
-    data: { year, lag, R: rval },
-  };
-  return spec;
-}
-
-module.exports = { heatmapPlot, toSVG };
-
-  });
-  define("m55", {}, function(module, exports, require){
+  define("m61", {}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // vro.js — wire protocol for a Velmex VRO measuring stage on a serial port.
@@ -8309,7 +10557,7 @@ module.exports = {
 };
 
   });
-  define("m56", {"./vro.js":"m55"}, function(module, exports, require){
+  define("m62", {"./vro.js":"m61"}, function(module, exports, require){
 'use strict';
 // ============================================================================
 // series.js — the ring-width series being measured, and its edit history.
@@ -8561,7 +10809,7 @@ function restoreMeasureSeries(st) {
 module.exports = { createMeasureSeries, restoreMeasureSeries, PITH_TO_BARK, BARK_TO_PITH, MAX_UNDO };
 
   });
-  define("m57", {"../analysis/comb.js":"m11","./render.js":"m49"}, function(module, exports, require){
+  define("m63", {"../analysis/comb.js":"m11","./render.js":"m34"}, function(module, exports, require){
 'use strict';
 // datedLinePlot — sample coverage plot (port of R/dated_line_plot_function.R).
 // The R function is a DATA-PREP helper: it returns a long data.frame `res` with
@@ -8636,7 +10884,7 @@ function datedLinePlot(theData, opts = {}) {
 module.exports = { datedLinePlot, datedLinePlotData, toSVG };
 
   });
-  define("m58", {"../analysis/comb.js":"m11","./chartUtils.js":"m42","./render.js":"m49"}, function(module, exports, require){
+  define("m64", {"../analysis/comb.js":"m11","./chartUtils.js":"m33","./render.js":"m34"}, function(module, exports, require){
 'use strict';
 // allSeries — all aligned series (semi-transparent black) plus the arithmetic
 // mean chronology (red). Port of R/plot_all_series_function.R.
@@ -8705,7 +10953,7 @@ function allSeries(alignedData, opts = {}) {
 module.exports = { allSeries, toSVG };
 
   });
-  define("m59", {"../analysis/comb.js":"m11","../detrend/normalise.js":"m13","../detrend/detcurves.js":"m14","../analysis/autoCorrel.js":"m16","./chartUtils.js":"m42","./render.js":"m49"}, function(module, exports, require){
+  define("m65", {"../analysis/comb.js":"m11","../detrend/normalise.js":"m13","../detrend/detcurves.js":"m14","../analysis/autoCorrel.js":"m16","./chartUtils.js":"m33","./render.js":"m34"}, function(module, exports, require){
 'use strict';
 // detrendPlot — 3 stacked panels (port of R/detrending_plot_function.R):
 //   1. raw series (alpha 0.75) + the fitted detrending curve (thick black)
@@ -8805,7 +11053,7 @@ function detrendPlot(undetData, firstSeries, opts = {}) {
 module.exports = { detrendPlot, toSVG };
 
   });
-  define("m60", {"../analysis/comb.js":"m11","../analysis/skel.js":"m61","./render.js":"m49"}, function(module, exports, require){
+  define("m66", {"../analysis/comb.js":"m11","../analysis/skel.js":"m67","./render.js":"m34"}, function(module, exports, require){
 'use strict';
 // skelPlot — two-series skeleton-plot crossdating overlay (dplR skel.plot,
 // re-cast as a comparison like the heatmap). series_1 ("master") marks point
@@ -8998,7 +11246,7 @@ function skelPlot(theData, series1Nm, series2Nm, lag = 0, opts = {}) {
 module.exports = { skelPlot, toSVG };
 
   });
-  define("m61", {}, function(module, exports, require){
+  define("m67", {}, function(module, exports, require){
 'use strict';
 // Skeleton-plot maths — faithful port of dplR's hanning() + the skeleton-value
 // calculation inside skel.plot(). Used by viz/skelPlot.js.

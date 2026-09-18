@@ -269,5 +269,57 @@ ok('round-trip: member note preserved (setNote replay)',
 ok('round-trip: seriesMeta preserved',
   restored.seriesMeta && restored.seriesMeta[firstMember] && restored.seriesMeta[firstMember].labCode === 'OAK-001');
 
+// ---------------------------------------------------------------------------
+// The Build page Quality check button. It runs on the chronology the builder
+// has produced, so it must work on a builder frame and not only on an analysis
+// run — and on the RAW ring widths behind it, since COFECHA does its own
+// detrending and would otherwise detrend twice.
+// ---------------------------------------------------------------------------
+{
+  const qb = AC.newBuilder({ undated: undated, detrend: { detrending_select: 3, splinewindow: 21 } });
+  const qn = AC.seriesNames(undated);
+  qb.setAnchor(qn[0]);
+  for (let pass = 0; pass < 3; pass++) {
+    for (const id of qb.state().poolIds.slice()) {
+      const r = AC.builderReview(qb, id, null, undated);
+      if (r && r.suggestions && r.suggestions.length) qb.approve(id, r.suggestions[0].lag);
+    }
+  }
+  ok('quality check: a chronology with several members was built',
+    qb.state().members.length >= 3, qb.state().members.length + ' members');
+
+  const frame = qb.isDated() ? qb.datedChronology() : qb.exportChronology();
+  const seg = AC.cofechaSegments(frame);
+  ok('quality check: a segment length is chosen from the data',
+    seg.segLength >= 20 && seg.segLag === Math.floor(seg.segLength / 2), JSON.stringify(seg));
+
+  const out = AC.cofechaReport(frame, {
+    sources: [undated], date: '2026-09-18',
+    title: 'Built chronology quality check', cofecha: seg,
+  });
+  ok('quality check: raw ring widths are recovered, not the detrended indices',
+    out.raw === true && out.dropped.length === 0, JSON.stringify(out.dropped));
+  ok('quality check: an HTML report is produced',
+    /^<!DOCTYPE html>/i.test(out.html) && out.html.indexOf('</html>') > 0);
+  ok('quality check: the report leads with a verdict',
+    out.html.indexOf('>Verdict<') > 0 && out.html.indexOf('>Verdict<') < out.html.indexOf('Part 1'));
+  ok('quality check: the COFECHA parts are still there',
+    ['Part 1', 'Part 5', 'Part 6', 'Part 7'].every(function (x) { return out.html.indexOf(x) > 0; }));
+  ok('quality check: a verdict is reached for every member',
+    out.verdict && out.verdict.series.length === frame.names.length - 1,
+    out.verdict ? out.verdict.series.length + ' of ' + (frame.names.length - 1) : 'no verdict');
+  ok('quality check: chronology statistics are computed',
+    out.chron && typeof out.chron.summary.statement === 'string' &&
+    out.chron.trees.nCores === frame.names.length - 1);
+  ok('quality check: a COFECHA-format listing is produced',
+    typeof out.text === 'string' && /^PART 1:/m.test(out.text) && /^PART 7:/m.test(out.text));
+
+  let threw = false;
+  try {
+    AC.cofechaReport({ names: ['year', 'only'], cols: [[1, 2, 3], [1, 2, 3]] }, { sources: [undated] });
+  } catch (e) { threw = true; }
+  ok('quality check: a one-member chronology is refused with a message', threw);
+}
+
 console.log(fails ? '\nFAIL' : '\nPASS: Build-chronology tab logic drives the builder end-to-end.');
 process.exit(fails ? 1 : 0);

@@ -19,7 +19,7 @@ const path = require('path');
 const { parseDelimited } = require('../src/io/csv.js');
 const { chronoCheck } = require('../src/engine/chronoChecker.js');
 
-const EXT = '/tmp/claude-1000/-home-dave-ringdater/2d87fca1-cfb4-4db0-bee8-c49a5b13e67a/scratchpad/ringdater_pkg/inst/extdata';
+const EXT = path.join(__dirname, 'fixtures', 'extdata');
 const gt = JSON.parse(fs.readFileSync(path.join(__dirname, 'chrono_checker_gt.json'), 'utf8'));
 const TOL = 1e-9;
 let anyFail = false;

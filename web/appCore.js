@@ -2107,6 +2107,94 @@
       '</div></body></html>';
   }
 
+  // ---- COFECHA-equivalent crossdating quality check -------------------------
+  // COFECHA transforms the RAW measurements itself (spline -> AR -> log, p.210),
+  // so it must never be handed the detrended indices the rest of the app works
+  // in — that would detrend twice and the correlations would mean nothing.
+  // rawAligned() puts the ring widths back at the placement the analysis found;
+  // a column with no raw source (a mean chronology, an already-detrended member)
+  // cannot be re-measured and is dropped, and named in the return so the caller
+  // can say so rather than silently mixing widths and indices.
+  function cofechaInput(frame, sources) {
+    if (!frame || !frame.names || frame.names.length < 3) return null;
+    var re = (sources && sources.length) ? RD.rawAligned(frame, sources) : null;
+    if (!re || !re.substituted.length) return { frame: frame, dropped: [], raw: false };
+    var keep = [0];
+    for (var i = 1; i < re.frame.names.length; i++) {
+      if (re.kept.indexOf(re.frame.names[i]) < 0) keep.push(i);
+    }
+    return {
+      frame: { names: keep.map(function (i) { return re.frame.names[i]; }),
+               cols: keep.map(function (i) { return re.frame.cols[i]; }) },
+      dropped: re.kept.slice(),
+      raw: true
+    };
+  }
+
+  // cofechaReport(frame, opts) -> { html, dropped, raw, result }
+  //   opts.sources  raw frames to recover ring widths from (undated pool, targets)
+  //   opts.cofecha  COFECHA option overrides (segLength, segLag, pcrit, ...)
+  function cofechaReport(frame, opts) {
+    opts = opts || {};
+    var prep = cofechaInput(frame, opts.sources);
+    if (!prep) throw new Error('COFECHA needs at least two series with ring widths.');
+    if (prep.frame.names.length < 3) {
+      throw new Error('COFECHA needs at least two series with raw ring widths behind them.');
+    }
+    var res = RD.cofecha(prep.frame, opts.cofecha || {});
+
+    // The verdict and the chronology statistics are what turn a wall of flags
+    // into an answer, so they are computed by default. Both are additive: if
+    // either throws on awkward data the COFECHA-shaped report still renders.
+    var verdict = null, chron = null;
+    if (opts.verdict !== false) {
+      try { verdict = RD.crossdateVerdict(res, opts.verdictOpts || {}); }
+      catch (e) { verdict = null; }
+    }
+    if (opts.chron !== false) {
+      try { chron = RD.chronStats(res, opts.chronOpts || {}); }
+      catch (e) { chron = null; }
+    }
+
+    var html = RD.renderCofecha(res, {
+      title: opts.title || 'Crossdating quality check',
+      file: opts.file, date: opts.date, parts: opts.parts,
+      verdict: verdict, chron: chron
+    });
+    var text = null;
+    try {
+      text = RD.renderCofechaText(res, {
+        title: opts.title || 'quality check', file: opts.file, verdict: verdict
+      });
+    } catch (e) { text = null; }
+    return {
+      html: html, text: text, result: res, verdict: verdict, chron: chron,
+      dropped: prep.dropped, raw: prep.raw
+    };
+  }
+
+  // A sensible segment length for THIS data set. The paper (p. 208) advises a
+  // segment of about half the average series length, and warns that anything
+  // under 30 years yields spurious highs and lows — so 50 is used when the data
+  // can carry it, and the advice is followed downward from there, never below 20.
+  function cofechaSegments(frame) {
+    if (!frame || !frame.cols || frame.cols.length < 2) return { segLength: 50, segLag: 25 };
+    var lens = [];
+    for (var c = 1; c < frame.cols.length; c++) {
+      var n = 0, col = frame.cols[c];
+      for (var r = 0; r < col.length; r++) {
+        var v = col[r];
+        if (v != null && !(typeof v === 'number' && isNaN(v))) n++;
+      }
+      if (n) lens.push(n);
+    }
+    if (!lens.length) return { segLength: 50, segLag: 25 };
+    lens.sort(function (a, b) { return a - b; });
+    var med = lens[Math.floor(lens.length / 2)];
+    var seg = Math.max(20, Math.min(50, Math.floor(med / 2 / 5) * 5));
+    return { segLength: seg, segLag: Math.floor(seg / 2) };
+  }
+
   // ---- session save / restore ----------------------------------------------
   // Serialize the whole analysis session to a JSON-able object so a browser-only
   // user can leave and come back. Frames are already plain { names, cols }.
@@ -2235,6 +2323,7 @@
     downloadName: downloadName,
     builderTridasDownloads: builderTridasDownloads,
     builderReport: builderReport,
+    cofechaReport: cofechaReport, cofechaSegments: cofechaSegments,
     serializeSession: serializeSession, restoreSession: restoreSession,
     downloads: downloads, report: report
   };

@@ -4,10 +4,22 @@
 //   method="pearson", running.window=TRUE, ids=NULL, prewhiten=FALSE, n=NULL,
 //   period="max", first.start=NULL, zero.is.missing=TRUE.
 //
-// In this regime every series is its own tree with a single core, so the
+// By default every series is its own tree with a single core, so the
 // between/within-tree machinery collapses: there is no within-tree term
-// (n.wt == 0 always) and rbar.tot == rbar.bt == rbar.eff. Multi-core trees
-// (the `ids` argument) are intentionally NOT ported; see note below.
+// (n.wt == 0 always) and rbar.tot == rbar.bt == rbar.eff. That is dplR's
+// behaviour with ids=NULL and is what R_bar_EPS has always produced here.
+//
+// TREES. Most collections take two or more radii from each tree, and two radii
+// of one tree share wood, not just climate — on chronologies/ut550.rwl (110
+// cores from 60 trees) the mean correlation within a tree is 0.663 against 0.361
+// between trees. Counting cores as independent replicates therefore overstates
+// how well a site is sampled. Pass `treeOf` (or `inferTrees`) and the full dplR
+// machinery runs: rbar.wt, rbar.bt, the effective correlation rbar.eff, and an
+// EPS on the number of TREES rather than cores. At full sample depth the
+// difference is cosmetic (EPS .985 vs .971 on ut550); at the old end of a
+// chronology, where the question is whether a stretch is usable at all, the two
+// conventions disagree — 12 cores from 6 trees give EPS .873 per core and .772
+// per tree, either side of the conventional .85.
 //
 // Also note: dplR normalises each column by its mean before correlating, but
 // Pearson correlation is scale-invariant, so that division is a no-op for the
@@ -22,7 +34,43 @@
 // Output: array of one object per running segment:
 //   { startYear, midYear, endYear, nCores, nTrees, n, rbarTot, eps }
 // mirroring test$start.year, mid.year, end.year, n.cores, n.trees, n,
-// rbar.tot and eps from rwi.stats.running.
+// rbar.tot and eps from rwi.stats.running. With `treeOf` supplied each row also
+// carries rbarWt, rbarBt, rbarEff, epsCores, snr and sss.
+
+// ---------------------------------------------------------------------------
+// inferTrees(ids) — group core ids into trees.
+//
+// The ITRDB convention is SITE + tree number + core letter, so RCB010A and
+// RCB010B are two radii of tree RCB010. Stripping trailing letters recovers
+// that. It is only applied where it actually groups something: if no two ids
+// share a stem the ids are left alone, so a collection that names cores some
+// other way is not silently mangled. Callers should show the grouping and let
+// it be corrected — it changes EPS.
+// ---------------------------------------------------------------------------
+function inferTrees(ids) {
+  // Strip a trailing run of letters ONLY when what remains ends in a digit, which
+  // is what the convention actually says: site code + tree NUMBER + core letter.
+  // Without that guard any ids ending in a letter collapse together — the test
+  // fixture's sample_a .. sample_j all became the single tree "sample_", and a
+  // wrong grouping silently changes EPS.
+  const stem = id => {
+    const t = String(id).replace(/[A-Za-z]+$/, '');
+    return (t.length && /\d$/.test(t)) ? t : String(id);
+  };
+  const groups = new Map();
+  for (const id of ids) {
+    const k = stem(id);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(id);
+  }
+  let grouped = false;
+  for (const v of groups.values()) if (v.length > 1) { grouped = true; break; }
+  const treeOf = {};
+  for (const id of ids) treeOf[id] = grouped ? stem(id) : String(id);
+  const trees = {};
+  for (const id of ids) (trees[treeOf[id]] = trees[treeOf[id]] || []).push(id);
+  return { treeOf, trees, nTrees: Object.keys(trees).length, grouped };
+}
 
 function isMissing(v) {
   return v === null || v === undefined || (typeof v === 'number' && isNaN(v));
@@ -69,6 +117,14 @@ function rwiStatsRunning(rwl, opts) {
     }
     return out;
   });
+
+  // Tree grouping. `treeOf` is an explicit {coreId: treeId} map; `inferTrees:true`
+  // derives one from the ids. Neither given = dplR's ids=NULL, every core its own
+  // tree, which is what every existing caller gets.
+  let treeOf = null;
+  if (opts.treeOf) treeOf = opts.treeOf;
+  else if (opts.inferTrees) treeOf = inferTrees(ids).treeOf;
+  const treeIdx = treeOf ? ids.map(id => (treeOf[id] != null ? String(treeOf[id]) : String(id))) : null;
 
   const windowLength = opts.windowLength;
   const windowOverlap = opts.windowOverlap != null
@@ -137,38 +193,68 @@ function rwiStatsRunning(rwl, opts) {
     const rows = [];                        // 0-based rows in window
     for (let r = s - 1; r <= eIdx - 1; r++) rows.push(r);
 
-    // between-tree pairwise correlations
-    let rsumBt = 0, nBt = 0;
+    // Pairwise correlations, split into pairs from the SAME tree (two radii of
+    // one stem) and pairs from different trees. With no tree map every pair is
+    // between-tree and this reduces exactly to what it did before.
+    let rsumBt = 0, nBt = 0, rsumWt = 0, nWt = 0;
     const goodFlag = new Array(nSeries).fill(false);
     for (let i = 0; i < nSeries - 1; i++) {
       for (let j = i + 1; j < nSeries; j++) {
         const { r, nGood } = pairCor(cols[i], cols[j], rows);
         if (nGood >= minCorrOverlap && nGood > 0 && !isNaN(r)) {
-          rsumBt += r; nBt++;
+          if (treeIdx && treeIdx[i] === treeIdx[j]) { rsumWt += r; nWt++; }
+          else { rsumBt += r; nBt++; }
           goodFlag[i] = true; goodFlag[j] = true;
         }
       }
     }
 
-    const rbarTot = nBt > 0 ? rsumBt / nBt : NaN;
+    const rbarWt = nWt > 0 ? rsumWt / nWt : NaN;
+    const rbarBt = nBt > 0 ? rsumBt / nBt : NaN;
+    const rbarTot = (nWt + nBt) > 0 ? (rsumWt + rsumBt) / (nWt + nBt) : NaN;
 
-    // presence counts over the window (cores == trees here)
-    let nTrees = 0;
+    // presence counts over the window
+    let nCores = 0;
+    const treesPresent = treeIdx ? new Set() : null;
     for (let j = 0; j < nSeries; j++) {
       let any = false;
       for (let k = 0; k < rows.length; k++) { if (notNA[rows[k]][j]) { any = true; break; } }
-      if (any) nTrees++;
+      if (any) { nCores++; if (treesPresent) treesPresent.add(treeIdx[j]); }
     }
-    const nCores = nTrees;
+    const nTrees = treesPresent ? treesPresent.size : nCores;
 
     let n = 0;
     for (let j = 0; j < nSeries; j++) if (goodFlag[j]) n++;
 
-    // n.wt == 0 branch: rbar.eff = rbar.bt = rbar.tot when nBt > 0.
-    const rbarEff = nBt > 0 ? rbarTot : NaN;
-    const eps = n * rbarEff / ((n - 1) * rbarEff + 1);
+    // dplR: with no within-tree pairs, rbar.eff = rbar.bt = rbar.tot. With them,
+    // the cores of a tree are averaged down to one effective series first —
+    // c.eff cores per tree, correlating rbar.wt among themselves — and EPS is
+    // then computed on the number of TREES.
+    let rbarEff, epsN;
+    if (nWt > 0 && Number.isFinite(rbarBt) && Number.isFinite(rbarWt)) {
+      const cEff = nTrees > 0 ? nCores / nTrees : 1;
+      rbarEff = rbarBt / (rbarWt + (1 - rbarWt) / cEff);
+      epsN = nTrees;
+    } else {
+      rbarEff = nBt > 0 ? rbarTot : NaN;
+      epsN = n;
+    }
+    const eps = epsN * rbarEff / ((epsN - 1) * rbarEff + 1);
 
-    out.push({ startYear, midYear, endYear, nCores, nTrees, n, rbarTot, eps });
+    const row = { startYear, midYear, endYear, nCores, nTrees, n, rbarTot, eps };
+    if (treeIdx) {
+      // EPS the old way (every core an independent replicate), kept beside the
+      // tree-aware one so the convention is visible rather than assumed.
+      const epsCores = n * rbarTot / ((n - 1) * rbarTot + 1);
+      // Signal-to-noise and subsample signal strength, both standard companions
+      // to EPS: SNR says how much common signal there is per unit of noise, SSS
+      // how well this many trees represents the full collection.
+      const snr = epsN * rbarEff / (1 - rbarEff);
+      row.rbarWt = rbarWt; row.rbarBt = rbarBt; row.rbarEff = rbarEff;
+      row.epsCores = epsCores; row.snr = snr;
+      row.nWt = nWt; row.nBt = nBt;
+    }
+    out.push(row);
   }
   return out;
 }
@@ -184,4 +270,10 @@ function rBarEps(rwl, window) {
   });
 }
 
-module.exports = { rwiStatsRunning, rBarEps };
+// subsample signal strength: how well `nTrees` trees represent `nMax` of them.
+function sss(nTrees, nMax, rbarEff) {
+  if (!(nTrees > 0) || !(nMax > 0) || !Number.isFinite(rbarEff)) return NaN;
+  return (nTrees * (1 + (nMax - 1) * rbarEff)) / (nMax * (1 + (nTrees - 1) * rbarEff));
+}
+
+module.exports = { rwiStatsRunning, rBarEps, inferTrees, sss };

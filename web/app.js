@@ -2588,7 +2588,7 @@
     $('exportExplore').style.display = showRun ? '' : 'none';
     $('exportBuild').style.display = showBuild ? '' : 'none';
     $('exportEmpty').style.display = (showRun || showBuild) ? 'none' : '';
-    setMsg('reportMsg', ''); setMsg('buildReportMsg', '');
+    setMsg('reportMsg', ''); setMsg('cofechaMsg', '');
     if (showRun) { try { renderRunDownloads(); } catch (err) { $('dlList').innerHTML = '<li>' + esc(err.message) + '</li>'; } }
     if (showBuild) { try { renderBuildDownloads(); } catch (err) { $('buildDlList').innerHTML = '<li>' + esc(err.message) + '</li>'; } }
   }
@@ -2614,18 +2614,78 @@
       openReport(html, 'reportMsg');
     } catch (err) { setMsg('reportMsg', 'Error: ' + err.message, 'err'); }
   });
-  // built-chronology report (Build section of the export menu)
-  $('buildReportBtn').addEventListener('click', function () {
-    if (!builderHasMembers()) { setMsg('buildReportMsg', 'Build a chronology first.', 'err'); return; }
+  // ---- COFECHA-equivalent crossdating quality check --------------------------
+  // Runs on the RAW ring widths behind the current alignment (AppCore.cofechaReport
+  // recovers them); anything with no raw measurements behind it cannot be checked
+  // this way and is named in the message rather than quietly left out.
+  var lastCofechaText = null;
+  function runCofecha(frame, sources, msgId, title, file) {
     try {
-      var html = AC.builderReport(state.builder, {
-        date: new Date(),
-        verbose: $('b_verbose').checked,
-        probWind: Number($('b_probs').value),
-        rbarWindow: Number($('b_eps').value)
+      var seg = AC.cofechaSegments(frame);
+      var out = AC.cofechaReport(frame, {
+        sources: sources, date: new Date(), title: title, file: file, cofecha: seg
       });
-      openReport(html, 'buildReportMsg');
-    } catch (err) { setMsg('buildReportMsg', 'Error: ' + err.message, 'err'); }
+      var note;
+      if (out.verdict) {
+        var n = out.verdict.summary.nAttention;
+        note = n === 0
+          ? 'All ' + out.verdict.summary.nSeries + ' series date against the rest of the collection.'
+          : n + ' series need attention: ' + out.verdict.summary.attention.join(', ') + '.';
+      } else {
+        note = out.result.summary.nFlags + ' of ' + out.result.summary.nSegments + ' segments flagged.';
+      }
+      note += '  Segments of ' + seg.segLength + ' years, lagged ' + seg.segLag + '.';
+      if (!out.raw) note += ' No raw measurements found — checked the loaded values as they are.';
+      if (out.dropped.length) note += ' Not checked (no ring widths): ' + out.dropped.join(', ') + '.';
+      openReport(out.html, msgId);
+      // The fixed-width listing is what makes this checkable against a real
+      // COFECHA run, so it is offered every time rather than hidden in a menu.
+      if (out.text) {
+        lastCofechaText = { name: (file || 'chronology').replace(/\.[^.]+$/, '') + '_cofecha.txt',
+                            content: out.text };
+        var btn = $(msgId === 'cofechaMsg' ? 'cofechaTxtBtn' : 'chronQcTxtBtn');
+        if (btn) btn.style.display = '';
+      }
+      var bad = out.verdict ? out.verdict.summary.nAttention : out.result.summary.nFlags;
+      setMsg(msgId, note, bad ? 'warn' : 'ok');
+    } catch (err) { setMsg(msgId, 'Error: ' + err.message, 'err'); }
+  }
+  ['cofechaTxtBtn', 'chronQcTxtBtn'].forEach(function (id) {
+    var el = $(id);
+    if (el) el.addEventListener('click', function () {
+      if (!lastCofechaText) return;
+      triggerDownload({ filename: lastCofechaText.name, mime: 'text/plain',
+                        content: lastCofechaText.content });
+    });
+  });
+  $('cofechaBtn').addEventListener('click', function () {
+    if (!state.result || !state.result.aligned) { setMsg('cofechaMsg', 'Run an analysis first.', 'err'); return; }
+    var sources = [state.undated].concat(state.chrons.map(function (c) { return c.frame; })).filter(Boolean);
+    runCofecha(state.result.aligned, sources, 'cofechaMsg',
+      'Crossdating quality check', state.undatedName || undefined);
+  });
+  // The chronology's own quality check, on the Build page beside the chronology
+  // it checks — it is something you re-run as the build grows, not an export.
+  $('chronQcBtn').addEventListener('click', function () {
+    if (!builderHasMembers()) { setMsg('chronQcMsg', 'Add some series first.', 'err'); return; }
+    var frame = state.builder.isDated() ? state.builder.datedChronology() : state.builder.exportChronology();
+    if (!frame) { setMsg('chronQcMsg', 'Nothing to check yet.', 'err'); return; }
+    if (frame.names.length < 3) {
+      setMsg('chronQcMsg', 'A quality check needs at least two members.', 'err'); return;
+    }
+    var sources = [state.undated].concat(state.chrons.map(function (c) { return c.frame; })).filter(Boolean);
+    // The check is a second or two of synchronous work on a large chronology, so
+    // yield once first — otherwise "Checking" never paints and the page just
+    // appears to hang.
+    var btn = $('chronQcBtn');
+    btn.disabled = true;
+    setMsg('chronQcMsg', 'Checking…');
+    setTimeout(function () {
+      try {
+        runCofecha(frame, sources, 'chronQcMsg',
+          'Built chronology — crossdating quality check', state.undatedName || undefined);
+      } finally { btn.disabled = false; }
+    }, 0);
   });
 
   // ---- session save / restore ----------------------------------------------

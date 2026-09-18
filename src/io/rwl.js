@@ -215,18 +215,26 @@ function readRwl(text, opts) {
     let prec = 100;
     for (const r of srows) for (const v of r.vals) if (v === -9999) { prec = 1000; break; }
     const map = new Map();
+    // Years a record actually covered. A negative sentinel (-999) is prescaled
+    // away above but its slot WAS written in the file, and R reads that as a
+    // zero; a year no record covers at all is a different thing entirely and
+    // must stay missing. Only the two can be told apart here, so both are
+    // tracked (see the column fill below).
+    const covered = new Set();
     for (const r of srows) {
       for (let k = 0; k < r.vals.length; k++) {
-        let v = r.vals[k];
-        if (v == null) continue;
-        if (prec === 100 && v === 999) continue;    // stop marker / no-data
-        if (prec === 1000 && v === -9999) continue; // stop marker
-        map.set(r.year + k, v / prec);
+        const v = r.vals[k];
+        const y = r.year + k;
+        if (v == null) { covered.add(y); continue; }  // slot present, value dropped
+        if (prec === 100 && v === 999) continue;      // stop marker / no-data
+        if (prec === 1000 && v === -9999) continue;   // stop marker
+        covered.add(y);
+        map.set(y, v / prec);
       }
     }
     let min = Infinity, max = -Infinity;
     for (const y of map.keys()) { if (y < min) min = y; if (y > max) max = y; }
-    series.push({ id, map, min: map.size ? min : null, max: map.size ? max : null });
+    series.push({ id, map, covered, min: map.size ? min : null, max: map.size ? max : null });
   }
 
   // overall span from series that have data
@@ -249,7 +257,16 @@ function readRwl(text, opts) {
     for (let i = 0; i < years.length; i++) {
       const y = years[i];
       if (s.min == null || y < s.min || y > s.max) col[i] = null;      // outside span
-      else col[i] = s.map.has(y) ? s.map.get(y) : 0;                   // internal gap -> 0
+      // A year no record covers was never measured, so it stays missing. That
+      // happens when a file carries the SAME id in two stop-marked records (a
+      // core measured in two pieces, or a re-used id): the years between them
+      // are a gap in the sampling, not rings of width zero. Filling them with 0
+      // invented absent rings — ut550 splits RCB183A at 1314/1557, which became
+      // a 242-year run of "absent" rings in the crossdating diagnostics.
+      else if (s.map.has(y)) col[i] = s.map.get(y);
+      // covered by a record but with no usable value (a -999 sentinel): R reads
+      // it as zero, so we do too.
+      else col[i] = s.covered.has(y) ? 0 : null;
     }
     cols.push(col);
   }

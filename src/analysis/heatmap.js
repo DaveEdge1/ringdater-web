@@ -30,6 +30,7 @@ function heatmapAnalysis(frame, opts = {}) {
     pos_lag: posLag + center,
     win: opts.win != null ? opts.win : 21,
     complete: opts.complete != null ? opts.complete : true,
+    fast: !!opts.fast,
   });
 }
 

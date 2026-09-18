@@ -19,7 +19,7 @@ const { pairwiseWorkflow, chronologyWorkflow } = require('../src/engine/workflow
 const { createStore } = require('../src/engine/store.js');
 const actions = require('../src/engine/actions.js');
 
-const EXT = '/tmp/claude-1000/-home-dave-ringdater/2d87fca1-cfb4-4db0-bee8-c49a5b13e67a/scratchpad/ringdater_pkg/inst/extdata';
+const EXT = path.join(__dirname, 'fixtures', 'extdata');
 const gt = JSON.parse(fs.readFileSync(path.join(__dirname, 'engine_gt.json'), 'utf8'));
 const TOL = 1e-6;
 

@@ -38,6 +38,12 @@ const { nameCheck, nameCheckUnique, loadedDataCheck, pairwiseDataCheck } = requi
 // ---- chronology stats (wrappers over the dplR core) ------------------------
 const { probCheck } = require('./stats/probCheck.js');
 const { rBarEps } = require('./stats/rBarEps.js');
+const { cofecha, COFECHA_DEFAULTS, criticalR } = require('./stats/cofecha.js');
+const { renderCofecha } = require('./cofechaReport.js');
+const { crossdateVerdict, CROSSDATE_DEFAULTS } = require('./stats/crossdateVerdict.js');
+const { chronStats, CHRON_DEFAULTS } = require('./stats/chronStats.js');
+const { renderCofechaText } = require('./cofechaText.js');
+const { inferTrees, sss } = require('./rwi_stats.js');
 
 // ---- IO: parsers, loaders, writers (Phase 2) -------------------------------
 const io = require('./io/load.js');
@@ -99,6 +105,11 @@ module.exports = {
 
   // chronology stats
   probCheck, rBarEps,
+
+  // COFECHA-equivalent crossdating quality check + its eight-part report
+  cofecha, COFECHA_DEFAULTS, criticalR, renderCofecha,
+  crossdateVerdict, CROSSDATE_DEFAULTS,
+  chronStats, CHRON_DEFAULTS, inferTrees, sss, renderCofechaText,
 
   // validation / cleaning / messaging
   nameCheck, nameCheckUnique, loadedDataCheck, pairwiseDataCheck, RingdateR_error_message,

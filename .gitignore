@@ -14,3 +14,24 @@ tmp/
 
 # Local-only data (not for the repo)
 ut585/
+
+# COFECHA: the program itself, its manual, and what a run leaves behind. Kept
+# locally so tools/cofecha_compare.js has something to diff against; the tests
+# that use them skip when they are absent.
+Cofecha_MRWE.exe
+GrissinoCOFECHA.pdf
+DPL.INI
+*.OUT
+cofecha_run/
+
+# Measurement data (local only — see the ut585/ note above). Scoped to the repo
+# root and chronologies/ so a .rwl added under test/fixtures is never silently
+# ignored.
+chronologies/
+/*.rwl
+ut585-ext3.csv
+
+# Generated reports and listings
+*-report.html
+*_cofecha.txt
+cofecha-demo.html
