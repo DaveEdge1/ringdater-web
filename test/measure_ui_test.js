@@ -573,6 +573,141 @@ async function main() {
       (await js(`(window.AppUI.seriesWidths('sample_b', 'pool')[7]).toFixed(3)`)),
       await js(`document.getElementById('vroTable').querySelector('tr.sel td[data-s="0"]').textContent`));
 
+    // ---- zooming the ring axis --------------------------------------------
+    // A core of several hundred rings gives each one a couple of pixels, and a
+    // suspect one cannot be looked at. Zoom is on the RING axis only: the width
+    // axis stays at zero-to-widest so a stretch looked at closely is still read
+    // against the core's own growth, which is the reason for looking at it.
+    // Everything below reads the axis labels the view itself paints — the last
+    // four <text> children of the svg are "max mm", "0", the left ring and the
+    // right ring.
+    const axis = `(function () {
+      var t = document.querySelectorAll('#vroTrace svg > text'), n = t.length;
+      return { mm: t[n - 4].textContent, lo: t[n - 2].textContent, hi: t[n - 1].textContent,
+        mark: document.getElementById('vroTraceHint').textContent,
+        track: !!document.querySelector('#vroTrace .trace-zoom'),
+        zoomed: document.getElementById('vroTrace').classList.contains('zoomed') };
+    })()`;
+    const dotAt = (i) => `(function () {
+      var d = document.querySelectorAll('#vroTrace circle.ring-dot')[${i}];
+      if (!d) return null;
+      var r = d.getBoundingClientRect();
+      return { x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2 };
+    })()`;
+    const wheelAt = (x, y, d) => `(function () {
+      document.getElementById('vroTrace').dispatchEvent(new WheelEvent('wheel',
+        { bubbles: true, cancelable: true, clientX: ${x}, clientY: ${y}, deltaY: ${d} }));
+      return 1; })()`;
+
+    const home = await js(axis);
+    const rings = await js(`window.MeasureUI.session()[0].rings`);
+    check('the whole core is on screen to start with',
+      home.lo === 'ring 1' && home.hi === 'ring ' + rings && home.zoomed === false &&
+      home.track === false && /^Scroll the trace to zoom/.test(home.mark),
+      JSON.stringify(home) + ' of ' + rings + ' rings');
+
+    // Zoom about ring 8 — the ring the pointer is over must still be under it
+    // afterwards, or the gesture is unusable for looking at one suspect ring.
+    const p8 = await js(dotAt(7));
+    const homeGap = (await js(dotAt(8))).x - p8.x;
+    await js(wheelAt(Math.round(p8.x), Math.round(p8.y), -120));
+    const zoom1 = await js(axis);
+    check('scrolling up zooms in on the ring axis',
+      zoom1.zoomed === true &&
+      Number(zoom1.hi.replace(/\D/g, '')) - Number(zoom1.lo.replace(/\D/g, '')) < rings - 1,
+      JSON.stringify(zoom1));
+    check('...leaving the width axis alone — this zoom is x only',
+      zoom1.mm === home.mm, zoom1.mm + ' vs ' + home.mm);
+    check('...and the ring under the pointer stays under it',
+      Math.abs((await js(dotAt(7))).x - p8.x) < 2,
+      String((await js(dotAt(7))).x - p8.x));
+    check('...and the view says which stretch of the core is on screen',
+      /^Rings \d+–\d+ of \d+\./.test(zoom1.mark) && zoom1.track === true, zoom1.mark);
+    const zoomGap = (await js(dotAt(8))).x - (await js(dotAt(7))).x;
+    check('the rings do spread out — that is what zooming is for',
+      zoomGap > homeGap * 1.1, zoomGap.toFixed(2) + ' vs ' + homeGap.toFixed(2) + ' px per ring');
+
+    // Zooming out can only reach the whole core; there is nothing beyond it.
+    await js(wheelAt(Math.round(p8.x), Math.round(p8.y), 120));
+    await js(wheelAt(Math.round(p8.x), Math.round(p8.y), 120));
+    await js(wheelAt(Math.round(p8.x), Math.round(p8.y), 120));
+    await js(wheelAt(Math.round(p8.x), Math.round(p8.y), 120));
+    await js(wheelAt(Math.round(p8.x), Math.round(p8.y), 120));
+    await js(wheelAt(Math.round(p8.x), Math.round(p8.y), 120));
+    const out = await js(axis);
+    check('scrolling out stops at the whole core',
+      out.lo === 'ring 1' && out.hi === 'ring ' + rings && out.zoomed === false,
+      JSON.stringify(out));
+
+    // Zoom back in and drag. A drag moves the view; it must not be read as a
+    // click, or panning would keep re-selecting rings under the pointer.
+    await js(wheelAt(Math.round(p8.x), Math.round(p8.y), -120));
+    await js(wheelAt(Math.round(p8.x), Math.round(p8.y), -120));
+    const beforeDrag = await js(axis);
+    const selBefore = await js(`document.querySelector('#vroTable tbody tr.sel').getAttribute('data-i')`);
+    await js(`(function () {
+      var el = document.getElementById('vroTrace');
+      var y = ${Math.round(p8.y)};
+      el.dispatchEvent(new MouseEvent('mousedown',
+        { bubbles: true, cancelable: true, button: 0, clientX: 300, clientY: y }));
+      document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 360, clientY: y }));
+      document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX: 360, clientY: y }));
+      el.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 360, clientY: y }));
+      return 1; })()`);
+    const dragged = await js(axis);
+    check('dragging pans the view back down the core',
+      Number(dragged.lo.replace(/\D/g, '')) < Number(beforeDrag.lo.replace(/\D/g, '')),
+      dragged.lo + ' vs ' + beforeDrag.lo);
+    check('...keeping the same stretch of it on screen',
+      Math.abs((Number(dragged.hi.replace(/\D/g, '')) - Number(dragged.lo.replace(/\D/g, ''))) -
+        (Number(beforeDrag.hi.replace(/\D/g, '')) - Number(beforeDrag.lo.replace(/\D/g, '')))) <= 1,
+      dragged.lo + '-' + dragged.hi + ' vs ' + beforeDrag.lo + '-' + beforeDrag.hi);
+    check('...and a drag is not a click, so it selects nothing',
+      (await js(`document.querySelector('#vroTable tbody tr.sel').getAttribute('data-i')`)) === selBefore,
+      await js(`document.querySelector('#vroTable tbody tr.sel').getAttribute('data-i')`));
+
+    // A click that is not a drag still selects, so panning has not cost the tie
+    // between the two views.
+    const p3 = await js(dotAt(2));
+    check('a click with no drag behind it still selects its ring',
+      (await js(`(function () {
+        var el = document.getElementById('vroTrace'), x = ${Math.round(p3.x)}, y = ${Math.round(p3.y)};
+        el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y }));
+        document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX: x, clientY: y }));
+        el.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: x, clientY: y }));
+        return document.querySelector('#vroTable tbody tr.sel').getAttribute('data-i');
+      })()`)) === '2');
+
+    // Zoomed right in on the tail, picking a ring out of the table has to bring
+    // the view to it — otherwise the trace is showing a stretch of core that has
+    // nothing to do with the ring being worked on. Which is also what keeps the
+    // ring just measured on screen while a zoomed window is in use.
+    {
+      const tip = await js(dotAt(rings - 1));
+      for (let i = 0; i < 5; i++) await js(wheelAt(Math.round(tip.x), Math.round(tip.y), -120));
+      const tail = await js(axis);
+      check('zoomed in on the tail, the first ring is off screen',
+        Number(tail.lo.replace(/\D/g, '')) > 1, JSON.stringify(tail));
+      await js(`document.querySelector('#vroTable tbody tr[data-i="0"] td[data-s="0"]').click(); 1`);
+      const back = await js(axis);
+      check('...and selecting it brings the view to it rather than losing it',
+        back.lo === 'ring 1' && back.zoomed === true, JSON.stringify(back));
+      check('...without widening the view — it pans, it does not zoom out',
+        Number(back.hi.replace(/\D/g, '')) - Number(back.lo.replace(/\D/g, '')) ===
+        Number(tail.hi.replace(/\D/g, '')) - Number(tail.lo.replace(/\D/g, '')),
+        back.lo + '-' + back.hi + ' vs ' + tail.lo + '-' + tail.hi);
+    }
+
+    const reset = await js(`document.getElementById('vroTrace').dispatchEvent(
+      new MouseEvent('dblclick', { bubbles: true, cancelable: true })); ${axis}`);
+    check('double-clicking puts the whole core back',
+      reset.zoomed === false && reset.lo === 'ring 1' && reset.hi === 'ring ' + rings,
+      JSON.stringify(reset));
+    check('...and the hint line goes back to explaining the gesture',
+      reset.mark === home.mark, reset.mark);
+    await js(`document.getElementById('vroTrace')
+      .dispatchEvent(new MouseEvent('mouseleave', { bubbles: false })); 1`);
+
     // Amend ring 1, then write it back over the series it came from.
     await js(`window.prompt = function () { return '9.999'; };
       document.querySelector('#vroTable tbody tr[data-i="0"] td[data-s="0"]').click();

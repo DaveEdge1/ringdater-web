@@ -14,6 +14,14 @@ Then `git push --follow-tags`.
 ## [Unreleased]
 
 ### Added
+- **The measuring trace zooms on the ring axis.** Past a couple of hundred rings each one is under
+  two pixels wide, so a ring that looks wrong on the trace cannot actually be looked at. Scroll to
+  zoom about the pointer, drag to pan, double-click to go back to the whole core; a track along the
+  foot of the plot shows which stretch is on screen. The zoom is **x only** by design — widths stay
+  drawn from zero to the widest ring in the sitting, so a stretch looked at closely is still read
+  against the core's own growth rather than rescaled to itself. A zoomed window sitting at the tip
+  follows the rings as they are measured, and selecting a ring outside the view brings it into
+  sight, so the trace stays usable while working rather than only afterwards.
 - **One verdict per series, instead of one flag per segment.** COFECHA flags segments, and on real
   data most of those flags are noise: on `ut550.rwl` — published and already crossdated — it raises
   25, and every one of its twelve B flags fails COFECHA's own test (p.215: an alternate position

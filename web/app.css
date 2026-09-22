@@ -401,7 +401,10 @@ table.res td.pad, #vroTable tbody tr > td.pad, #vroTable tbody tr.sel > td.pad {
 #vroTable th:last-child, #vroTable td:last-child { border-right-width: 0; }
 
 /* The cursor: one ring index shown on the trace, tied to the row in the table. */
-#vroTrace svg { cursor: crosshair; }
+#vroTrace svg { cursor: crosshair; touch-action: none; }
+/* Zoomed in, the trace can be dragged along the ring axis, so it says so. */
+#vroTrace.zoomed svg { cursor: grab; }
+#vroTrace.zoomed svg:active { cursor: grabbing; }
 #vroCursor .cur-line { stroke-width: 1; stroke-dasharray: 3 3; opacity: .85; }
 #vroCursor .cur-dot { stroke: #fff; stroke-width: 1; }
 #vroCursor .cur-chip { fill: #fff; fill-opacity: .92; stroke-width: 1; }
@@ -416,8 +419,11 @@ table.res th .pen { opacity: .8; font-weight: 400; }
   padding: 6px 8px; margin: 0; height: 132px; overflow: auto; white-space: pre-wrap;
 }
 
-#vroTrace { border: 1px solid var(--line); border-radius: 6px; background: #fff; margin-bottom: 10px; }
+#vroTrace { border: 1px solid var(--line); border-radius: 6px; background: #fff; }
 #vroTrace p.hint { padding: 12px; margin: 0; }
+#vroTraceHint { margin: 4px 0 10px; }
+/* Zoomed, the same line stops explaining the gesture and reports the view. */
+#vroTraceHint.on { color: var(--ink); }
 
 table.res td.bad { background: #ffecec; color: #c0392b; }
 table.res td.absent { color: #c0392b; font-style: italic; }

@@ -57,6 +57,18 @@
   // selected ring — which, while the pedal is running, is the ring just measured.
   var hoverRing = null, hoverFrom = null;
   var traceGeom = null;       // the last trace's ring-index <-> pixel mapping
+  // The ring axis can be zoomed into. `traceView` is the visible stretch in row
+  // indices (fractional), or null for the whole trace. Only the RING axis zooms:
+  // the width axis is always drawn from zero to the session's widest ring, so a
+  // stretch looked at closely is still read against the core's own growth rather
+  // than rescaled to itself — which is the point of looking at it.
+  var traceView = null;
+  var traceViewAtEnd = false; // a window sitting at the tip follows new rings
+  var traceFollow = null;     // the row the view was last slid to keep in sight
+  var tracePan = null;        // in-flight drag, or null
+  var tracePanned = false;    // the last mouseup ended a drag, so it is not a click
+  var TRACE_MIN_SPAN = 4;     // rings across the plot; closer in there is nothing to see
+  var TRACE_HINT = null;      // the hint line's own wording, kept from the page
   var autoZero = true;        // clear the VRO after each ring, as Tellervo does
   // Where the ACTIVE series' rings came from, when they were not measured here:
   // { name, source: 'pool'|'chron'|'file' }. Only a pool series can be written
@@ -1390,22 +1402,65 @@
   var TRACE_COLORS = ['#2b6cb0', '#c05621', '#2f855a', '#6b46c1', '#b83280', '#4a5568'];
   function traceColor(i) { return TRACE_COLORS[i % TRACE_COLORS.length]; }
 
+  // The visible stretch of the ring axis, in row indices, clamped to what
+  // exists. Held as a SPAN rather than as a pair of ends, so that rings arriving
+  // under a zoomed window do not quietly change how much of the core is on
+  // screen; a window already at the tip slides along with them instead.
+  function traceWindow(n) {
+    var full = n - 1;
+    if (!traceView || full < 1) return [0, Math.max(full, 0)];
+    var span = Math.min(Math.max(traceView.hi - traceView.lo, Math.min(TRACE_MIN_SPAN, full)), full);
+    var lo = traceViewAtEnd ? full - span : traceView.lo;
+    if (lo < 0) lo = 0;
+    if (lo + span > full) lo = full - span;
+    return [lo, lo + span];
+  }
+
+  // Keep the selected ring in sight: correcting a ring far back in the core
+  // should not mean panning to it by hand first, and the ring just measured
+  // should not be drawn off the edge. Only a CHANGE of selection moves the view
+  // — otherwise every zoom and every pan would be dragged back to it.
+  function followSelection(n) {
+    var r = rowOf(selected);
+    if (r === traceFollow) return;
+    traceFollow = r;
+    if (!traceView || r == null || n < 2) return;
+    var v = traceWindow(n), span = v[1] - v[0];
+    if (r >= v[0] && r <= v[1]) return;
+    var lo = Math.max(0, Math.min(n - 1 - span, r - span / 2));
+    traceView = { lo: lo, hi: lo + span };
+    traceViewAtEnd = lo + span >= n - 1 - 1e-6;
+  }
+
   function renderTrace() {
     var el = $('vroTrace');
     var w = el.clientWidth || 600, h = 150, padL = 34, padB = 16, padT = 8;
     var all = session.map(function (e) { return e.series.widthsMm(); });
     var off = offsets();
     var n = all.reduce(function (m, v, i) { return Math.max(m, v.length + off[i]); }, 0);
+    var hint = $('vroTraceHint');
+    // The plot's own wording lives in the page; it is kept here so the zoom can
+    // borrow the line to say where it is and then give it back.
+    if (hint && TRACE_HINT == null) TRACE_HINT = hint.textContent.replace(/\s+/g, ' ').trim();
     if (!n) {
       el.innerHTML = '<p class="hint">The ring-width trace appears here.</p>';
+      el.classList.remove('zoomed');
+      if (hint) hint.style.display = 'none';
       traceGeom = null;
       return;
     }
+    if (hint) hint.style.display = '';
 
     var top = all.reduce(function (m, v) {
       return v.length ? Math.max(m, Math.max.apply(null, v)) : m;
     }, 0.1) * 1.1;
-    function px(i) { return n === 1 ? (padL + w) / 2 : padL + (w - padL - 4) * i / (n - 1); }
+    // Everything below draws through px(), so zooming needs no second code path:
+    // the same polylines, dots and cursor are simply mapped onto a shorter span.
+    followSelection(n);
+    var vw = traceWindow(n), v0 = vw[0], v1 = vw[1];
+    var zoomed = v0 > 0 || v1 < n - 1;
+    function px(i) { return n === 1 ? (padL + w) / 2 : padL + (w - padL - 4) * (i - v0) / (v1 - v0); }
+    function pxInv(x) { return n === 1 ? 0 : v0 + (x - padL) * (v1 - v0) / (w - padL - 4); }
     function py(v) { return padT + (h - padT - padB) * (1 - v / top); }
     function line(vals, i) {
       if (!vals.length) return '';
@@ -1447,17 +1502,52 @@
     // after one it is nobody's, so the axis says what it is actually counting.
     // Either way the cursor reads out the active series' own rings — see paintCursor.
     var unit = off.every(function (o) { return !o; }) ? 'ring ' : 'row ';
+    var lo1 = Math.round(v0) + 1, hi1 = Math.round(v1) + 1;
 
+    // A zoomed window looks exactly like a short core, so it says which it is: a
+    // track along the foot of the plot showing where the visible stretch sits in
+    // the whole trace. Wrapped in a <g> so the two axis labels stay the last
+    // <text> children of the svg. The words go in the hint BELOW the plot — the
+    // top of it is the legend's, and with a dozen series the legend fills it.
+    var zoomMark = '';
+    if (zoomed) {
+      var tx0 = padL + (w - padL) * v0 / (n - 1), tx1 = padL + (w - padL) * v1 / (n - 1);
+      zoomMark = '<g class="trace-zoom">' +
+        '<rect x="' + padL + '" y="' + (h - padB + 1) + '" width="' + (w - padL).toFixed(1) +
+        '" height="3" rx="1.5" fill="#000" opacity="0.08"/>' +
+        '<rect x="' + tx0.toFixed(1) + '" y="' + (h - padB + 1) + '" width="' +
+        Math.max(2, tx1 - tx0).toFixed(1) + '" height="3" rx="1.5" fill="' + traceColor(active) +
+        '" opacity="0.5"/>' +
+        '</g>';
+    }
+    if (hint) {
+      hint.textContent = zoomed
+        ? unit.charAt(0).toUpperCase() + unit.slice(1, -1) + 's ' + lo1 + '–' + hi1 + ' of ' + n +
+          '. Drag to pan, double-click for the whole core.'
+        : TRACE_HINT;
+      hint.classList.toggle('on', zoomed);
+    }
+
+    el.classList.toggle('zoomed', zoomed);
     el.innerHTML =
       '<svg width="100%" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" role="img" ' +
-      'aria-label="Ring width trace, ' + session.length + ' series, ' + n + ' rings">' +
+      'aria-label="Ring width trace, ' + session.length + ' series, ' + n + ' rings' +
+      (zoomed ? ', showing ' + unit + lo1 + ' to ' + hi1 : '') + '">' +
+      // The lines run past the axis once the view is zoomed; they are cut off at
+      // the plot edge rather than allowed over the width labels.
+      '<defs><clipPath id="vroTraceClip"><rect x="' + padL + '" y="0" width="' +
+      (w - padL) + '" height="' + (h - padB) + '"/></clipPath></defs>' +
       meanLine +
+      '<g clip-path="url(#vroTraceClip)">' +
       session.map(function (e, i) { return i === active ? '' : line(all[i], i); }).join('') +
-      line(vals, active) + dots + legend +
+      line(vals, active) + dots +
+      '</g>' + legend + zoomMark +
       '<text x="2" y="' + (padT + 8) + '" font-size="9" fill="#666">' + top.toFixed(2) + ' mm</text>' +
       '<text x="2" y="' + (h - padB + 6) + '" font-size="9" fill="#666">0</text>' +
-      '<text x="' + padL + '" y="' + (h - 2) + '" font-size="9" fill="#666">' + unit + '1</text>' +
-      '<text x="' + w + '" y="' + (h - 2) + '" font-size="9" fill="#666" text-anchor="end">' + unit + n + '</text>' +
+      '<text x="' + padL + '" y="' + (h - 2) + '" font-size="9" fill="#666">' + unit + lo1 + '</text>' +
+      // Held 3px in from the viewBox edge: anchored at w the last digit is cut
+      // off by the plot's own border.
+      '<text x="' + (w - 3) + '" y="' + (h - 2) + '" font-size="9" fill="#666" text-anchor="end">' + unit + hi1 + '</text>' +
       // Last, so it draws over the lines and the legend rather than under them.
       cursorMarkup(padT, h - padB) +
       '</svg>';
@@ -1465,7 +1555,8 @@
     // What the pointer maths and the cursor need, kept from the paint that drew
     // the axes they belong to — a stale mapping would put the cursor on the
     // wrong ring rather than fail visibly.
-    traceGeom = { n: n, w: w, h: h, padL: padL, padT: padT, padB: padB, px: px, py: py, vals: rowVals,
+    traceGeom = { n: n, w: w, h: h, padL: padL, padT: padT, padB: padB, px: px, py: py,
+      pxInv: pxInv, v0: v0, v1: v1, zoomed: zoomed, vals: rowVals,
       off: off[active], len: vals.length };
     paintCursor();
   }
@@ -1504,7 +1595,10 @@
 
     var g = document.getElementById('vroCursor');
     if (!g || !traceGeom) return;
-    if (r == null || r < 0 || r >= traceGeom.n) { g.setAttribute('display', 'none'); return; }
+    // Outside the plot's own bounds, or panned off the edge of a zoomed view,
+    // there is nothing for the cursor to stand on.
+    if (r == null || r < 0 || r >= traceGeom.n ||
+        r < traceGeom.v0 - 0.5 || r > traceGeom.v1 + 0.5) { g.setAttribute('display', 'none'); return; }
     g.removeAttribute('display');
 
     var c = traceColor(active), x = traceGeom.px(r);
@@ -1562,15 +1656,59 @@
   // coordinates and stretched to the box, so the x has to come back through
   // that scale before it means anything in ring numbers.
   function ringAtX(clientX) {
+    var r = rowAtX(clientX);
+    if (r == null) return null;
+    return Math.max(0, Math.min(traceGeom.n - 1, Math.round(r)));
+  }
+
+  // The same thing unrounded — what zooming needs, so that the ring under the
+  // pointer is still under it afterwards.
+  function rowAtX(clientX) {
     var svg = $('vroTrace').querySelector('svg');
     if (!svg || !traceGeom || !traceGeom.n) return null;
     var box = svg.getBoundingClientRect();
     if (!box.width) return null;
-    var g = traceGeom;
-    if (g.n === 1) return 0;
-    var x = (clientX - box.left) * (g.w / box.width);
-    var i = Math.round((x - g.padL) * (g.n - 1) / (g.w - g.padL - 4));
-    return Math.max(0, Math.min(g.n - 1, i));
+    if (traceGeom.n === 1) return 0;
+    return traceGeom.pxInv((clientX - box.left) * (traceGeom.w / box.width));
+  }
+
+  // ---- zooming the ring axis -----------------------------------------------
+  // At 400 rings across 600 pixels a ring is under two pixels wide, and a
+  // suspect one cannot be looked at. The wheel zooms about the pointer, a drag
+  // pans, a double-click goes back to the whole core. Only the trace repaints:
+  // the table and the readouts do not depend on the view.
+  function zoomTrace(atRow, factor) {
+    if (!traceGeom || traceGeom.n < 3) return;
+    var full = traceGeom.n - 1;
+    var at = Math.max(traceGeom.v0, Math.min(traceGeom.v1, atRow));
+    var lo = at - (at - traceGeom.v0) * factor;
+    var hi = at + (traceGeom.v1 - at) * factor;
+    if (hi - lo >= full) { resetTraceZoom(); return; }
+    var minSpan = Math.min(TRACE_MIN_SPAN, full);
+    if (hi - lo < minSpan) {
+      // Hold the pointer's ring where it is rather than re-centring on it.
+      var frac = (at - lo) / (hi - lo);
+      lo = at - frac * minSpan;
+      hi = lo + minSpan;
+    }
+    setTraceWindow(lo, hi - lo, full);
+  }
+
+  function setTraceWindow(lo, span, full) {
+    if (lo + span > full) lo = full - span;
+    if (lo < 0) lo = 0;
+    traceView = { lo: lo, hi: lo + span };
+    traceViewAtEnd = lo + span >= full - 1e-6;
+    traceFollow = rowOf(selected);   // the view was moved on purpose; do not undo it
+    renderTrace();
+  }
+
+  function resetTraceZoom() {
+    if (!traceView) return;
+    traceView = null;
+    traceViewAtEnd = false;
+    traceFollow = rowOf(selected);
+    renderTrace();
   }
 
   // Move the cursor from one view or the other. `from` is remembered so that
@@ -1698,18 +1836,68 @@
     // The same tie, read the other way: the trace is a picture of the table, so
     // a ring picked out on it lights its row, and a click selects it.
     $('vroTrace').addEventListener('mousemove', function (ev) {
+      if (tracePan && tracePan.moved) return;   // a pan is not a hover
       setHover(ringAtX(ev.clientX), 'plot');
     });
     $('vroTrace').addEventListener('mouseleave', function () {
       if (hoverFrom === 'plot') setHover(null, 'plot');
     });
     $('vroTrace').addEventListener('click', function (ev) {
+      // The drag that just ended moved the view, not the selection.
+      if (tracePanned) return;
       var r = ringAtX(ev.clientX);
       // The trace runs to the longest series in the session; the active one may
       // be shorter, and only its own rings can be selected for editing.
       if (r == null || !series.length) return;
       selected = ringOf(r);
       render();
+    });
+
+    // Wheel to zoom the ring axis, drag to pan a zoomed one, double-click to go
+    // back to the whole core. The width axis is deliberately left alone.
+    $('vroTrace').addEventListener('wheel', function (ev) {
+      if (!traceGeom || traceGeom.n < 3) return;
+      var at = rowAtX(ev.clientX);
+      if (at == null) return;
+      var d = ev.deltaY || ev.deltaX;
+      if (!d) return;
+      ev.preventDefault();          // the page does not scroll under the pointer
+      zoomTrace(at, d < 0 ? 1 / 1.25 : 1.25);
+    }, { passive: false });
+
+    $('vroTrace').addEventListener('mousedown', function (ev) {
+      // Cleared here rather than by the click, so a drag that ends off the plot
+      // — where no click follows — cannot swallow the next one.
+      tracePanned = false;
+      if (ev.button !== 0 || !traceGeom || !traceGeom.zoomed) return;
+      var svg = $('vroTrace').querySelector('svg');
+      var box = svg && svg.getBoundingClientRect();
+      if (!box || !box.width) return;
+      // Rings per client pixel, so the ring grabbed stays under the pointer.
+      var plotPx = (traceGeom.w - traceGeom.padL - 4) / traceGeom.w * box.width;
+      tracePan = { x: ev.clientX, lo: traceGeom.v0, span: traceGeom.v1 - traceGeom.v0,
+        per: (traceGeom.v1 - traceGeom.v0) / plotPx, moved: false, full: traceGeom.n - 1 };
+      ev.preventDefault();          // a drag over an SVG otherwise starts a selection
+    });
+
+    $('vroTrace').addEventListener('dblclick', function (ev) {
+      ev.preventDefault();
+      resetTraceZoom();
+    });
+
+    // On the document, so a drag that runs off the plot keeps panning and still
+    // ends when the button is let go somewhere else.
+    document.addEventListener('mousemove', function (ev) {
+      if (!tracePan) return;
+      var dx = ev.clientX - tracePan.x;
+      if (!tracePan.moved && Math.abs(dx) < 4) return;   // a click is not a drag
+      tracePan.moved = true;
+      setTraceWindow(tracePan.lo - dx * tracePan.per, tracePan.span, tracePan.full);
+    });
+    document.addEventListener('mouseup', function () {
+      if (!tracePan) return;
+      tracePanned = tracePan.moved;   // read by the click that follows, cleared by the next press
+      tracePan = null;
     });
 
     $('vroTable').addEventListener('click', function (ev) {
