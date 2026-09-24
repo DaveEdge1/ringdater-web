@@ -15,6 +15,7 @@
 const V = require('../src/measure/vro.js');
 const { createMeasureSeries, restoreMeasureSeries, BARK_TO_PITH } = require('../src/measure/series.js');
 const { writeRwl, readRWL } = require('../src/io/load.js');
+const { formatCal } = require('../src/io/year.js');
 
 let allPass = true;
 function check(name, cond, detail) {
@@ -387,6 +388,127 @@ check('declines to guess from one reading',
   check('...and a bad position becomes null', junk.state().rings[1].position === null);
   check('an empty restore is an empty series', restoreMeasureSeries().length === 0 &&
     restoreMeasureSeries({}).id === 'NEW1');
+})();
+
+// ---- dating: one pinned ring dates the series ------------------------------
+// Crossdating is not the only way a ring gets a year. A core cut from a living
+// tree has a known outermost year before the first press; a signature year read
+// under the microscope dates the middle of a series just as well. Pinning ONE
+// ring fixes every other one, because the rings either side of it are the years
+// either side of it — and which WAY they run is the direction being measured.
+(function () {
+  // The commonest case: a live-collected core measured bark inward, with the
+  // ring under the bark pinned to the collection year at the first press.
+  const b = createMeasureSeries({ id: 'LIVE1', mode: V.INCREMENTAL, direction: BARK_TO_PITH });
+  [1200, 900, 1100, 800, 1000].forEach(w => b.addReading(w));
+  check('a fresh series is undated', !b.isDated() && b.yearAt(0) === null &&
+    b.span() === null && b.toDatedFrame() === null);
+  check('bark-to-pith: the first press IS the youngest ring',
+    b.youngestRing() === 0 && b.oldestRing() === 4);
+  b.setDate(b.youngestRing(), 2025);
+  check('dating the youngest ring runs the years back down the table',
+    JSON.stringify(b.yearsMeasured()) === '[2025,2024,2023,2022,2021]',
+    JSON.stringify(b.yearsMeasured()));
+  check('...and oldest-first they ascend, beside orderedWidthsMm',
+    JSON.stringify(b.orderedYears()) === '[2021,2022,2023,2024,2025]',
+    JSON.stringify(b.orderedYears()));
+  check('...and the span is the two ends of the core',
+    JSON.stringify(b.span()) === '{"first":2021,"last":2025}', JSON.stringify(b.span()));
+  // The anchor is an affine map that never mentions the length of the series, so
+  // rings measured after the pin date themselves as the stage works inward.
+  b.addReading(700);
+  check('rings measured after the pin date themselves',
+    b.yearAt(5) === 2020 && b.span().first === 2020, JSON.stringify(b.span()));
+  check('the dated Frame is a real year axis, oldest year first',
+    JSON.stringify(b.toDatedFrame().names) === '["year","LIVE1"]' &&
+    b.toDatedFrame().cols[0][0] === 2020 &&
+    Math.abs(b.toDatedFrame().cols[1][0] - 0.7) < 1e-9,
+    JSON.stringify(b.toDatedFrame().cols[0]));
+  check('...while toFrame stays the undated ring index the pool takes',
+    JSON.stringify(b.toFrame().names) === '["ring","LIVE1"]' && b.toFrame().cols[0][0] === 1);
+
+  // A signature year recognised mid-core dates a series measured from the pith
+  // before the stage ever reaches the bark.
+  const sig = createMeasureSeries({ id: 'SIG1', mode: V.INCREMENTAL });
+  [1000, 1000, 1000, 1000, 1000, 1000, 1000].forEach(w => sig.addReading(w));
+  sig.setDate(3, 1783);                      // the fourth ring measured is the marker year
+  check('pith-to-bark: the years run forward down the table',
+    JSON.stringify(sig.yearsMeasured()) === '[1780,1781,1782,1783,1784,1785,1786]',
+    JSON.stringify(sig.yearsMeasured()));
+  check('...and a mid-series pin needs no end of the core at all',
+    sig.span().first === 1780 && sig.span().last === 1786);
+  // Turning the series round turns the years round the pinned ring: the pin is
+  // the ring it was read from either way.
+  sig.direction = BARK_TO_PITH;
+  check('changing the direction turns the years about the pin, not off it',
+    sig.isDated() && sig.yearAt(3) === 1783 && sig.yearAt(0) === 1786,
+    JSON.stringify(sig.yearsMeasured()));
+  sig.direction = 'pith_to_bark';
+
+  // The anchor names a RING, not a slot: inserting the ring that was missed must
+  // leave the marker year on the wood it was read from.
+  sig.insert(1, 500, 'missed');
+  check('a ring inserted before the pin carries the pin along with it',
+    sig.yearAt(4) === 1783 && sig.state().dating.ring === 4, JSON.stringify(sig.state().dating));
+  sig.remove(1);
+  check('...and removing it again puts the pin back',
+    sig.yearAt(3) === 1783 && sig.state().dating.ring === 3, JSON.stringify(sig.state().dating));
+  sig.insert(6, 400);
+  check('a ring inserted after the pin leaves it alone',
+    sig.yearAt(3) === 1783 && sig.state().dating.ring === 3, JSON.stringify(sig.state().dating));
+
+  // Deleting the pinned ring itself leaves the year on nothing. Sliding it onto
+  // the neighbour would shift the whole series by a year without saying so.
+  const del = createMeasureSeries({ id: 'DEL1', mode: V.INCREMENTAL });
+  [1000, 1000, 1000].forEach(w => del.addReading(w));
+  del.setDate(1, 1900);
+  del.remove(1);
+  check('deleting the pinned ring drops the dating rather than shifting it',
+    !del.isDated() && del.yearAt(0) === null);
+  check('...and undo brings the ring and its year back together',
+    del.undo() && del.isDated() && del.yearAt(1) === 1900, JSON.stringify(del.state().dating));
+  check('undo also undoes the act of dating itself',
+    del.clearDate() && !del.isDated() && del.undo() && del.yearAt(1) === 1900);
+  check('clearing an undated series is a no-op, not a history entry',
+    createMeasureSeries({ id: 'X' }).clearDate() === false);
+  check('a year cannot be pinned to a ring that is not there',
+    (function () { try { del.setDate(99, 1900); return false; } catch (e) { return true; } })());
+
+  // BC years: the internal axis is astronomical (contiguous, 0 = 1 BC), which is
+  // what keeps a series that crosses the boundary contiguous too.
+  const bc = createMeasureSeries({ id: 'BC1', mode: V.INCREMENTAL });
+  [1000, 1000, 1000, 1000].forEach(w => bc.addReading(w));
+  bc.setDate(0, -2);                          // 3 BC
+  check('a series crossing the BC/AD boundary stays contiguous',
+    JSON.stringify(bc.orderedYears()) === '[-2,-1,0,1]' &&
+    formatCal(bc.orderedYears()[0]) === '3 BC' && formatCal(bc.orderedYears()[3]) === '1 AD',
+    JSON.stringify(bc.orderedYears().map(formatCal)));
+
+  // The dated Frame is the shape writeRwl already takes, so a dated sitting
+  // round-trips through Tucson under the R-validated writer.
+  const back = readRWL(writeRwl(b.toDatedFrame(), { precision: 0.001 }), { fileName: 'x.rwl' });
+  check('a dated series round-trips through .rwl on its own years',
+    back.cols[0][0] === 2020 && back.cols[0][back.cols[0].length - 1] === 2025 &&
+    eqArr(back.cols[1], b.orderedWidthsMm(), 1e-9),
+    JSON.stringify(back.cols[0]));
+
+  // The dating is part of the core, so it has to survive the autosave with it.
+  const rest = restoreMeasureSeries(JSON.parse(JSON.stringify(b.state())));
+  check('the dating survives the autosave round trip',
+    JSON.stringify(rest.state().dating) === JSON.stringify(b.state().dating) &&
+    JSON.stringify(rest.orderedYears()) === JSON.stringify(b.orderedYears()),
+    JSON.stringify(rest.state().dating));
+  // A year on no ring dates nothing: an anchor pointing past the end of the
+  // rings it came with is dropped rather than carried.
+  check('a corrupt anchor is dropped, not carried',
+    !restoreMeasureSeries({ id: 'Z', rings: [{ width: 1000 }], dating: { ring: 7, year: 2000 } }).isDated() &&
+    !restoreMeasureSeries({ id: 'Z', rings: [{ width: 1000 }], dating: { ring: 0, year: 'soon' } }).isDated());
+  // Somebody else's rings: whatever year was pinned belonged to the series that
+  // has just been replaced.
+  const ld = createMeasureSeries({ id: 'LD1', mode: V.INCREMENTAL });
+  ld.addReading(1000); ld.setDate(0, 1990);
+  ld.loadWidthsMm([1.0, 1.1, 1.2]);
+  check('loading a different series drops the dating with the rings', !ld.isDated());
 })();
 
 console.log(allPass ? '\nALL PASS' : '\nFAILURES');

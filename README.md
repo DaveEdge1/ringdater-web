@@ -371,9 +371,41 @@ ring is ever pushed off the top, and **Reset** puts everything back on ring 1. T
 alignment of the view and nothing else — no width is changed, and what a save or an add to
 the pool writes is exactly what was measured. Crossdating still works out its own lags.
 
-Series arrive **undated** and indexed by ring number — crossdating is what assigns calendar
-years. A core measured bark-to-pith is reversed to oldest-first on the way out, since every
-downstream routine assumes a series runs oldest to youngest.
+**Dating a series at the stage.** Crossdating is not the only way a ring gets a year. A core
+cut from a living tree has a known outermost year before the first press, and a signature
+year recognised under the microscope dates the middle of a series just as well — so the
+**Date** row pins **one** ring to **one** calendar year, and every other ring in that series
+follows from it, because the rings either side of it are the years either side of it. Two
+pins would be worth no more than one and could only disagree, so there is exactly one.
+
+Pick the ring by the picker: the **youngest ring**, the **oldest ring**, or the **selected
+ring** (which names the ring it would actually pin, so the choice is made in front of you).
+Which end is the youngest is the direction the core is being measured in — for the commonest
+case of all, a live-collected core measured bark inward, the youngest ring *is* the first
+press, so the year goes on before the sitting properly starts and every ring after it dates
+itself as it arrives. Negative years are BC, counted the way the rest of the app counts them:
+without a year zero, so `0` is 1 BC.
+
+A dated series is read in years rather than ring numbers: the ring table grows a **Year**
+column, the trace labels its axis in years, and the cursor reads the year out first with the
+ring number kept beside it — the buttons still count in rings. The pin is a statement about
+the wood, not a view setting, so it is undone by `Backspace` like any other edit, follows its
+ring through an insert or a delete, and comes back with the sitting after a reload. Deleting
+the pinned ring itself clears the dating rather than sliding it onto the neighbour, which
+would shift the whole series by a year without saying so.
+
+**Saving carries the years.** Once *every* series in the sitting is dated, `.rwl` and `.csv`
+are written on a real calendar-year axis — the union of their spans, each on its own years —
+which is what a dated multi-series Tucson file is. Anything less and the file keeps the ring
+index and says why: half a year axis is not one, and the undated series would have to be
+given invented years to sit on it. **Add to pool & crossdate** is unchanged, because the pool
+is indexed by ring by construction: your years stay here and in any file you save, and the
+crossdate is then an independent check on them.
+
+Series otherwise arrive **undated** and indexed by ring number — crossdating is what assigns
+calendar years. A core measured bark-to-pith is reversed to oldest-first on the way out,
+since every downstream routine assumes a series runs oldest to youngest, and a dated file
+likewise runs oldest year first.
 
 The protocol and series logic live in `src/measure/` and are covered by
 `test/measure_test.js` with no hardware attached; `web/measure.js` is the browser-only

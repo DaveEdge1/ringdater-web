@@ -444,6 +444,126 @@ async function main() {
     check('Discard removes only the series being measured',
       sess.length === 1 && sess[0].id === 'NEW2' && sess[0].rings === 12, JSON.stringify(sess));
 
+    // ---- dating a series by hand -------------------------------------------
+    // Crossdating is not the only way a ring gets a year. A core cut from a
+    // living tree has a known outermost year before the first press, and a
+    // signature year read under the microscope dates the middle of a series just
+    // as well. Pinning ONE ring dates every other one, because the rings either
+    // side of it are the years either side of it.
+    const cellAt = (r, c) => `(function () {
+      var td = document.querySelectorAll('#vroTable tbody tr[data-i="${r}"] td')[${c}];
+      return td ? td.textContent : 'no cell'; })()`;
+    const axisLeft = `document.querySelector('#vroTrace svg text:nth-last-of-type(2)').textContent`;
+    const yearCols = `document.querySelectorAll('#vroTable thead th.yearcol').length`;
+    const assign = (which, year) => `(function () {
+      var pick = document.getElementById('vroDateRing');
+      pick.value = '${which}';
+      pick.dispatchEvent(new Event('change', { bubbles: true }));
+      document.getElementById('vroDateYear').value = '${year}';
+      document.getElementById('vroDateSet').click();
+      return 1; })()`;
+
+    check('the dating row is offered as soon as there is a ring to pin',
+      (await js(`document.getElementById('vroDateRow').style.display`)) !== 'none' &&
+      (await js(`document.getElementById('vroDateYear').value`)) === String(new Date().getFullYear()),
+      await js(`document.getElementById('vroDateYear').value`));
+    check('an undated series says so, and carries no year column at all',
+      (await js(yearCols)) === 0 &&
+      (await js(`document.getElementById('vroDateNote').textContent`)).indexOf('undated') === 0,
+      await js(`document.getElementById('vroDateNote').textContent`));
+
+    // The live-collected core: the year of the outermost ring is known before
+    // the sitting starts, and pinning it dates all twelve.
+    await js(assign('young', 2025));
+    await sleep(200);
+    check('pinning the youngest ring dates every other one',
+      (await js(yearCols)) === 1 &&
+      (await js(cellAt(11, 1))) === '2025' && (await js(cellAt(0, 1))) === '2014',
+      await js(cellAt(0, 1)) + ' … ' + await js(cellAt(11, 1)));
+    check('...and the trace axis is said in years rather than ring numbers',
+      (await js(axisLeft)) === '2014', await js(axisLeft));
+    check('...and the cursor reads the year first, keeping the ring beside it',
+      (await js(`document.querySelector('#vroTable tbody tr[data-i="5"]').dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); document.querySelector('#vroCursor .cur-text').textContent`)).indexOf('2019 · ring 6 · ') === 0,
+      await js(`document.querySelector('#vroCursor .cur-text').textContent`));
+    await js(`document.getElementById('vroTableWrap')
+      .dispatchEvent(new MouseEvent('mouseleave', { bubbles: false })); 1`);
+    // A file written from a dated sitting carries the years, not the ring index.
+    check('a dated sitting is saved on a real year axis, oldest year first',
+      (await js(`window.MeasureUI.saveFrame().names[0]`)) === 'year' &&
+      (await js(`JSON.stringify(window.MeasureUI.saveFrame().cols[0].slice(0, 2))`)) === '[2014,2015]',
+      await js(`JSON.stringify(window.MeasureUI.saveFrame().names)`));
+
+    // A signature year recognised mid-core pins from the middle — how a series
+    // measured from the pith is dated before the stage reaches the bark.
+    await js(`document.querySelector('#vroTable tbody tr[data-i="3"] td[data-s="0"]').click(); 1`);
+    await sleep(200);
+    check('the picker names the ring it would actually pin',
+      (await js(`document.querySelector('#vroDateRing option[value="sel"]').textContent`)) ===
+        'selected ring (ring 4)',
+      await js(`document.querySelector('#vroDateRing option[value="sel"]').textContent`));
+    await js(assign('sel', 1783));
+    await sleep(200);
+    check('a signature year in the middle dates the series either side of it',
+      (await js(cellAt(3, 1))) === '1783' && (await js(cellAt(0, 1))) === '1780' &&
+      (await js(cellAt(11, 1))) === '1791',
+      await js(cellAt(0, 1)) + ' … ' + await js(cellAt(11, 1)));
+
+    // Which end is "youngest" is the direction the core is being measured in: a
+    // core measured bark inward has its youngest ring on the FIRST row.
+    // A core measured bark inward comes off the stage YOUNGEST ring first, while
+    // everything downstream — the pool, and so the crossdate — assumes oldest
+    // first. The reversal is series.orderedWidthsMm()'s job and is unit-tested,
+    // but what reaches the pool is measure.js's sessionFrame(); this pins the
+    // whole path, because a series handed over backwards would be crossdated
+    // backwards and nothing would say so.
+    const handedOver = `(function () {
+      var table = Array.from(document.querySelectorAll('#vroTable tbody tr td[data-s="0"]'))
+        .map(function (td) { return Number(td.textContent); });
+      var col = window.MeasureUI.sessionFrame().cols[1];
+      return JSON.stringify({ table: table, col: col }); })()`;
+
+    const setDir = (d) => `(function () { var s = document.getElementById('vroDir');
+      s.value = '${d}'; s.dispatchEvent(new Event('change', { bubbles: true })); return 1; })()`;
+    await js(setDir('bark_to_pith'));
+    await sleep(150);
+    await js(assign('young', 2025));
+    await sleep(200);
+    check('measured bark inward, the youngest ring is the first row measured',
+      (await js(cellAt(0, 1))) === '2025' && (await js(cellAt(11, 1))) === '2014',
+      await js(cellAt(0, 1)) + ' … ' + await js(cellAt(11, 1)));
+    check('...and the file still runs oldest year first, as every file does',
+      (await js(`JSON.stringify(window.MeasureUI.saveFrame().cols[0].slice(0, 2))`)) === '[2014,2015]',
+      await js(`JSON.stringify(window.MeasureUI.saveFrame().cols[0])`));
+    check('...and what goes to the pool is the table reversed, oldest ring first',
+      (function (r) { return JSON.stringify(r.col) === JSON.stringify(r.table.slice().reverse()) &&
+        JSON.stringify(r.col) !== JSON.stringify(r.table); })(JSON.parse(await js(handedOver))),
+      await js(handedOver));
+    await js(setDir('pith_to_bark'));
+    await sleep(150);
+    check('...while measured pith outward it is the table as it stands',
+      (function (r) { return JSON.stringify(r.col) === JSON.stringify(r.table); })(
+        JSON.parse(await js(handedOver))),
+      await js(handedOver));
+    await js(assign('young', 2025));
+    await sleep(200);
+
+    check('Clear puts the series back to ring numbers',
+      (await js(`document.getElementById('vroDateClear').click(); ${yearCols}`)) === 0 &&
+      (await js(axisLeft)) === 'ring 1' &&
+      (await js(`window.MeasureUI.saveFrame().names[0]`)) === 'ring',
+      await js(axisLeft));
+    check('...and a year is undone like any other edit',
+      (await js(`document.getElementById('vroUndo').click(); ${yearCols}`)) === 1 &&
+      (await js(cellAt(11, 1))) === '2025',
+      await js(cellAt(11, 1)));
+    // Leave the sitting undated for the rest of the suite.
+    await js(`document.getElementById('vroDateClear').click(); 1`);
+    await sleep(200);
+    check('the table goes back to ring numbers alone',
+      (await js(yearCols)) === 0 &&
+      (await js(`document.querySelectorAll('#vroTable thead th').length`)) === 2,
+      await js(`document.querySelectorAll('#vroTable thead th').length`));
+
     // ---- loading an existing series to amend ------------------------------
     // Half of measuring is finishing a core that was put down, or fixing a ring
     // that crossdating showed to be wrong. The path that matters is the one

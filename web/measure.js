@@ -281,6 +281,75 @@
     render();
   }
 
+  // ---- dating --------------------------------------------------------------
+  // Crossdating is not the only way a ring gets a year. A core cut from a living
+  // tree has a known outermost year before the first press, and a signature year
+  // recognised under the microscope dates the middle of a series just as well —
+  // so one ring can be pinned to one calendar year, and the rest of that series
+  // follows from it (src/measure/series.js holds the anchor and the arithmetic).
+  //
+  // Dating is PER SERIES, like the direction it was measured in: a sitting can
+  // hold a dated radius beside one still being worked out.
+
+  // Years are internal astronomical integers — contiguous across the BC/AD
+  // boundary, where 0 is 1 BC. AD years are shown as the bare number everyone
+  // writes; anything at or below zero is spelled out, since "-450" on a table of
+  // ring widths reads as a width, not a year.
+  function yearText(y) {
+    return y == null ? '' : (y > 0 ? String(y) : RD.formatCal(y));
+  }
+  function spanText(sr) {
+    var sp = sr.span();
+    return sp ? yearText(sp.first) + '–' + yearText(sp.last) : '';
+  }
+  // A series' one-line description, with the years it claims if it has any.
+  function summaryOf(sr) {
+    var sp = spanText(sr);
+    return sr.summary() + (sp ? ' · ' + sp : '');
+  }
+
+  // Which ring of the ACTIVE series the picker is naming. 'youngest' and
+  // 'oldest' are resolved against the direction the core is being measured in,
+  // so "the youngest ring" is the first press of a bark-to-pith core and the
+  // last of a pith-to-bark one.
+  function dateRingIndex(which) {
+    if (!series.length) return null;
+    if (which === 'sel') return selected == null ? null : selected;
+    return which === 'old' ? series.oldestRing() : series.youngestRing();
+  }
+  // Which end of the core a ring is, if it is one — how the note names the pin.
+  function ringEndName(i) {
+    if (i === series.youngestRing()) return 'youngest';
+    if (i === series.oldestRing()) return 'oldest';
+    return null;
+  }
+  function thisYear() { return new Date().getFullYear(); }
+
+  function applyDate() {
+    if (!series.length) { setMsg('measureMsg', 'No rings measured yet.', 'err'); return; }
+    var i = dateRingIndex($('vroDateRing').value);
+    if (i == null) {
+      setMsg('measureMsg', 'No ring is selected — click one in the table, or date an end of the core.', 'err');
+      return;
+    }
+    var y = Math.round(Number($('vroDateYear').value));
+    if (!isFinite(y) || $('vroDateYear').value === '') {
+      setMsg('measureMsg', 'Enter the calendar year of that ring (a whole number; negative is BC).', 'err');
+      return;
+    }
+    series.setDate(i, y);
+    render();
+    var end = ringEndName(i);
+    setMsg('measureMsg', series.id + ': ring ' + (i + 1) + (end ? ' (the ' + end + ')' : '') +
+      ' is ' + yearText(y) + ', so the series runs ' + spanText(series) + '.', 'ok');
+  }
+
+  function clearDate() {
+    if (!series.clearDate()) return;
+    render();
+    setMsg('measureMsg', series.id + ' is back to ring numbers.', 'ok');
+  }
+
   // Make one series the one being measured and edited. The stage settings shown
   // belong to the series, not to the view — a specimen can hold a radius
   // measured pith-to-bark beside one measured the other way — so the controls
@@ -1068,6 +1137,46 @@
     return { names: names, cols: cols };
   }
 
+  // Every measured series is dated, so the sitting can be written on calendar
+  // years. Anything less and it cannot: half a year axis is not one, and the
+  // undated series would have to be given invented years to sit on it.
+  function allDated(entries) {
+    return entries.length > 0 && entries.every(function (e) { return e.series.isDated(); });
+  }
+
+  // The session on a shared YEAR axis: the union of every series' span, each
+  // column on its own years and null elsewhere. Same table the operator has been
+  // reading, indexed by the years they assigned rather than by row — and exactly
+  // the shape a dated multi-series .rwl holds. Null unless every series is dated.
+  function datedSessionFrame(entries) {
+    entries = entries || measured();
+    if (!allDated(entries)) return null;
+    var spans = entries.map(function (e) { return e.series.span(); });
+    var lo = spans.reduce(function (m, sp) { return Math.min(m, sp.first); }, Infinity);
+    var hi = spans.reduce(function (m, sp) { return Math.max(m, sp.last); }, -Infinity);
+    var years = []; for (var y = lo; y <= hi; y++) years.push(y);
+    var names = ['year'], cols = [years], used = [];
+    entries.forEach(function (e, k) {
+      // As in sessionFrame: two columns under one name break every by-name
+      // lookup downstream, so a duplicate is broken here.
+      var id = e.series.id, base = id, j = 1;
+      while (used.indexOf(id) >= 0) id = base + '_' + (++j);
+      used.push(id);
+      var col = new Array(years.length).fill(null);
+      var w = e.series.orderedWidthsMm();
+      for (var i = 0; i < w.length; i++) col[spans[k].first - lo + i] = w[i];
+      names.push(id); cols.push(col);
+    });
+    return { names: names, cols: cols };
+  }
+
+  // What a save writes: the dated table when the whole sitting is dated, the
+  // ring index otherwise.
+  function saveFrame(entries) {
+    entries = entries || measured();
+    return datedSessionFrame(entries) || sessionFrame(entries);
+  }
+
   function sessionOrWarn() {
     commitName();
     var frame = sessionFrame();
@@ -1136,8 +1245,10 @@
   // into it as its own column, which is what a .rwl is for and why re-measuring
   // a radius does not mean a second file.
   function save(kind) {
-    var frame = sessionOrWarn();
-    if (!frame) return;
+    if (!sessionOrWarn()) return;
+    var entries = measured();
+    var frame = saveFrame(entries);
+    var dated = frame.names[0] === 'year';
     var n = frame.names.length - 1;
     var held = n > 1 ? ' (' + n + ' series)' : '';
     var d, note = '';
@@ -1164,8 +1275,25 @@
     } else {
       d = { filename: frame.names[1] + '.csv', mime: 'text/csv', content: RD.writeCsv(frame) };
     }
+    // What the file says about dating, which is not something to be quiet about:
+    // a .rwl always looks dated, so a ring-index file has to say that its years
+    // are ring numbers, and a mixed sitting has to say why it stayed that way.
+    var undated = entries.filter(function (e) { return !e.series.isDated(); });
+    var dateNote;
+    if (dated) {
+      dateNote = ' Dated ' + yearText(frame.cols[0][0]) + '–' +
+        yearText(frame.cols[0][frame.cols[0].length - 1]) + '.';
+    } else if (undated.length < entries.length) {
+      dateNote = ' Written on the ring index, not calendar years: ' +
+        quoteList(undated.map(function (e) { return e.series.id; })) +
+        (undated.length === 1 ? ' is' : ' are') + ' not dated, and half a year axis is not one.';
+    } else {
+      dateNote = ' Undated — the first column is the ring number; ' +
+        'assign a year to one ring and the file carries calendar years.';
+    }
     window.AppUI.triggerDownload(d);
-    setMsg('measureMsg', 'Saved ' + d.filename + held + '.' + note, note ? 'warn' : 'ok');
+    var warn = !!note || (!dated && undated.length < entries.length);
+    setMsg('measureMsg', 'Saved ' + d.filename + held + '.' + note + dateNote, warn ? 'warn' : 'ok');
   }
 
   // The point of measuring inside RingdateR: the finished series goes straight
@@ -1204,7 +1332,16 @@
     if (added.length) parts.push('Added ' + quoteList(added));
     if (updated.length) parts.push((added.length ? 'updated ' : 'Updated ') + quoteList(updated) +
       ' in place');
-    setMsg('measureMsg', parts.join(', ') + '. Crossdating on the Explore tab.', 'ok');
+    // The pool is a ring index by construction, so a year assigned here does not
+    // travel with the series into it — and saying so beats letting the operator
+    // discover it in the results. The years stay on the Measure view, and in any
+    // file saved from it, and the crossdate is then a check on them.
+    var datedHere = measured().filter(function (e) { return e.series.isDated(); });
+    var keep = datedHere.length
+      ? ' The years you assigned stay here and in any file you save — the pool is ' +
+        'indexed by ring, so the crossdate is an independent check on them.'
+      : '';
+    setMsg('measureMsg', parts.join(', ') + '. Crossdating on the Explore tab.' + keep, 'ok');
     render();
 
     // ... and crossdate it, which is the other half of the button. The series
@@ -1225,13 +1362,14 @@
     $('vroLast').textContent = st.rings.length
       ? (st.rings[st.rings.length - 1].width / 1000).toFixed(3) + ' mm'
       : '—';
-    $('vroSummary').textContent = (session.length > 1 ? series.id + ' · ' : '') + series.summary();
+    $('vroSummary').textContent = (session.length > 1 ? series.id + ' · ' : '') + summaryOf(series);
     $('vroUndo').disabled = !st.canUndo;
     $('vroDiscard').disabled = session.length === 1 && !st.rings.length;
     $('measureControls').style.display = (reading || ringTotal()) ? '' : 'none';
     syncOrigin();
     syncRwlId();
     renderSeriesList();
+    renderDate();
     renderLag();
     renderTable();
     renderTrace();
@@ -1265,13 +1403,57 @@
       }).join(' · ');
   }
 
+  // The dating row: which ring carries the year you know, and what year that is.
+  // It appears as soon as there is a ring to pin — a live-collected core is
+  // dated at the first press, before there is anything else to see.
+  function renderDate() {
+    var row = $('vroDateRow');
+    if (!row) return;
+    if (!series.length) { row.style.display = 'none'; return; }
+    row.style.display = '';
+    $('vroDateWho').textContent = series.id;
+
+    // "The selected ring" names the ring it would actually pin, so the choice is
+    // made in front of the operator rather than a click later.
+    var pick = $('vroDateRing');
+    var selOpt = pick.querySelector('option[value="sel"]');
+    selOpt.textContent = selected == null ? 'selected ring' : 'selected ring (ring ' + (selected + 1) + ')';
+    selOpt.disabled = selected == null;
+    if (pick.value === 'sel' && selected == null) pick.value = 'young';
+
+    // The box reads back the year the named ring already has, so the row says
+    // what the series claims rather than what was last typed into it — and an
+    // undated series is offered this year, which is the year a living tree
+    // collected today was cut in. A box being typed into is left alone, as the
+    // alignment box is.
+    var box = $('vroDateYear');
+    if (box !== document.activeElement) {
+      var at = dateRingIndex(pick.value);
+      var y = at == null ? null : series.yearAt(at);
+      box.value = String(y == null ? thisYear() : y);
+    }
+
+    var st = series.state();
+    var note = $('vroDateNote');
+    if (st.dating) {
+      var end = ringEndName(st.dating.ring);
+      note.textContent = 'ring ' + (st.dating.ring + 1) + (end ? ' (' + end + ')' : '') + ' = ' +
+        yearText(st.dating.year) + ' · ' + series.id + ' runs ' + spanText(series) +
+        ' · rings after it are dated as they are measured';
+    } else {
+      note.textContent = 'undated — ' + series.id + ' is numbered 1 to ' + series.length +
+        '; pin one ring you know and the rest follow, or let crossdating assign the years';
+    }
+    $('vroDateClear').disabled = !st.dating;
+  }
+
   function renderSeriesList() {
     var wrap = $('vroSeriesList');
     if (session.length < 2) { wrap.style.display = 'none'; wrap.innerHTML = ''; return; }
     wrap.style.display = '';
     wrap.innerHTML = '<span class="hint">Measuring:</span> ' + session.map(function (e, i) {
       return '<button class="chip' + (i === active ? ' active' : '') + '" data-i="' + i + '"' +
-        ' title="' + escA(e.series.summary()) + '">' + esc(e.series.id) +
+        ' title="' + escA(summaryOf(e.series)) + '">' + esc(e.series.id) +
         ' <span class="n">' + e.series.length + '</span></button>';
     }).join('');
   }
@@ -1287,13 +1469,20 @@
     var off = offsets();
     var n = rowCount();
     var selRow = rowOf(selected);
+    // The year column belongs to the ACTIVE series alone. The rows are a shared
+    // index that each series meets at its own alignment lag, so one column of
+    // years can only ever be one series' years — and the one worth showing is
+    // the one being measured, whose column the pen marks.
+    var dated = series.isDated();
 
     $('vroTable').querySelector('thead').innerHTML = '<tr><th>Ring</th>' +
+      (dated ? '<th class="yearcol" title="Calendar years of ' + escA(series.id) +
+        ', the series being measured">Year</th>' : '') +
       session.map(function (e, i) {
         // A series that does not start on row 1 says so in its own heading —
         // the rows are the aligned index, not that series' ring numbers.
         return '<th' + (i === active ? ' class="col-active"' : '') +
-          ' title="' + escA(e.series.summary()) +
+          ' title="' + escA(summaryOf(e.series)) +
           (off[i] ? ' · starts at row ' + (off[i] + 1) : '') + '">' + esc(e.series.id) +
           (i === active ? ' <span class="pen" aria-label="being measured">✎</span>' : '') +
           (off[i] ? ' <span class="lagmark">+' + off[i] + '</span>' : '') +
@@ -1313,11 +1502,20 @@
           (ring.note ? ' title="' + escA(ring.note) + '"' : '') + '>' +
           (ring.width / 1000).toFixed(3) + '</td>';
       }
+      // Blank where the active series has no ring: the year of a row it does not
+      // reach is a real year, but nothing of this core grew in it.
+      var yearCell = '';
+      if (dated) {
+        var ry = r - off[active];
+        yearCell = '<td class="yearcol">' +
+          (ry >= 0 && ry < series.length ? esc(yearText(series.yearAt(ry))) : '') + '</td>';
+      }
       rows.push('<tr data-i="' + r + '"' + (r === selRow ? ' class="sel"' : '') + '>' +
-        '<td>' + (r + 1) + '</td>' + cells + '</tr>');
+        '<td>' + (r + 1) + '</td>' + yearCell + cells + '</tr>');
     }
     $('vroTable').querySelector('tbody').innerHTML = rows.join('') ||
-      '<tr><td colspan="' + (session.length + 1) + '" class="hint">No rings yet.</td></tr>';
+      '<tr><td colspan="' + (session.length + 1 + (dated ? 1 : 0)) +
+      '" class="hint">No rings yet.</td></tr>';
 
     // Hold the ring being worked on in view. That is always the selected row —
     // a ring that has just arrived off the wire is also the selected ring — so
@@ -1503,6 +1701,14 @@
     // Either way the cursor reads out the active series' own rings — see paintCursor.
     var unit = off.every(function (o) { return !o; }) ? 'ring ' : 'row ';
     var lo1 = Math.round(v0) + 1, hi1 = Math.round(v1) + 1;
+    // Once the active series is dated the axis is said in years instead: the
+    // same axis, in the units the operator is now working in. The years run on
+    // past the ends of that series, as the row index does.
+    var datedAxis = series.isDated();
+    function axisAt(row) {
+      return datedAxis ? yearText(series.yearAt(Math.round(row) - off[active]))
+        : unit + (Math.round(row) + 1);
+    }
 
     // A zoomed window looks exactly like a short core, so it says which it is: a
     // track along the foot of the plot showing where the visible stretch sits in
@@ -1522,8 +1728,11 @@
     }
     if (hint) {
       hint.textContent = zoomed
-        ? unit.charAt(0).toUpperCase() + unit.slice(1, -1) + 's ' + lo1 + '–' + hi1 + ' of ' + n +
-          '. Drag to pan, double-click for the whole core.'
+        ? (datedAxis
+          ? 'Years ' + axisAt(v0) + '–' + axisAt(v1) + ' of ' + n + ' rings. ' +
+            'Drag to pan, double-click for the whole core.'
+          : unit.charAt(0).toUpperCase() + unit.slice(1, -1) + 's ' + lo1 + '–' + hi1 + ' of ' + n +
+            '. Drag to pan, double-click for the whole core.')
         : TRACE_HINT;
       hint.classList.toggle('on', zoomed);
     }
@@ -1532,7 +1741,8 @@
     el.innerHTML =
       '<svg width="100%" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" role="img" ' +
       'aria-label="Ring width trace, ' + session.length + ' series, ' + n + ' rings' +
-      (zoomed ? ', showing ' + unit + lo1 + ' to ' + hi1 : '') + '">' +
+      (datedAxis ? ', ' + series.id + ' dated ' + spanText(series) : '') +
+      (zoomed ? ', showing ' + axisAt(v0) + ' to ' + axisAt(v1) : '') + '">' +
       // The lines run past the axis once the view is zoomed; they are cut off at
       // the plot edge rather than allowed over the width labels.
       '<defs><clipPath id="vroTraceClip"><rect x="' + padL + '" y="0" width="' +
@@ -1544,10 +1754,10 @@
       '</g>' + legend + zoomMark +
       '<text x="2" y="' + (padT + 8) + '" font-size="9" fill="#666">' + top.toFixed(2) + ' mm</text>' +
       '<text x="2" y="' + (h - padB + 6) + '" font-size="9" fill="#666">0</text>' +
-      '<text x="' + padL + '" y="' + (h - 2) + '" font-size="9" fill="#666">' + unit + lo1 + '</text>' +
+      '<text x="' + padL + '" y="' + (h - 2) + '" font-size="9" fill="#666">' + esc(axisAt(v0)) + '</text>' +
       // Held 3px in from the viewBox edge: anchored at w the last digit is cut
       // off by the plot's own border.
-      '<text x="' + (w - 3) + '" y="' + (h - 2) + '" font-size="9" fill="#666" text-anchor="end">' + unit + hi1 + '</text>' +
+      '<text x="' + (w - 3) + '" y="' + (h - 2) + '" font-size="9" fill="#666" text-anchor="end">' + esc(axisAt(v1)) + '</text>' +
       // Last, so it draws over the lines and the legend rather than under them.
       cursorMarkup(padT, h - padB) +
       '</svg>';
@@ -1636,7 +1846,12 @@
     // it while a lag is on, since the table beside the trace is numbered by row.
     var ring = r - traceGeom.off + 1;
     var out = ring < 1 || ring > traceGeom.len;
-    var label = (out ? '(ring ' + ring + ')' : 'ring ' + ring) +
+    // A dated series is read by year first: that is the name the operator now
+    // has for the ring, with the ring number kept beside it because the buttons
+    // and the table still count in rings.
+    var year = series.isDated() ? yearText(series.yearAt(r - traceGeom.off)) : '';
+    var label = (year ? year + ' · ' : '') +
+      (out ? '(ring ' + ring + ')' : 'ring ' + ring) +
       (traceGeom.off ? ' · row ' + (r + 1) : '') +
       (v == null ? '' : ' · ' + v.toFixed(3) + ' mm');
     var wide = label.length * 5.0 + 10;
@@ -1779,6 +1994,18 @@
     $('vroDelete').addEventListener('click', Actions.remove);
     $('vroNew').addEventListener('click', Actions.newSeries);
     $('vroDiscard').addEventListener('click', Actions.discard);
+    // Dating is deliberate — a year is a claim about the wood — so it waits for
+    // Assign rather than following the box as it is typed, and Enter in the box
+    // does the same thing as the button, since that is where the hands are.
+    $('vroDateSet').addEventListener('click', applyDate);
+    $('vroDateClear').addEventListener('click', clearDate);
+    $('vroDateYear').addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter') { ev.preventDefault(); applyDate(); }
+    });
+    // Changing which ring is named re-reads the year box from that ring, so the
+    // row always says what the series claims rather than what was last typed.
+    $('vroDateRing').addEventListener('change', renderDate);
+
     // Aligning is a thing done by eye, against the plot and the table: it has to
     // answer the arrows on the box (and a typed digit) at once, not on blur.
     $('vroLag').addEventListener('input', function () { setLag($('vroLag').value); });
@@ -1970,11 +2197,14 @@
     session: function () {
       return session.map(function (e, i) {
         return { id: e.series.id, rings: e.series.length, active: i === active,
-          lag: e.lag || 0, row: offsets()[i] };
+          lag: e.lag || 0, row: offsets()[i],
+          dating: e.series.state().dating, span: e.series.span() };
       });
     },
     activate: activate,
     sessionFrame: sessionFrame,
+    datedSessionFrame: datedSessionFrame,
+    saveFrame: saveFrame,
     saveNow: saveNow,
     startFresh: startFresh,
     savedSnapshot: function () {

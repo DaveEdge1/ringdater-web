@@ -359,11 +359,23 @@ details.series-meta .sm-wrap { max-height: 220px; overflow: auto; }
    only under the pointer, so stepping a ring at a time is the obvious move. */
 .lag-row input[type=number]::-webkit-inner-spin-button,
 .lag-row input[type=number]::-webkit-outer-spin-button { opacity: 1; height: 24px; }
+/* Selects default to the full width of their column; in a row that reads as a
+   sentence they take only the width of what they say. */
+.lag-row select { width: auto; max-width: 100%; padding: 4px 6px; }
 .lag-row .btn { padding: 3px 10px; font-size: 12px; }
 .lag-row .hint { margin: 0; flex: 1 1 160px; font-size: 11px; }
 /* How far a series has been slid, shown on its own column heading — the rows
    are the aligned index, not that series' ring numbers. */
 table.res th .lagmark { font-size: 10px; font-weight: 600; opacity: .75; }
+
+/* The calendar years of the series being measured, beside the ring numbers the
+   table is still counted in. Set apart by a rule and quieter than the widths,
+   which are what the eye is running down the row for. */
+#vroTable th.yearcol, #vroTable td.yearcol {
+   text-align: right; border-right: 1px solid var(--line); padding-right: 8px;
+   font-variant-numeric: tabular-nums;
+}
+#vroTable td.yearcol { color: var(--muted); }
 
 /* The column being measured, in a table that now holds one column per series.
    The measure table's own highlights are tinted with the ACTIVE series' trace

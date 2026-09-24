@@ -14,6 +14,24 @@ Then `git push --follow-tags`.
 ## [Unreleased]
 
 ### Added
+- **Dates can be assigned on the Measure page.** Crossdating was the only way a ring got a year, and
+  for the commonest sample of all that is backwards: a core cut from a living tree has a known
+  outermost year *before* the first press. The new **Date** row pins one ring to one calendar year —
+  the youngest ring, the oldest ring, or the selected ring — and every other ring in that series
+  follows from it. Which end is the youngest is the direction being measured, so a live-collected
+  core measured bark inward is dated at its first press and every ring after it dates itself as it
+  arrives; a signature year recognised mid-core pins from the middle, which is how a series measured
+  from the pith is dated before the stage reaches the bark.
+
+  A dated series is then read in years: a **Year** column in the ring table, years on the trace axis,
+  and the year first in the cursor's readout with the ring number beside it. The anchor is a
+  statement about the wood rather than a view setting — `Backspace` undoes it, it follows its ring
+  through an insert or a delete, it survives the autosave, and deleting the pinned ring clears the
+  dating rather than sliding it onto the neighbour and shifting the series by a year in silence.
+  With every series in the sitting dated, `.rwl` and `.csv` are written on a real calendar-year axis
+  (the union of their spans); anything less keeps the ring index and says why. The pool is indexed by
+  ring by construction, so **Add to pool & crossdate** is unchanged and the crossdate stays an
+  independent check on the years you assigned.
 - **The measuring trace zooms on the ring axis.** Past a couple of hundred rings each one is under
   two pixels wide, so a ring that looks wrong on the trace cannot actually be looked at. Scroll to
   zoom about the pointer, drag to pan, double-click to go back to the whole core; a track along the

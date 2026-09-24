@@ -593,6 +593,27 @@
             <div>
               <div id="vroSeriesList" class="series-chips" style="display:none"></div>
 
+              <!-- Pin one ring to one calendar year and the whole series is
+                   dated, because the rings either side of it are the years
+                   either side of it. The commonest pin is the outermost ring of
+                   a living tree; a signature year recognised mid-core does the
+                   same job from the middle. -->
+              <div id="vroDateRow" class="lag-row" style="display:none">
+                <label for="vroDateRing">Date <b id="vroDateWho"></b>'s</label>
+                <select id="vroDateRing"
+                        title="Which ring the year you know belongs to. The rest of the series follows from it.">
+                  <option value="young">youngest ring</option>
+                  <option value="old">oldest ring</option>
+                  <option value="sel">selected ring</option>
+                </select>
+                <label for="vroDateYear">as</label>
+                <input type="number" id="vroDateYear" step="1"
+                       title="The calendar year of that ring. Negative years are BC, counted without a year zero — 0 is 1 BC.">
+                <button class="btn" id="vroDateSet" title="Pin that ring to that year; every other ring in this series is dated from it">Assign</button>
+                <button class="btn ghost" id="vroDateClear" title="Go back to ring numbers for this series">Clear</button>
+                <span class="hint" id="vroDateNote"></span>
+              </div>
+
               <!-- Slide the series being measured against the others, so a
                    radius measured twice can be read ring for ring against the
                    first. Shown only once there is a second series to align to. -->
