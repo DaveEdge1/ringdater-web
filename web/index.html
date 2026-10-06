@@ -265,6 +265,28 @@
             </div>
           </div>
 
+          <!-- Where a year was assigned by hand — on the Measure page, or from a
+               dated chronology — the crossdate's answer and yours are laid side
+               by side. The run never sees the assigned year, so the two are
+               reached independently and their agreeing means something. -->
+          <div class="card" id="datingCheckCard" style="display:none">
+            <h2>Your dating, against the crossdate</h2>
+            <p class="hint">The crossdate ran without being told any of these years. Both placements
+               are shown with the statistics at each, and judged by Holmes' rule: another position
+               only matters if it correlates about twice as well as the one you dated
+               (Grissino-Mayer 2001, p.215).</p>
+            <div class="msg" id="dateCheckMsg"></div>
+            <div class="tablewrap"><table class="res" id="dateCheckTable">
+              <thead><tr>
+                <th>Series</th><th>Against</th><th>You dated it</th>
+                <th>r</th><th>p</th><th>n</th>
+                <th>Best position</th><th>r</th><th>p</th><th>n</th>
+                <th>Verdict</th>
+              </tr></thead>
+              <tbody></tbody>
+            </table></div>
+          </div>
+
           <div class="card" id="exploreResults" style="display:none">
             <h2>Crossdating results <span id="resModeBadge"></span></h2>
             <p class="hint">Best 3 lag matches per pair. Click a row to plot that pair below.</p>
@@ -636,6 +658,7 @@
                 <button class="btn ghost" id="vroDelete">Delete <kbd>Del</kbd></button>
                 <button class="btn ghost" id="vroNew" title="Park this series and start another beside it — both are saved into the same file">New series</button>
                 <button class="btn ghost" id="vroDiscard" title="Throw away the series being measured; the others are kept">Discard series</button>
+                <button class="btn ghost" id="vroFreshAll" title="Throw away the whole sitting — every series — and start over. Anything already saved to a file or added to the pool is not affected.">Discard all series</button>
               </div>
               <h3>Raw serial frames</h3>
               <pre id="vroRaw" aria-live="off"></pre>

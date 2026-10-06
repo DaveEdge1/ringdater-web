@@ -269,7 +269,10 @@ sitting keeps its own column in the ring table, on the same ring axis, so a seco
 measurement can be read against the first ring by ring; all of them are drawn on the trace,
 with the one being measured picked out. Click a name in the **Measuring:** row, or any cell
 in another series' column, to go back to it — the foot switch then continues *that* series.
-**Discard series** throws away only the one you are on. Saving writes them all into one
+**Discard series** throws away only the one you are on; **Discard all series** clears the whole
+sitting and starts over. The header's **Clear data** deliberately leaves the stage alone — it
+clears loaded data, results and the chronology session, not the rings you have measured, which
+exist nowhere else until you save them; it says so when it asks. Saving writes them all into one
 `.rwl` (or `.csv`), which is what a multi-series Tucson file is; **Add to pool & crossdate**
 puts the whole sitting in the pool, writing back over any series already linked to a pool
 entry rather than adding a copy, so pressing it twice changes nothing the second time.
@@ -367,16 +370,30 @@ a number box with its own arrows (or typed, or nudged with the arrow keys). The 
 the trace follow every step as it is made: the series slides down the shared ring index,
 its column heading says which row its rings now start on, and the rows it does not reach
 are struck through as gaps. A negative lag slides the *other* series down instead, so no
-ring is ever pushed off the top, and **Reset** puts everything back on ring 1. This is an
-alignment of the view and nothing else — no width is changed, and what a save or an add to
-the pool writes is exactly what was measured. Crossdating still works out its own lags.
+ring is ever pushed off the top, and **Reset** puts everything back on ring 1. No width is
+ever changed by it.
 
-**Dating a series at the stage.** Crossdating is not the only way a ring gets a year. A core
-cut from a living tree has a known outermost year before the first press, and a signature
-year recognised under the microscope dates the middle of a series just as well — so the
-**Date** row pins **one** ring to **one** calendar year, and every other ring in that series
-follows from it, because the rings either side of it are the years either side of it. Two
-pins would be worth no more than one and could only disagree, so there is exactly one.
+The alignment is something you determined, so it goes into the file: each series is written
+at the row it sits on, with the rows it does not reach left empty. The loader already reads
+those leading rows back as a series' lag, so the round trip that used to lose an alignment
+now keeps it. What goes into the **pool** is deliberately different — each series on its own
+ring index, neither aligned nor dated — because crossdating has to reach its own answer
+without being handed yours, or the two agreeing would mean nothing.
+
+**Dating at the stage: the row axis is the calendar.** Crossdating is not the only way a ring
+gets a year. A core cut from a living tree has a known outermost year before the first press,
+and a signature year recognised under the microscope dates the middle of a series just as
+well — so the **Date** row pins **one** ring to **one** calendar year.
+
+That pin does not date one series. It fixes the whole table, and every series reads its years
+off the row it sits on. A second radius aligned at lag 0 therefore carries the same years ring
+for ring, which is what aligning it *meant*; sliding it along re-dates it as it goes. The
+alignment and the dating are one statement, said two ways — and stating a year is the other
+way of saying it, so on an already-pinned sitting a year assigned to another series **moves
+that series into place** rather than arguing with the pin. There is exactly one pin in a
+sitting, so two of them can never disagree. Re-pinning the series that carries it re-dates
+everything together, nothing shifting on the table, which is what *"the collection year was
+two out"* means.
 
 Pick the ring by the picker: the **youngest ring**, the **oldest ring**, or the **selected
 ring** (which names the ring it would actually pin, so the choice is made in front of you).
@@ -386,26 +403,47 @@ press, so the year goes on before the sitting properly starts and every ring aft
 itself as it arrives. Negative years are BC, counted the way the rest of the app counts them:
 without a year zero, so `0` is 1 BC.
 
-A dated series is read in years rather than ring numbers: the ring table grows a **Year**
-column, the trace labels its axis in years, and the cursor reads the year out first with the
+A dated sitting is read in years rather than row numbers: the ring table grows a **Year**
+column that dates every column beside it, the trace labels its axis in years, the alignment
+row reads out what each series now spans, and the cursor reads the year out first with the
 ring number kept beside it — the buttons still count in rings. The pin is a statement about
 the wood, not a view setting, so it is undone by `Backspace` like any other edit, follows its
 ring through an insert or a delete, and comes back with the sitting after a reload. Deleting
 the pinned ring itself clears the dating rather than sliding it onto the neighbour, which
-would shift the whole series by a year without saying so.
+would shift everything by a year without saying so.
 
-**Saving carries the years.** Once *every* series in the sitting is dated, `.rwl` and `.csv`
-are written on a real calendar-year axis — the union of their spans, each on its own years —
-which is what a dated multi-series Tucson file is. Anything less and the file keeps the ring
-index and says why: half a year axis is not one, and the undated series would have to be
-given invented years to sit on it. **Add to pool & crossdate** is unchanged, because the pool
-is indexed by ring by construction: your years stay here and in any file you save, and the
-crossdate is then an independent check on them.
+**Saving carries the years.** A dated sitting is written to `.rwl` and `.csv` on a real
+calendar-year axis, each series on the years its alignment puts it on — which is what a dated
+multi-series Tucson file is. Undated, the same placement is written on the row index. Either
+way the file says which it is when it is saved, because a `.rwl` always *looks* dated.
 
-Series otherwise arrive **undated** and indexed by ring number — crossdating is what assigns
-calendar years. A core measured bark-to-pith is reversed to oldest-first on the way out,
-since every downstream routine assumes a series runs oldest to youngest, and a dated file
-likewise runs oldest year first.
+**What the years do downstream.** **Add to pool & crossdate** hands the pool each series on its
+own ring index, neither aligned nor dated — deliberately. The pool is an increment axis, and
+calendar years in its first column would move every series against every other and change
+what crossdating does; worse, feeding your dating into the run would make the two agree and
+the agreement would mean nothing. So the years travel *alongside* the widths, in the
+per-series metadata that already carries exactly these fields for TRiDaS imports (they show
+up in **series — details** on the Explore rail, and they are kept in a saved session).
+
+The Explore tab then reports the two answers side by side, in **Your dating, against the
+crossdate**. A crossdate lag is a statement about where two series sit relative to each other,
+so when both carry a first year the lag your dating implies is simply the difference between
+those years — and the run's own lead-lag grid already holds *r*, *p* and the overlap at every
+lag it scanned, that one included. No re-correlation, and nothing fed back.
+
+Both placements are shown with their statistics, because an offset alone settles nothing: it
+says the crossdate disagrees, not that it is right. The verdict is Holmes' own rule —
+Grissino-Mayer (2001) p.215, the same test `crossdateVerdict` uses to throw out COFECHA's
+false B flags: another position only unseats the one you dated if it correlates about **twice
+as well**. So *"+2, but no better"* leaves your dating standing, while *"r 0.24 against
+0.97"* does not, and the headline says which series is out and by how many years — either
+that many rings are missing from the measurement, or the year you assigned is wrong. A series
+the run never scored at your dating is flagged as unscored rather than condemned.
+
+Left unpinned, series arrive **undated** and indexed by ring number — crossdating is what
+assigns calendar years. A core measured bark-to-pith is reversed to oldest-first on the way
+out, since every downstream routine assumes a series runs oldest to youngest, and a dated
+file likewise runs oldest year first.
 
 The protocol and series logic live in `src/measure/` and are covered by
 `test/measure_test.js` with no hardware attached; `web/measure.js` is the browser-only

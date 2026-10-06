@@ -726,6 +726,110 @@
     return null;
   }
 
+  // The same lookup either way round. Columns are stored for one orientation
+  // only, and swapping the pair negates the lag: ring r of A pairs with ring
+  // (r - lag) of B, so reading it as (B, A) pairs ring r of B with ring
+  // (r + lag) of A, which is lag -lag.
+  function statsAtLagEither(master, s1, s2, lag) {
+    if (!master || !master.names) return null;
+    return statsAtLag(master, s1, s2, lag) || statsAtLag(master, s2, s1, -lag);
+  }
+
+  // ---- the dating you assigned, against the one the crossdate found ---------
+  // The crossdate runs BLIND. Nothing here feeds a known year back into it: the
+  // pool is a ring index by construction, and an assigned year rides alongside
+  // it in the per-series metadata. That is the whole point — two answers reached
+  // independently, laid side by side. Feeding one into the other would make them
+  // agree and the agreement would mean nothing.
+  //
+  // What the run produces is a LAG, and a lag is a statement about where two
+  // series sit relative to each other: shiftedOverlap (src/analysis/leadLag.js)
+  // pairs ring r of Series_1 with ring (r - lag) of Series_2. So when both
+  // series carry a first year, the lag their dating implies is just the
+  // difference between those first years — and the run's own masterLeadLag grid
+  // already holds R, p and the overlap at every lag it scanned, that one
+  // included. No re-correlation, no second pass.
+  //
+  // An offset on its own settles nothing: it says the crossdate disagrees, not
+  // that it is right. So BOTH placements are reported with their statistics and
+  // judged by Holmes' own rule — Grissino-Mayer (2001) p.215, the test
+  // crossdateVerdict already uses to throw out COFECHA's false B flags: an
+  // alternative position only matters if it correlates about twice as well as
+  // the dated one.
+  var DATING_RATIO = 2;
+
+  function datingVerdict(mine, best, offset) {
+    if (!offset) return 'agree';
+    if (!mine || bad(mine.R)) return 'unscored';
+    if (bad(best.r)) return 'holds';
+    // A dated position that correlates at or below zero is not a position the
+    // ratio can be taken against — anything positive beats it outright.
+    if (Number(mine.R) <= 0) return Number(best.r) > 0 ? 'differs' : 'unscored';
+    return Number(best.r) >= DATING_RATIO * Number(mine.R) ? 'differs' : 'holds';
+  }
+
+  // result + firstYearOf(name) -> { rows, summary } or null when nothing in the
+  // run has a year on both sides of a pair. Whole series only: a segment is a
+  // window of one, and its own placement is what diagnoseSegments is for.
+  function datingCheck(result, firstYearOf) {
+    if (!result || !result.crossDatRes || !result.masterLeadLag) return null;
+    var cd = result.crossDatRes;
+    var i1 = cd.names.indexOf('Series_1'), i2 = cd.names.indexOf('Series_2');
+    var iL = cd.names.indexOf('First_lag'), iR = cd.names.indexOf('First_R');
+    var iP = cd.names.indexOf('First_P'), iO = cd.names.indexOf('First_Overlap');
+    if (i1 < 0 || i2 < 0 || iL < 0) return null;
+    var isSeg = function (n) { return /@\d+-\d+$/.test(String(n)); };
+    var rows = [], seen = {};
+    for (var r = 0; r < cd.cols[i1].length; r++) {
+      var s1 = cd.cols[i1][r], s2 = cd.cols[i2][r];
+      if (bad(s1) || bad(s2) || s1 === s2) continue;      // header / separator rows
+      if (isSeg(s1) || isSeg(s2)) continue;
+      var key = s1 + '\u0000' + s2;
+      if (seen[key]) continue;                            // best-3 blocks repeat the pair
+      var y1 = firstYearOf(s1), y2 = firstYearOf(s2);
+      if (y1 == null || y2 == null) continue;
+      seen[key] = true;
+      var bestLag = Number(cd.cols[iL][r]);
+      if (!isFinite(bestLag)) continue;
+      var best = { lag: bestLag, r: cd.cols[iR][r], p: cd.cols[iP][r], overlap: cd.cols[iO][r] };
+      var yourLag = y2 - y1;
+      var mine = statsAtLagEither(result.masterLeadLag, s1, s2, yourLag);
+      var offset = bestLag - yourLag;
+      rows.push({
+        series1: s1, series2: s2, firstYear1: y1, firstYear2: y2,
+        yourLag: yourLag, offset: offset, scored: !!mine,
+        yours: mine ? { r: mine.R, p: mine.P, overlap: mine.Overlap } : null,
+        best: best, verdict: datingVerdict(mine, best, offset)
+      });
+    }
+    if (!rows.length) return null;
+    // Worst first: what needs looking at should not be below the fold.
+    var rank = { differs: 0, unscored: 1, holds: 2, agree: 3 };
+    rows.sort(function (a, b) {
+      return (rank[a.verdict] - rank[b.verdict]) || (Math.abs(b.offset) - Math.abs(a.offset));
+    });
+    var count = function (v) { return rows.filter(function (x) { return x.verdict === v; }).length; };
+    return {
+      rows: rows,
+      summary: {
+        n: rows.length, agree: count('agree'), holds: count('holds'),
+        differs: count('differs'), unscored: count('unscored'),
+        // Named ONCE each. In pairwise mode a mis-dated series disagrees with
+        // every partner it is compared against, and listing it once per pair
+        // would report one fault as several. Where the partners do not agree on
+        // how far out it is, that disagreement is itself the finding, so the
+        // offset is withheld rather than one of them picked.
+        off: rows.filter(function (x) { return x.verdict === 'differs'; })
+          .reduce(function (acc, x) {
+            var seen = acc.filter(function (o) { return o.series === x.series2; })[0];
+            if (!seen) acc.push({ series: x.series2, offset: x.offset, n: 1 });
+            else { seen.n++; if (seen.offset !== x.offset) seen.offset = null; }
+            return acc;
+          }, [])
+      }
+    };
+  }
+
   // segCross: crossDatRes rows holding (reference, segment) placements.
   // segments: kept-window metadata per series. Returns
   // { series: { lag, nSegs, minP, tier, members } } for every series whose
@@ -2303,6 +2407,7 @@
     slidingSegmentAnalysis: slidingSegmentAnalysis, ringTest: ringTest,
     diagnoseSegments: diagnoseSegments, fullSeriesLag: fullSeriesLag,
     CONSENSUS: CONSENSUS, consensusFromRows: consensusFromRows, statsAtLag: statsAtLag,
+    statsAtLagEither: statsAtLagEither, datingCheck: datingCheck, DATING_RATIO: DATING_RATIO,
     slidingSelectPairwise: slidingSelectPairwise, slidingSelectVsReference: slidingSelectVsReference,
     compositeChron: compositeChron,
     targetDetrend: targetDetrend, recommendTarget: recommendTarget,

@@ -14,6 +14,57 @@ Then `git push --follow-tags`.
 ## [Unreleased]
 
 ### Added
+- **The Explore tab reports your dating against the crossdate's.** A year assigned at the stage used
+  to stop at the pool door. It now travels with the series as metadata — never as the pool's own
+  axis, which is an increment axis by construction and would move every series against every other
+  if real years went into it, and which would also feed your answer into the run and make the two
+  agree for no reason. The crossdate stays blind.
+
+  The comparison costs nothing to compute. A lag is a statement about where two series sit relative
+  to each other (`shiftedOverlap` pairs ring *r* of Series_1 with ring *r − lag* of Series_2), so
+  when both carry a first year the lag your dating implies is the difference between those years —
+  and the run's own `masterLeadLag` grid already holds r, p and the overlap at every lag it scanned.
+  The new **Your dating, against the crossdate** card shows both placements with the statistics at
+  each, because an offset alone says the crossdate disagrees, not that it is right.
+
+  The verdict is Holmes' own rule (Grissino-Mayer 2001 p.215 — the test `crossdateVerdict` already
+  uses to throw out COFECHA's false B flags): another position only unseats the one you dated if it
+  correlates about twice as well. That conservatism is the point — a year read off a living tree is
+  strong evidence, and the crossdate has to clear a high bar to overturn it. Measured on two radii of
+  one tree plus a third dated two years late: the third is caught against both partners at r 0.24
+  against 0.97, named once rather than once per pair, while the correctly dated pair reports
+  agreement. 13 new checks pin the lag arithmetic against the engine itself and the ratio rule at
+  its boundary.
+
+### Changed
+- **The Measure page's row axis is now the calendar, so aligning and dating are one act.** A pin
+  used to date the series it was on; it now fixes the whole table, and every series reads its years
+  off the row it sits on. A second radius aligned at lag 0 therefore carries the same years ring for
+  ring — which is what aligning it meant — and sliding a series along re-dates it as it goes. Stating
+  a year is the same statement said the other way, so on an already-pinned sitting a year assigned to
+  another series *moves that series into place*; re-pinning the series that carries the pin re-dates
+  everything together without shifting anything. There is exactly one pin in a sitting, so two can
+  never disagree.
+
+  This closes a hole the first version left: the on-screen table placed series by their alignment
+  while the saved file placed them by their own years, so the two could disagree without saying so.
+  Now both come off the same axis. The **Year** column belongs to the row and dates every column
+  beside it, and the alignment row reads out what each series spans.
+
+  The alignment is also written to files now — each series at the row it sits on, leading rows left
+  empty — because the loader already read leading pad rows back as a lag, so saving and reloading a
+  sitting used to lose the alignment silently. The **pool** deliberately still takes each series on
+  its own ring index, neither aligned nor dated: crossdating has to reach its own answer without
+  being handed yours, or the two agreeing would mean nothing.
+
+### Added
+- **A way out of the whole sitting on the Measure page.** *Discard series* took only the series being
+  measured, and the header's *Clear data* deliberately leaves the stage alone — a sitting is the one
+  thing in the app that exists nowhere else until it is saved, so a button pressed to start a new
+  analysis must not take it. That left no way to clear the table at all: the only one lived on the
+  restore note, out of reach the moment that note was dismissed. **Discard all series** now sits
+  beside *Discard series*, named to make the difference in scope unmistakable, and *Clear data* says
+  in its confirm that the measured rings are kept and where to clear them.
 - **Dates can be assigned on the Measure page.** Crossdating was the only way a ring got a year, and
   for the commonest sample of all that is backwards: a core cut from a living tree has a known
   outermost year *before* the first press. The new **Date** row pins one ring to one calendar year —

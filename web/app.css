@@ -368,6 +368,12 @@ details.series-meta .sm-wrap { max-height: 220px; overflow: auto; }
    are the aligned index, not that series' ring numbers. */
 table.res th .lagmark { font-size: 10px; font-weight: 600; opacity: .75; }
 
+/* Your dating against the crossdate's: the verdict cell carries the colour, so
+   the eye finds the row that needs looking at without reading the numbers. */
+#dateCheckTable td.msg { padding: 2px 8px; font-size: 12px; white-space: nowrap; text-align: left; }
+#dateCheckTable td:first-child, #dateCheckTable td:nth-child(2) { text-align: left; }
+#dateCheckTable tr.dc-differs td { background: #fdf3f3; }
+
 /* The calendar years of the series being measured, beside the ring numbers the
    table is still counted in. Set apart by a rule and quieter than the widths,
    which are what the eye is running down the row for. */

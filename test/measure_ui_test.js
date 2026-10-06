@@ -547,6 +547,113 @@ async function main() {
     await js(assign('young', 2025));
     await sleep(200);
 
+    // ---- the row axis IS the calendar ---------------------------------------
+    // Pinning a ring does not date that series alone: it fixes the whole table,
+    // and every series reads its years off the row it sits on. So a second
+    // radius aligned at lag 0 carries the same years ring for ring, which is
+    // what aligning it MEANT.
+    // (NEW2 stands at rows 0-11 = 2014-2025, pinned on its youngest ring.)
+    await js(`document.getElementById('vroNew').click(); 1`);
+    await sleep(300);
+    for (const w of ['0.310', '0.320', '0.330']) {
+      await js(`__mock.ctrl.enqueue(new TextEncoder().encode('${w}\\r')); 1`);
+      await sleep(90);
+    }
+    await sleep(300);
+    let sess2 = JSON.parse(await js(`JSON.stringify(window.MeasureUI.session())`));
+    check('a series started beside a dated one is dated by where it sits',
+      sess2[1].rings === 3 && sess2[1].lag === 0 &&
+      JSON.stringify(sess2[1].span) === '{"first":2014,"last":2016}',
+      JSON.stringify(sess2[1]));
+    check('...without a pin of its own — one sitting, one pin',
+      sess2[1].dating == null && sess2[0].dating != null,
+      JSON.stringify([sess2[0].dating, sess2[1].dating]));
+    check('...and the year column is the ROW\'s, so it dates every column beside it',
+      (await js(cellAt(0, 1))) === '2014' &&
+      (await js(cellAt(0, 2))) !== '' && (await js(cellAt(0, 3))) !== '',
+      await js(cellAt(0, 1)) + ' | ' + await js(cellAt(0, 2)) + ' | ' + await js(cellAt(0, 3)));
+
+    // Sliding a series along the table re-dates it as it goes: the alignment and
+    // the dating are one statement.
+    await js(setLag(9));
+    await sleep(250);
+    sess2 = JSON.parse(await js(`JSON.stringify(window.MeasureUI.session())`));
+    check('sliding a series along the table re-dates it',
+      JSON.stringify(sess2[1].span) === '{"first":2023,"last":2025}',
+      JSON.stringify(sess2[1].span));
+    check('...and leaves the series carrying the pin where it was',
+      JSON.stringify(sess2[0].span) === '{"first":2014,"last":2025}',
+      JSON.stringify(sess2[0].span));
+
+    // Said the other way round: on an already-pinned sitting, a year is a
+    // statement about where THIS series sits, so it moves into place rather than
+    // arguing with the pin.
+    await js(assign('young', 2020));
+    await sleep(300);
+    sess2 = JSON.parse(await js(`JSON.stringify(window.MeasureUI.session())`));
+    check('a year on a second series moves it instead of pinning it again',
+      sess2[1].row === 4 && sess2[1].dating == null &&
+      JSON.stringify(sess2[1].span) === '{"first":2018,"last":2020}',
+      JSON.stringify(sess2[1]));
+    check('...and the sitting still has exactly one pin, on the series that set it',
+      sess2[0].dating != null && sess2[0].dating.year === 2025 &&
+      JSON.stringify(sess2[0].span) === '{"first":2014,"last":2025}',
+      JSON.stringify(sess2[0]));
+
+    // Re-pinning the series that CARRIES the pin is the other case: the calendar
+    // moves, nothing shifts on the table, and everything is re-dated together —
+    // which is what "the collection year was five out" means.
+    await js(`document.querySelector('#vroSeriesList .chip[data-i="0"]').click(); 1`);
+    await sleep(250);
+    await js(assign('young', 2030));
+    await sleep(300);
+    sess2 = JSON.parse(await js(`JSON.stringify(window.MeasureUI.session())`));
+    check('re-dating the pinned series re-dates the whole sitting',
+      JSON.stringify(sess2[0].span) === '{"first":2019,"last":2030}' &&
+      JSON.stringify(sess2[1].span) === '{"first":2023,"last":2025}',
+      JSON.stringify(sess2.map(e => e.span)));
+    check('...without moving anything relative to anything else',
+      sess2[0].row === 0 && sess2[1].row === 4, JSON.stringify(sess2.map(e => e.row)));
+
+    // A file gets both: the calendar axis, and each series on the years its
+    // alignment puts it on.
+    check('the file places both series on the years they are aligned to',
+      (await js(`(function () { var f = window.MeasureUI.saveFrame();
+        return JSON.stringify({ y0: f.cols[0][0], yN: f.cols[0][f.cols[0].length - 1],
+          lead: f.cols[2].filter(function (v, i) { return v == null && i < 4; }).length,
+          at: f.cols[2][4], rest: f.cols[2].slice(7).every(function (v) { return v == null; }) }); })()`)) ===
+        '{"y0":2019,"yN":2030,"lead":4,"at":0.31,"rest":true}',
+      await js(`JSON.stringify(window.MeasureUI.saveFrame().cols[2])`));
+    // Undated, the same placement is written on the row index — which the loader
+    // already reads back as a lag, so the round trip no longer loses it.
+    check('...and an undated file carries the alignment as leading rows',
+      (await js(`(function () { var f = window.MeasureUI.placedSessionFrame();
+        return JSON.stringify(f.cols[2].slice(0, 5)); })()`)) === '[null,null,null,null,0.31]',
+      await js(`JSON.stringify(window.MeasureUI.placedSessionFrame().cols[2].slice(0, 6))`));
+
+    // Every series on one shared axis has to run the same way in time. Turning
+    // one of them round makes no row one year for both, and that is said rather
+    // than quietly mis-dated.
+    await js(setDir('bark_to_pith'));
+    await sleep(250);
+    check('opposite measuring directions on one calendar are called out',
+      /opposite directions/.test(await js(`document.getElementById('vroDateNote').textContent`)),
+      await js(`document.getElementById('vroDateNote').textContent`));
+    await js(setDir('pith_to_bark'));
+    await sleep(250);
+    check('...and the warning goes when they agree again',
+      !/opposite directions/.test(await js(`document.getElementById('vroDateNote').textContent`)),
+      await js(`document.getElementById('vroDateNote').textContent`));
+
+    // Put the sitting back to the single dated series the rest of the suite
+    // expects to find.
+    await js(`document.querySelector('#vroSeriesList .chip[data-i="1"]').click(); 1`);
+    await sleep(250);
+    await js(`document.getElementById('vroDiscard').click(); 1`);
+    await sleep(300);
+    await js(assign('young', 2025));
+    await sleep(300);
+
     check('Clear puts the series back to ring numbers',
       (await js(`document.getElementById('vroDateClear').click(); ${yearCols}`)) === 0 &&
       (await js(axisLeft)) === 'ring 1' &&
@@ -563,6 +670,18 @@ async function main() {
       (await js(yearCols)) === 0 &&
       (await js(`document.querySelectorAll('#vroTable thead th').length`)) === 2,
       await js(`document.querySelectorAll('#vroTable thead th').length`));
+
+    // ---- the way out of the whole sitting ---------------------------------
+    // "Discard series" takes only the one being measured, and the header's
+    // "Clear data" deliberately leaves the stage alone, so without a button of
+    // its own there was no way to clear the table — the only one lived on the
+    // restore note, out of reach the moment that note was dismissed.
+    check('the sitting has a way out of its own, beside the narrower one',
+      (await js(`!!document.getElementById('vroFreshAll')`)) === true &&
+      (await js(`document.getElementById('vroFreshAll').disabled`)) === false &&
+      (await js(`document.getElementById('vroFreshAll').previousElementSibling.id`)) === 'vroDiscard',
+      await js(`document.getElementById('vroFreshAll') ? 'enabled=' +
+        document.getElementById('vroFreshAll').disabled : 'missing'`));
 
     // ---- loading an existing series to amend ------------------------------
     // Half of measuring is finishing a core that was put down, or fixing a ring
@@ -1250,16 +1369,45 @@ async function main() {
       /Picked up where you left off/.test(await js(`document.getElementById('vroRestored').textContent`)),
       await js(`document.getElementById('vroRestored').textContent`));
 
+    check('...and offers its own way to start over instead',
+      (await js(`!!document.getElementById('vroFresh')`)) === true);
+
     // and the way out of it clears the table AND the slot
     await js(`window.confirm = function () { return true; };
-      document.getElementById('vroFresh').click(); 1`);
+      document.getElementById('vroFreshAll').click(); 1`);
     await sleep(500);
     const fresh = JSON.parse(await js(`JSON.stringify(window.MeasureUI.session())`));
-    check('start fresh empties the sitting',
+    check('Discard all series empties the sitting',
       fresh.length === 1 && fresh[0].rings === 0, JSON.stringify(fresh));
     check('...and clears the saved slot, so the next visit starts clean',
       (await js(`window.MeasureUI.savedSnapshot()`)) == null,
       JSON.stringify(await js(`window.MeasureUI.savedSnapshot()`)));
+    check('...and goes dead once there is nothing left to discard',
+      (await js(`document.getElementById('vroFreshAll').disabled`)) === true);
+
+    // ---- a year assigned here travels with the series --------------------
+    // The pool is an increment axis, and real years in its first column would
+    // move every series against every other and change what crossdating does.
+    // So the dating rides ALONGSIDE, in the per-series metadata — which is what
+    // lets the Explore tab check the crossdate against it without ever feeding
+    // it in. The pool's own numbers must be untouched.
+    const added = JSON.parse(await js(`JSON.stringify(window.AppUI.addMeasuredSeries(
+      { names: ['ring', 'DATED1'], cols: [[1, 2, 3], [1.1, 1.2, 1.3]] },
+      'DATED1', [{ firstYear: 1990, lastYear: 1992 }]))`));
+    check('an assigned year reaches the pool as metadata',
+      (await js(`(function () { var m = window.AppUI.seriesMeta()['` + added.id + `'];
+        return m ? JSON.stringify([m.dated, m.firstYearInternal, m.lastYearInternal, m.datedBy]) : 'no entry'; })()`)) ===
+        '["absolute",1990,1992,"measured"]',
+      await js(`JSON.stringify(window.AppUI.seriesMeta()['` + added.id + `'] || null)`));
+    check('...and the pool column itself is still a ring index, untouched',
+      (await js(`JSON.stringify(window.AppUI.seriesWidths('` + added.id + `', 'pool'))`)) ===
+        '[1.1,1.2,1.3]',
+      await js(`JSON.stringify(window.AppUI.seriesWidths('` + added.id + `', 'pool'))`));
+    check('...and an undated hand-off leaves no dating claim behind',
+      (await js(`(function () { var r = window.AppUI.addMeasuredSeries(
+        { names: ['ring', 'PLAIN1'], cols: [[1, 2], [1.0, 1.1]] }, 'PLAIN1', [null]);
+        var m = window.AppUI.seriesMeta()[r.id];
+        return !m || m.dated == null; })()`)) === true);
 
     ws.close();
   } finally {

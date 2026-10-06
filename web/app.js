@@ -454,7 +454,25 @@
   // re-measured radius or a specimen's several radii, and they arrive together.
   // Each name is made unique against the pool and against its companions, since
   // two columns sharing a name break every by-name lookup downstream.
-  function poolAdd(frame, name) {
+  // A year assigned at the stage is not something the pool frame can hold: the
+  // pool is an increment axis, and putting calendar years in its first column
+  // would move every series relative to every other and change what crossdating
+  // does. So the dating rides ALONGSIDE it, in the per-series metadata that
+  // already carries exactly these fields for TRiDaS imports — where no analysis
+  // routine looks at it, the Series details table shows it for free, and the
+  // Explore tab can read it back to check the crossdate against it.
+  function applyAssignedDate(id, span) {
+    if (!span || span.firstYear == null) return;
+    state.meta = state.meta || {};
+    var m = state.meta[id] || AC.RD.emptySeriesMeta(id, id);
+    m.dated = 'absolute';
+    m.firstYearInternal = Math.round(span.firstYear);
+    m.lastYearInternal = span.lastYear == null ? null : Math.round(span.lastYear);
+    m.datedBy = 'measured';        // assigned at the stage, not read out of a file
+    state.meta[id] = m;
+  }
+
+  function poolAdd(frame, name, dates) {
     var taken = (state.undated ? AC.seriesNames(state.undated) : []).slice();
     var f = { names: [frame.names[0]], cols: [frame.cols[0]] }, ids = [];
     for (var c = 1; c < frame.cols.length; c++) {
@@ -465,6 +483,9 @@
     }
     state.undated = state.undated ? AC.bindUndated(state.undated, f) : f;
     if (!state.undatedName) state.undatedName = 'measured on the stage';
+    // Before renderDataInfo, whose ensureMeta keeps whole entries that already
+    // exist and only fills in the ones that do not.
+    if (dates) ids.forEach(function (id, k) { applyAssignedDate(id, dates[k]); });
     renderDataInfo();
     onDataChanged();
     syncNav();
@@ -476,7 +497,9 @@
   }
   // -> { id, ids, message }: the caller needs the names the pool actually gave
   // the series, so it can link its own copy to them.
-  Actions.addMeasuredSeries = function (frame, name) { return poolAdd(frame, name); };
+  // `dates` is one { firstYear, lastYear } (or null) per series column, in
+  // column order — the years assigned on the Measure page.
+  Actions.addMeasuredSeries = function (frame, name, dates) { return poolAdd(frame, name, dates); };
   // ---- Measure view: amending a series that already exists -----------------
   // The Measure view can pick a series up again — to correct a ring, or to carry
   // on measuring a core that was put down half-done. These three accessors are
@@ -555,10 +578,10 @@
   // two identically named columns break every by-name lookup downstream.
   // Falls back to adding when the original is gone — the pool was cleared, or
   // the series was loaded from a file that was never itself loaded.
-  Actions.updateMeasuredSeries = function (frame, originalName) {
+  Actions.updateMeasuredSeries = function (frame, originalName, dates) {
     var at = state.undated ? state.undated.names.indexOf(originalName) : -1;
     if (at < 1) {
-      var added = poolAdd(frame, frame.names[1]);
+      var added = poolAdd(frame, frame.names[1], dates ? [dates] : null);
       return { id: added.id, added: true, message: '"' + originalName + '" is no longer in the pool. ' + added.message };
     }
 
@@ -589,6 +612,8 @@
       state.meta[id] = state.meta[originalName];
       delete state.meta[originalName];
     }
+    // An amended series may be a different length, so its span moves with it.
+    if (dates) applyAssignedDate(id, dates);
     renderDataInfo();
     onDataChanged();
     syncNav();
@@ -779,9 +804,23 @@
     onDataChanged(); syncResumeBanners();
   };
   // Clear from the rail or the header; confirm only when real work would be lost.
+  // What this button does NOT clear. A sitting at the stage is the one thing in
+  // the app that exists nowhere else — not in a file, not in the pool — so it is
+  // deliberately left alone here, and the confirm says so rather than leaving the
+  // operator to wonder whether it took their rings with it.
+  function measureKeptNote() {
+    var sess = window.MeasureUI && window.MeasureUI.session ? window.MeasureUI.session() : null;
+    if (!sess) return '';
+    var rings = sess.reduce(function (n, e) { return n + e.rings; }, 0);
+    if (!rings) return '';
+    return '\n\nThe ' + rings + ' ring' + (rings === 1 ? '' : 's') + ' on the Measure page are kept — ' +
+      'use "Discard all series" there to clear those.';
+  }
+
   Actions.clearConfirmed = function () {
     var risky = (state.builder && state.builder.state().members.length) || state.result;
-    if (risky && !window.confirm('Clear all loaded data, results and the current chronology session?')) return;
+    if (risky && !window.confirm('Clear all loaded data, results and the current chronology session?' +
+      measureKeptNote())) return;
     Actions.clearAll();
     closeTaskSetup();
     showView('home');
@@ -793,6 +832,7 @@
   function showExploreResults(on) {
     $('exploreEmpty').style.display = on ? 'none' : '';
     $('exploreResults').style.display = on ? '' : 'none';
+    if (!on && $('datingCheckCard')) $('datingCheckCard').style.display = 'none';
     $('explorePlots').style.display = on ? '' : 'none';
     if (!on) updateExploreEmpty();
   }
@@ -1048,6 +1088,96 @@
   ['f_r', 'f_p', 'f_overlap', 'f_target', 'f_apply'].forEach(function (id) {
     $(id).addEventListener('change', renderResults);
   });
+  // ---- your dating, against the crossdate ---------------------------------
+  // The first year a series is KNOWN to start on, or null. Two sources, and
+  // neither is ever fed into the run: the year assigned on the Measure page
+  // (carried in the per-series metadata by applyAssignedDate), and, for the
+  // target of a chronology-mode run, the chronology's own axis — row 0 of the
+  // frame the crossdate saw, which is a real year only when the chronology was
+  // loaded dated.
+  function firstYearOf(name) {
+    var m = state.meta && state.meta[name];
+    if (m && m.dated === 'absolute' && m.firstYearInternal != null) return Number(m.firstYearInternal);
+    var res = state.result;
+    if (res && Number(res.mode) === 2 && name === res.target) {
+      var cn = res.chronNSeries;
+      if (cn && cn.names && /year/i.test(String(cn.names[0])) && cn.cols[0].length) {
+        var y = Number(cn.cols[0][0]);
+        if (isFinite(y)) return y;
+      }
+    }
+    return null;
+  }
+
+  function fmtYear(y) { return y == null ? '—' : AC.RD.formatCal(Math.round(y)); }
+  // A lag read as a displacement in years, which is what it is once both sides
+  // are dated. Signed, because which way it went is the whole information.
+  function fmtOffset(n) {
+    if (!n) return 'the same';
+    return (n > 0 ? '+' : '\u2212') + Math.abs(n) + ' year' + (Math.abs(n) === 1 ? '' : 's');
+  }
+  var DATE_VERDICT = {
+    agree: ['ok', 'the crossdate agrees'],
+    holds: ['ok', 'no better — your dating stands'],
+    differs: ['err', 'the crossdate is much better there'],
+    unscored: ['warn', 'no overlap at your dating']
+  };
+
+  function renderDatingCheck() {
+    var card = $('datingCheckCard');
+    if (!card) return;
+    var tb = card.querySelector('tbody');
+    var chk = state.result ? AC.datingCheck(state.result, firstYearOf) : null;
+    if (!chk) { card.style.display = 'none'; tb.innerHTML = ''; setMsg('dateCheckMsg', ''); return; }
+    card.style.display = '';
+
+    var num = function (v, dp) { return v == null ? '—' : fmtNum(Number(v), dp); };
+    tb.innerHTML = chk.rows.map(function (r) {
+      var v = DATE_VERDICT[r.verdict] || ['', r.verdict];
+      return '<tr class="dc-' + r.verdict + '">' +
+        '<td>' + esc(r.series2) + '</td>' +
+        '<td>' + esc(r.series1) + '</td>' +
+        '<td>' + esc(fmtYear(r.firstYear2)) + ' start</td>' +
+        '<td>' + (r.yours ? num(r.yours.r, 3) : '—') + '</td>' +
+        '<td>' + (r.yours ? esc(AC.fmtP(r.yours.p)) : '—') + '</td>' +
+        '<td>' + (r.yours && r.yours.overlap != null ? esc(String(r.yours.overlap)) : '—') + '</td>' +
+        '<td>' + esc(fmtOffset(r.offset)) + '</td>' +
+        '<td>' + num(r.best.r, 3) + '</td>' +
+        '<td>' + esc(AC.fmtP(r.best.p)) + '</td>' +
+        '<td>' + (r.best.overlap != null ? esc(String(r.best.overlap)) : '—') + '</td>' +
+        '<td class="msg ' + v[0] + '">' + esc(v[1]) + '</td>' +
+        '</tr>';
+    }).join('');
+
+    // The headline, said in one line: what needs looking at, and what does not.
+    // One comparison per row, but a mis-dated series disagrees with every
+    // partner it meets, so the headline counts comparisons and names series.
+    var su = chk.summary;
+    var settled = su.agree + su.holds;
+    var pairs = function (k) { return k + (k === 1 ? ' comparison' : ' comparisons'); };
+    var msg, kind;
+    if (!su.differs && !su.unscored) {
+      msg = su.n === 1
+        ? 'The crossdate agrees with the year you assigned.'
+        : 'All ' + pairs(su.n) + ' put these series where you dated them.';
+      kind = 'ok';
+    } else if (su.differs) {
+      msg = (settled ? settled + ' of ' + pairs(su.n) + ' agree; ' : '') +
+        su.off.map(function (o) {
+          return '"' + o.series + '" is ' + (o.offset == null
+            ? 'out by different amounts against different series'
+            : fmtOffset(o.offset) + ' out');
+        }).join(', ') + '. Either that many rings are missing from the measurement, ' +
+        'or the year assigned to it is wrong.';
+      kind = 'err';
+    } else {
+      msg = settled + ' of ' + pairs(su.n) + ' agree; the rest do not overlap enough ' +
+        'at the dating you gave them to be scored there.';
+      kind = 'warn';
+    }
+    setMsg('dateCheckMsg', msg, kind);
+  }
+
   function renderResults() {
     if (!state.result) return;
     var frame = state.result.crossDatRes;
@@ -1067,6 +1197,7 @@
     } else { setMsg('resMsg', 'Showing full crossDatRes (' + frame.cols[0].length + ' rows).'); }
     state.filteredTable = frame;
     paintTable(AC.crossDatTable(frame));
+    renderDatingCheck();
   }
   // Column sort for the results table: ▲/▼ in every header. Ascending, then
   // descending, then back to the run's grouped best-3 blocks view. While

@@ -931,6 +931,121 @@ ok('runner result matches the synchronous run',
   stepRes.consensus.bySeries.a_broken.lag === consBy.a_broken.lag &&
   stepRes.consensus.bySeries.a_broken.action === 'promoted');
 
+// ---- the dating you assigned, against the one the crossdate found ----------
+// The whole feature rests on one piece of arithmetic: a crossdate lag is a
+// statement about where two series sit relative to each other, and
+// shiftedOverlap pairs ring r of Series_1 with ring (r - lag) of Series_2 — so
+// when both carry a first year, the lag their dating implies is the difference
+// between those years. That is asserted here against the ENGINE rather than
+// against a reading of it: two measurements of one piece of wood, the second
+// starting five rings later in time, must come back at lag 5.
+(function () {
+  let seed = 7;
+  const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648 - 0.5;
+  // Dominated by year-to-year variation, as a detrended ring-width series is —
+  // which is what makes a one-ring shift cost so much correlation. (A smooth
+  // series still correlates ~0.76 two rings out, and the ratio rule then
+  // declines to overturn the dating, which is the conservatism it is for.)
+  const n = 80, v = [];
+  for (let i = 0; i < n; i++) v.push(1 + 0.12 * Math.sin(i / 9) + 0.9 * rnd());
+  // A starts in 1900. B is the same wood re-measured, starting in 1905, so its
+  // ring 1 is A's ring 6. (A little noise apiece: a correlation of exactly 1
+  // gives a degenerate p and is not a case real data ever presents.)
+  const A = v.map(x => x + 0.05 * rnd());
+  const B = v.slice(5).map(x => x + 0.05 * rnd()).concat(new Array(5).fill(null));
+  const ring = []; for (let i = 0; i < n; i++) ring.push(i + 1);
+  const ll = RD.leadLag({ names: ['ring', 'A', 'B'], cols: [ring, A, B] }, { mode: 1, complete: true });
+  const ix = nm => ll.crossDatRes.names.indexOf(nm);
+  const row = ll.crossDatRes.cols[ix('Series_1')].findIndex((a, r) =>
+    a === 'A' && ll.crossDatRes.cols[ix('Series_2')][r] === 'B');
+  const bestLag = Number(ll.crossDatRes.cols[ix('First_lag')][row]);
+  ok('a crossdate lag IS the difference between two first years',
+    bestLag === 5, 'engine said ' + bestLag);
+  // crossDatRes.First_lag and masterLeadLag's lag column come off the same
+  // array, so a statsAtLag lookup is directly comparable to the reported best.
+  const at5 = AppCore.statsAtLag(ll.masterLeadLag, 'A', 'B', 5);
+  ok('statsAtLag reads the same grid the reported best came from',
+    at5 && Math.abs(at5.R - Number(ll.crossDatRes.cols[ix('First_R')][row])) < 1e-12,
+    at5 ? String(at5.R) : 'null');
+  ok('...either way round the pair is named',
+    JSON.stringify(AppCore.statsAtLagEither(ll.masterLeadLag, 'B', 'A', -5)) === JSON.stringify(at5));
+
+  const result = { mode: 1, crossDatRes: ll.crossDatRes, masterLeadLag: ll.masterLeadLag };
+  // Dated correctly: the crossdate agrees, and the statistics at the dating are
+  // the statistics at the best position because they are the same position.
+  const right = AppCore.datingCheck(result, n2 => ({ A: 1900, B: 1905 }[n2] || null));
+  ok('a dating the crossdate agrees with is reported as agreeing',
+    right && right.rows.length === 1 && right.rows[0].yourLag === 5 &&
+    right.rows[0].offset === 0 && right.rows[0].verdict === 'agree' &&
+    right.summary.agree === 1 && right.summary.differs === 0,
+    JSON.stringify(right && right.rows[0]));
+  ok('...with the same r at your dating as at the best position',
+    Math.abs(right.rows[0].yours.r - right.rows[0].best.r) < 1e-12);
+
+  // Dated two years late: the crossdate disagrees, and its position is very
+  // much better, so the dating does not stand.
+  const wrong = AppCore.datingCheck(result, n2 => ({ A: 1900, B: 1907 }[n2] || null));
+  ok('a dating two years out is caught, signed, and scored at both positions',
+    wrong.rows[0].yourLag === 7 && wrong.rows[0].offset === -2 &&
+    wrong.rows[0].verdict === 'differs' &&
+    wrong.rows[0].yours.r < wrong.rows[0].best.r / 2,
+    JSON.stringify(wrong.rows[0]));
+  ok('...and the summary names the series and how far out it is',
+    wrong.summary.differs === 1 && wrong.summary.off[0].series === 'B' &&
+    wrong.summary.off[0].offset === -2, JSON.stringify(wrong.summary));
+
+  // Nothing is fed back: the run is the same object in both calls above, and it
+  // produced the same best lag whichever years were claimed.
+  ok('the crossdate answer does not move with the years claimed',
+    right.rows[0].best.lag === wrong.rows[0].best.lag &&
+    right.rows[0].best.r === wrong.rows[0].best.r);
+
+  // A series with no known year on one side of the pair has nothing to compare.
+  ok('an undated pair is left out rather than guessed at',
+    AppCore.datingCheck(result, () => null) === null);
+})();
+
+// Holmes' rule, on numbers chosen to sit either side of it: an alternative
+// position only unseats a dated one if it correlates about twice as well
+// (Grissino-Mayer 2001 p.215 — the same test crossdateVerdict uses).
+(function () {
+  const NA = null;
+  const mkResult = (bestR, atYourR) => ({
+    mode: 1,
+    crossDatRes: {
+      names: ['Series_1', 'Series_2', 'First_ring', 'Last_ring', 'col',
+        'First_lag', 'First_R', 'First_P', 'First_Overlap',
+        'Sec_lag', 'Sec_R', 'Sec_P', 'Sec_Overlap',
+        'Third_lag', 'Third_R', 'Third_P', 'Third_Overlap'],
+      cols: [['X'], ['Y'], [1], [90], [3], [3], [bestR], [1e-9], [90],
+        [NA], [NA], [NA], [NA], [NA], [NA], [NA], [NA]]
+    },
+    masterLeadLag: {
+      names: ['ser_1_X_ser_2_Y_lag', 'ser_1_X_ser_2_Y_R_Val', 'ser_1_X_ser_2_Y_P_Val',
+        'ser_1_X_ser_2_Y_T_val', 'ser_1_X_ser_2_Y_Overlap',
+        'ser_1_X_ser_2_Y_First_ring', 'ser_1_X_ser_2_Y_Last_ring'],
+      cols: [[0, 3], [atYourR, bestR], [0.001, 1e-9], [4, 9], [90, 90], [1, 4], [90, 93]]
+    }
+  });
+  const years = n2 => ({ X: 1900, Y: 1900 }[n2] || null);   // your dating says lag 0
+  const holds = AppCore.datingCheck(mkResult(0.60, 0.55), years).rows[0];
+  ok('an alternative that is merely better leaves the dating standing',
+    holds.offset === 3 && holds.verdict === 'holds', JSON.stringify(holds));
+  const beaten = AppCore.datingCheck(mkResult(0.60, 0.20), years).rows[0];
+  ok('...and one that is twice as good does not',
+    beaten.verdict === 'differs', JSON.stringify(beaten));
+  // Exactly at the ratio the rule names, the alternative wins.
+  ok('the rule is the p.215 ratio, applied at the boundary',
+    AppCore.datingCheck(mkResult(0.60, 0.30), years).rows[0].verdict === 'differs' &&
+    AppCore.datingCheck(mkResult(0.60, 0.3001), years).rows[0].verdict === 'holds' &&
+    AppCore.DATING_RATIO === 2);
+  // A dated position with no overlap to score cannot be judged either way, and
+  // says so rather than being reported as beaten.
+  const blind = AppCore.datingCheck(mkResult(0.60, 0.20), n2 => ({ X: 1900, Y: 1955 }[n2] || null)).rows[0];
+  ok('a dating the run never scored is flagged, not condemned',
+    blind.yours === null && blind.verdict === 'unscored', JSON.stringify(blind));
+})();
+
 // ---- done -------------------------------------------------------------------
 console.log('\n' + (fails ? fails + ' CHECK(S) FAILED' : 'PASS: web frontend runs end-to-end (load -> workflow -> table -> plots -> downloads -> report).'));
 process.exit(fails ? 1 : 0);
