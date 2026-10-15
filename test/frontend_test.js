@@ -537,7 +537,9 @@ const slide2Plots = AppCore.buildPlots(slide2, {});
 ok('sliding chronology-mode plots render', isSvg(AppCore.renderPlot(slide2Plots.line)));
 
 // 11. missing/false ring test ---------------------------------------------------
-// fabricate a missing ring: delete ring 90 of sample_h, test vs sample_i.
+// fabricate a missing ring: delete ring 90 of sample_h, test vs sample_i. The
+// correction is an inserted ring of width 0 — the measured widths either side
+// of it are untouched, as they are in a real series with an absent ring.
 const hVals = undated.cols[undated.names.indexOf('sample_h')].filter(function (v) { return v != null; });
 const defect = hVals.slice(0, 89).concat(hVals.slice(90));
 while (defect.length < undated.cols[0].length) defect.push(null);   // keep the frame rectangular
@@ -555,8 +557,8 @@ ok('ringTest baseline scored', runner.baseline.t != null && runner.baseline.over
 while (!runner.step(100));
 const rt = runner.results();
 const best = rt.experiments[0];
-ok('ring test finds the fabricated missing ring (split near ring 90)',
-  best.type === 'split' && Math.abs(best.ring - 90) <= 3 && best.fruitful,
+ok('ring test finds the fabricated missing ring (zero-width ring near ring 90)',
+  best.type === 'insert' && Math.abs(best.ring - 90) <= 3 && best.fruitful,
   best.type + ' ring ' + best.ring + ', dT +' + best.dT.toFixed(1));
 ok('edit improves the crossdate substantially', best.dT > 10, 'dT ' + best.dT.toFixed(1));
 const rev = runner.review(best);
@@ -589,9 +591,15 @@ ok('ringTest accepts a chronology reference', chronRunner.total > 0 && typeof ch
 // corrected-series export: the best edit applied to the raw values, as .rwl
 const corr = runner.corrected(best);
 ok('corrected() applies the edit to the raw series',
-  corr.values.length === runner.seriesLength + (best.type === 'split' ? 1 : -1) &&
-  corr.name === 'h_defect' + (best.type === 'split' ? '+ring' : '-ring') + best.ring,
+  corr.values.length === runner.seriesLength + (best.type === 'insert' ? 1 : -1) &&
+  corr.name === 'h_defect' + (best.type === 'insert' ? '+ring' : '-ring') + best.ring,
   corr.name + ', ' + corr.values.length + ' rings');
+ok('...as a ring of width 0, with the measured widths either side left alone',
+  corr.values[best.ring - 1] === 0 &&
+  corr.values.slice(0, best.ring - 1).every(function (v, i) { return v === defect[i]; }) &&
+  corr.values.slice(best.ring).every(function (v, i) { return v === defect[best.ring - 1 + i]; }),
+  'ring ' + best.ring + ' = ' + corr.values[best.ring - 1] + ', neighbours ' +
+  corr.values[best.ring - 2] + '/' + corr.values[best.ring]);
 const dl = runner.correctedDownload(best);
 ok('correctedDownload() produces an .rwl descriptor',
   /_corrected\.rwl$/.test(dl.filename) && dl.mime === 'text/plain' && dl.content.length > 200, dl.filename);
@@ -633,19 +641,19 @@ ok('an edit the data does not support is reported as barren',
 ok('scoreEdit(null) is the baseline', hand.scoreEdit(null).t === hand.baseline.t &&
   hand.scoreEdit(null).dT === 0 && hand.scoreEdit(null).fruitful === false);
 ok('maxRing bounds each kind of edit',
-  hand.maxRing('split') === hand.seriesLength && hand.maxRing('merge') === hand.seriesLength - 1);
+  hand.maxRing('insert') === hand.seriesLength && hand.maxRing('merge') === hand.seriesLength - 1);
 // a ring outside the series is refused with a message rather than scored as NaN
 function refuses(fn) { try { fn(); return false; } catch (e) { return /outside|Edit type/.test(e.message); } }
 ok('a ring past the end of the series is refused',
-  refuses(function () { return hand.scoreEdit({ type: 'split', ring: hand.seriesLength + 1 }); }));
-ok('ring 0 is refused', refuses(function () { return hand.scoreEdit({ type: 'split', ring: 0 }); }));
+  refuses(function () { return hand.scoreEdit({ type: 'insert', ring: hand.seriesLength + 1 }); }));
+ok('ring 0 is refused', refuses(function () { return hand.scoreEdit({ type: 'insert', ring: 0 }); }));
 ok('merge stops one ring short of the end',
   refuses(function () { return hand.scoreEdit({ type: 'merge', ring: hand.seriesLength }); }) &&
   !refuses(function () { return hand.scoreEdit({ type: 'merge', ring: hand.seriesLength - 1 }); }));
 ok('an unknown edit type is refused',
   refuses(function () { return hand.scoreEdit({ type: 'shrink', ring: 10 }); }));
 ok('review() and corrected() refuse the same bad ring',
-  refuses(function () { return hand.review({ type: 'split', ring: 0 }); }) &&
+  refuses(function () { return hand.review({ type: 'insert', ring: 0 }); }) &&
   refuses(function () { return hand.corrected({ type: 'merge', ring: hand.seriesLength }); }));
 // a hand-named edit reviews and exports like a swept one
 const handRev = hand.review({ type: best.type, ring: best.ring });

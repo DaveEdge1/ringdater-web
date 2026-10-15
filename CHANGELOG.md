@@ -37,6 +37,17 @@ Then `git push --follow-tags`.
   its boundary.
 
 ### Changed
+- **A missing ring is now corrected by inserting a ring of width 0, not by splitting one in two.**
+  The ring test's missing-ring experiment used to divide measured ring *i* into two half-width
+  rings, which fabricates a measurement nobody made: it keeps the total width and invents a boundary
+  inside it. A ring that is absent is recorded as width 0 — that is the convention the data uses and
+  the one the spline detrend already handles (dplR reads a 0 as 0.001 before fitting) — so the
+  experiment now puts a 0 in front of ring *i* and leaves every measured width exactly as measured.
+  Detection is unchanged where it matters: on the test's fabricated defect the inserted ring scores
+  ΔT +22.2 against the split's +22.4, in the same neighbourhood of rings. The edit type is `insert`
+  rather than `split` throughout (`scoreEdit`, `maxRing`, the ranking table, the hand-named edit
+  dropdown); the corrected series keeps its `+ring`*i* name, since a ring is still being added.
+
 - **The Measure page's row axis is now the calendar, so aligning and dating are one act.** A pin
   used to date the series it was on; it now fixes the whole table, and every series reads its years
   off the row it sits on. A second radius aligned at lag 0 therefore carries the same years ring for

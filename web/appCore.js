@@ -1065,8 +1065,11 @@
 
   // ---- missing / false ring test -------------------------------------------
   // Exhaustive single-ring edit experiments for ONE series against a reference:
-  //   split i  — ring i divided into two half-width rings (simulates a missed
-  //              ring boundary inside increment i; series gains one year)
+  //   insert i — a ring of width 0 put in front of ring i (simulates a ring the
+  //              tree never grew, or one too faint to see, at that position;
+  //              series gains one year and every measured width is kept as
+  //              measured, which is how an absent ring is recorded — dplR and
+  //              the spline detrend both read a 0 as 0.001 of a year's growth)
   //   merge i  — rings i and i+1 summed (simulates a falsely split ring;
   //              series loses one year)
   // Every experiment re-detrends the edited raw series and re-runs the FULL
@@ -1100,9 +1103,9 @@
   function applyRingEdit(vals, exp) {
     var i = exp.ring - 1;                          // 1-based ring -> index
     var out = vals.slice(0, i);
-    if (exp.type === 'split') {
-      out.push(vals[i] / 2, vals[i] / 2);
-      return out.concat(vals.slice(i + 1));
+    if (exp.type === 'insert') {
+      out.push(0);                                 // the absent ring, width 0
+      return out.concat(vals.slice(i));
     }
     out.push(vals[i] + vals[i + 1]);
     return out.concat(vals.slice(i + 2));
@@ -1140,19 +1143,19 @@
     var n = vals.length;
     if (n < 20) throw new Error('Series is too short to test.');
     function editName(exp) {
-      return exp ? series + (exp.type === 'split' ? '+ring' : '-ring') + exp.ring : series;
+      return exp ? series + (exp.type === 'insert' ? '+ring' : '-ring') + exp.ring : series;
     }
     // A ring named by hand (a custom edit) is checked here rather than
     // silently producing NaNs downstream; the exhaustive sweep passes
     // through it too, so both paths agree on what an edit IS.
     function validateEdit(exp) {
       if (!exp) return null;
-      var type = exp.type === 'merge' ? 'merge' : (exp.type === 'split' ? 'split' : null);
-      if (!type) throw new Error('Edit type must be "split" (a missing ring) or "merge" (a false ring).');
+      var type = exp.type === 'merge' ? 'merge' : (exp.type === 'insert' ? 'insert' : null);
+      if (!type) throw new Error('Edit type must be "insert" (a missing ring) or "merge" (a false ring).');
       var ring = Math.round(Number(exp.ring));
-      var hi = type === 'split' ? n : n - 1;
+      var hi = type === 'insert' ? n : n - 1;
       if (!(ring >= 1 && ring <= hi)) {
-        throw new Error(type === 'split'
+        throw new Error(type === 'insert'
           ? 'Ring ' + exp.ring + ' is outside ' + series + ' — it has ' + n + ' rings, so pick 1 to ' + n + '.'
           : 'Rings ' + exp.ring + '–' + (Math.round(Number(exp.ring)) + 1) + ' are outside ' + series +
             ' — it has ' + n + ' rings, so pick a first ring from 1 to ' + hi + '.');
@@ -1174,7 +1177,7 @@
       };
     }
     var exps = [];
-    for (var i = 1; i <= n; i++) exps.push({ type: 'split', ring: i });
+    for (var i = 1; i <= n; i++) exps.push({ type: 'insert', ring: i });
     for (var j = 1; j <= n - 1; j++) exps.push({ type: 'merge', ring: j });
 
     function score(values) {

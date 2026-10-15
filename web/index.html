@@ -353,8 +353,9 @@
 
           <div class="card" id="ringTestCard" style="display:none">
             <h2>Missing / false ring test</h2>
-            <p class="hint">Simulates every possible single-ring correction of one series: each measured ring
-               is split in two (as if a ring boundary was missed inside it) and each neighbouring pair is
+            <p class="hint">Simulates every possible single-ring correction of one series: a ring of width 0
+               is inserted in front of each measured ring (as if the tree grew no ring that year, or one too
+               faint to see — every measured width is kept as measured) and each neighbouring pair is
                merged (as if one ring was falsely counted as two). Every edit is re-detrended and fully
                re-crossdated against the reference — edits that beat the unedited baseline bear fruit.
                Fruitful corrections can be applied and the test re-run iteratively (each pass hunts the
@@ -369,7 +370,7 @@
             <div class="plot-controls">
               <div><label for="rt_editType">Test one ring of your own</label>
                 <select id="rt_editType">
-                  <option value="split">Missing ring — split ring</option>
+                  <option value="insert">Missing ring — insert a zero-width ring</option>
                   <option value="merge">False ring — merge rings</option>
                 </select></div>
               <div><label for="rt_editRing">Ring number</label>

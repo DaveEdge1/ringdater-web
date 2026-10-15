@@ -1958,13 +1958,13 @@
 
   function num(v, dp) { return v == null ? '—' : String(Math.round(v * Math.pow(10, dp)) / Math.pow(10, dp)); }
   function editSentence(e) {
-    return e.type === 'split' ? 'a missing ring inside ring ' + e.ring
+    return e.type === 'insert' ? 'a ring the tree never grew in front of ring ' + e.ring
       : 'a false ring across rings ' + e.ring + '–' + (e.ring + 1);
   }
   function paintCustomRing(row) {
     var base = ringRunner.baseline;
     $('rt_custom').innerHTML = '<p class="msg' + (row.fruitful ? ' ok' : '') + '"><b>' +
-      (row.type === 'split' ? 'Split ring ' + row.ring + ' in two' : 'Merge rings ' + row.ring + '–' + (row.ring + 1)) +
+      (row.type === 'insert' ? 'Insert a zero-width ring at ring ' + row.ring : 'Merge rings ' + row.ring + '–' + (row.ring + 1)) +
       '</b> — testing ' + editSentence(row) + ' in ' + esc(ringIter.series) + ' against ' + esc(ringRefLabel) + ': lag ' +
       esc(String(row.lag == null ? '—' : row.lag)) + ' · r ' + num(row.r, 3) + ' · p ' + AC.fmtP(row.p) +
       ' · overlap ' + (row.overlap == null ? '—' : row.overlap) + ' · T ' + num(row.t, 2) + ' (ΔT ' +
@@ -1979,11 +1979,11 @@
     var res = ringRunner.results();
     var top = res.experiments.slice(0, 20);
     var editLabel = function (e) {
-      return e.type === 'split' ? 'Split ring ' + e.ring : 'Merge rings ' + e.ring + '–' + (e.ring + 1);
+      return e.type === 'insert' ? 'Insert ring ' + e.ring + ' (width 0)' : 'Merge rings ' + e.ring + '–' + (e.ring + 1);
     };
     // iteration history: what has been applied so far + the corrected download
     var iterLabel = function (e) {
-      return e.type === 'split' ? 'split ring ' + e.ring : 'merge rings ' + e.ring + '–' + (e.ring + 1);
+      return e.type === 'insert' ? 'insert a zero-width ring at ring ' + e.ring : 'merge rings ' + e.ring + '–' + (e.ring + 1);
     };
     var history = ringIter && ringIter.edits.length
       ? '<p class="msg ok">' + ringIter.edits.length + ' correction' + (ringIter.edits.length === 1 ? '' : 's') +
@@ -2001,7 +2001,7 @@
       var b = res.experiments[0];
       verdict = '<p class="msg ok"><b>' + editLabel(b) + '</b> gives the biggest improvement ' +
         '(T ' + num(base.t, 2) + ' → ' + num(b.t, 2) + ' at lag ' + esc(String(b.lag)) + ') — consistent with a ' +
-        (b.type === 'split' ? 'MISSING ring near ring ' + b.ring : 'FALSE ring near rings ' + b.ring + '–' + (b.ring + 1)) +
+        (b.type === 'insert' ? 'MISSING ring near ring ' + b.ring : 'FALSE ring near rings ' + b.ring + '–' + (b.ring + 1)) +
         '. ' + res.fruitful.length + ' of ' + ringRunner.total + ' edits bear fruit; nearby edits usually improve too, ' +
         'so read the top of the ranking as a neighbourhood.</p>';
       verdict += ringIter && ringIter.edits.length >= RING_ITER_CAP
