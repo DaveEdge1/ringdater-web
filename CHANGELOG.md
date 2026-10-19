@@ -68,6 +68,24 @@ Then `git push --follow-tags`.
   its own ring index, neither aligned nor dated: crossdating has to reach its own answer without
   being handed yours, or the two agreeing would mean nothing.
 
+- **The ring test's plots read in years when the reference is a dated chronology.** The review
+  rebuilt both columns on a synthetic 1..n axis, so a chronology handed over its years and got ring
+  counts back: the x axis counted rows, the hover cursor named a ring on the chronology as well as
+  on the series being tested, and the axis was labelled "Years" over numbers that were not years.
+  A missing ring is a question about calendar time — WHICH year is absent — so the comparison frame
+  now keeps the chronology's own axis, as the Explore pair plots do in chronology mode, and the
+  series under test keeps counting its rings, because that is the only numbering it has. The axis is
+  labelled for what it holds (Year against a dated chronology, Ring against another undated series,
+  where "Years" was simply wrong), and the stats header says *First year* rather than *First ring*
+  once the reference carries years.
+
+  The numbers are untouched: a lag is a shift in rows either way, so sliding the whole axis moves
+  no lag, r, overlap or T. Every experiment in a chronology-reference sweep scores identically to
+  before, which a test now pins by scoring the same edit against one chronology with its years and
+  the same chronology stripped of them. Years are only used when the reference's axis is a
+  contiguous run of whole years: a gappy axis would mislabel every row after the gap, so it falls
+  back to ring numbering.
+
 ### Added
 - **A way out of the whole sitting on the Measure page.** *Discard series* took only the series being
   measured, and the header's *Clear data* deliberately leaves the stage alone — a sitting is the one

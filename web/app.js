@@ -1573,9 +1573,13 @@
   function statsLine(st) {
     if (!st) return '';
     var num = function (v, dp) { return v == null ? '—' : String(Math.round(v * Math.pow(10, dp)) / Math.pow(10, dp)); };
+    // First/Last is where the series being dated starts and ends on the axis it
+    // was placed on — a ring count on an undated axis, a calendar year when the
+    // reference carries years and says so (st.unit).
+    var unit = st.unit === 'year' ? 'year' : 'ring';
     var parts = [
-      'First ring ' + (st.firstRing == null ? '—' : st.firstRing),
-      'Last ring ' + (st.lastRing == null ? '—' : st.lastRing),
+      'First ' + unit + ' ' + (st.firstRing == null ? '—' : st.firstRing),
+      'Last ' + unit + ' ' + (st.lastRing == null ? '—' : st.lastRing),
       'overlap ' + st.overlap,
     ];
     if (st.r != null) {

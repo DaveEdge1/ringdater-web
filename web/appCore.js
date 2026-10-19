@@ -1100,6 +1100,21 @@
     if (first < 0) throw new Error('Series ' + name + ' has no values.');
     return col.slice(first, last + 1);
   }
+  // A DATED reference lends its own calendar years to the comparison frame, so
+  // the plots read in years instead of counting rows. Only a contiguous run of
+  // whole years can do that: the frame's rows are consecutive years, so a gappy
+  // axis would mislabel every row after the gap. Returns the first year, or null
+  // when the axis cannot be read as years — including a plain 1..n index, which
+  // is a ring count and whose labels come out the same number either way.
+  function datedAxisStart(col) {
+    if (!col || col.length < 2) return null;
+    var first = Number(col[0]);
+    if (bad(col[0]) || Math.round(first) !== first || first === 1) return null;
+    for (var i = 1; i < col.length; i++) {
+      if (bad(col[i]) || Number(col[i]) !== first + i) return null;
+    }
+    return first;
+  }
   function applyRingEdit(vals, exp) {
     var i = exp.ring - 1;                          // 1-based ring -> index
     var out = vals.slice(0, i);
@@ -1128,11 +1143,12 @@
     var ref = opts.reference || {};
 
     // detrended reference column + a contiguous integer axis long enough for both
-    var refName, refCol;
+    var refName, refCol, year0 = null;
     if (ref.kind === 'chron') {
       var chronDet = ref.isDetrended ? ref.frame : RD.normalise(ref.frame, detOpt);
       var mean = RD.meanChronology(chronDet, 'mean_chronology');
       refName = 'mean_chronology'; refCol = mean.cols[1];
+      year0 = datedAxisStart(mean.cols[0]);
     } else {
       if (!ref.name || ref.name === series) throw new Error('Pick a reference other than the test series.');
       refName = ref.name;
@@ -1142,6 +1158,19 @@
     var vals = opts.seriesValues ? opts.seriesValues.slice() : trimSeries(undated, series);
     var n = vals.length;
     if (n < 20) throw new Error('Series is too short to test.');
+    // Row r of the comparison frame: the reference's own year when it has one,
+    // the row's ring number when it does not. Scoring is indifferent — a lag is
+    // a shift in rows either way, so the whole axis slides without the lag, r,
+    // overlap or T moving — but the PLOTS are not: against a dated chronology
+    // the test series is being placed in calendar time, and an axis counting
+    // rows refuses to say where. The sweep and the review share the axis so a
+    // reviewed edit is plotted on the axis it was scored on.
+    var dated = year0 != null;
+    function axisAt(r) { return (dated ? year0 : 1) + r; }
+    // The series under test is undated whatever the reference is — that is what
+    // the test is for — so the hover cursor always counts its rings; the
+    // reference joins it only when the axis is not years.
+    function ringCols(name) { return dated ? [name] : [refName, name]; }
     function editName(exp) {
       return exp ? series + (exp.type === 'insert' ? '+ring' : '-ring') + exp.ring : series;
     }
@@ -1185,7 +1214,7 @@
       var nrow = Math.max(refCol.length, detS.length);
       var axis = [], rc = [], tc = [];
       for (var r = 0; r < nrow; r++) {
-        axis.push(r + 1);
+        axis.push(axisAt(r));
         rc.push(r < refCol.length ? refCol[r] : null);
         tc.push(r < detS.length ? detS[r] : null);
       }
@@ -1220,7 +1249,7 @@
       var nrow = Math.max(refCol.length, detS.length);
       var axis = [], rc = [], tc = [], rawRc = [], rawTc = [];
       for (var r = 0; r < nrow; r++) {
-        axis.push(r + 1);
+        axis.push(axisAt(r));
         rc.push(r < refCol.length ? refCol[r] : null);
         tc.push(r < detS.length ? detS[r] : null);
         rawRc.push(refRaw && r < refRaw.length ? refRaw[r] : null);
@@ -1234,12 +1263,10 @@
       for (var q = 0; q < cd.cols[1].length; q++) {
         if (cd.cols[1][q] === name && cd.cols[0][q] === refName && cd.cols[5][q] != null) { lag = Number(cd.cols[5][q]); break; }
       }
+      var ringS = ringCols(name);
       var out = {
-        // Both columns sit on the synthetic 1..n axis built above — even a
-        // chronology reference lost its years there — so the cursor counts
-        // rings on both rather than naming a year that is not one.
-        line: safe(function () { return RD.linePlot(cn, refName, name, lag, { ringSeries: [refName, name] }); }),
-        skeleton: safe(function () { return RD.skelPlot(skelFrame(cn, rawF), refName, name, lag, { ringSeries: [refName, name] }); }),
+        line: safe(function () { return RD.linePlot(cn, refName, name, lag, { ringSeries: ringS }); }),
+        skeleton: safe(function () { return RD.skelPlot(skelFrame(cn, rawF), refName, name, lag, { ringSeries: ringS }); }),
         heatmap: safe(function () {
           var rll = RD.heatmapAnalysis(cn, { s1: refName, s2: name, neg_lag: -20, pos_lag: 20, center: lag, win: 21, complete: false });
           return RD.heatmapPlot(rll, { s1: refName, s2: name });
@@ -1248,6 +1275,15 @@
         stats: pairStats(cn, refName, name, lag),
         lag: lag
       };
+      // Say what the axis holds. linePlot and heatmapPlot both assume years,
+      // which is right against a dated chronology and a lie against another
+      // undated series, where every number on the axis is a ring count.
+      var xUnit = dated ? 'Year' : 'Ring';
+      if (out.line) out.line.xLabel = xUnit;
+      if (out.heatmap) out.heatmap.xLabel = xUnit;
+      // and let the stats header name the axis the same way (First/Last ring
+      // is a year once the reference is dated).
+      if (out.stats) out.stats.unit = dated ? 'year' : 'ring';
       return applyPlotTitles(out, masterLabel(ref.name || opts.chronName, refName), name, lag);
     }
 

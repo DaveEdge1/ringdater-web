@@ -588,6 +588,40 @@ const chronRunner = AppCore.ringTest({
   leadlag: { neg_lag: -20, pos_lag: 20, complete: true }
 });
 ok('ringTest accepts a chronology reference', chronRunner.total > 0 && typeof chronRunner.step === 'function');
+// A DATED reference dates the plots: the review sits on the chronology's own
+// calendar years, so the axis says where the corrected series falls in time
+// instead of counting rows.
+const chronRev = chronRunner.review({ type: 'insert', ring: 40 });
+const chronYears = compSmall.cols[0];
+ok('a dated chronology reference puts the review plots on its year axis',
+  chronRev.line.xLabel === 'Year' && chronRev.heatmap.xLabel === 'Year' &&
+  chronRev.stats.unit === 'year' && chronRev.line.linkSeries[0].unit === 'year' &&
+  chronRev.line.linkSeries[0].span[0] === chronYears[0] &&
+  chronRev.line.linkSeries[0].span[1] === chronYears[chronYears.length - 1],
+  'x ' + JSON.stringify(chronRev.line.scales.x.domain) + ', chronology ' +
+  JSON.stringify(chronRev.line.linkSeries[0].span));
+ok('...while the series being dated still counts its own rings',
+  chronRev.line.linkSeries[1].unit === 'ring' && chronRev.line.linkSeries[1].span[0] === 1,
+  JSON.stringify(chronRev.line.linkSeries[1].span));
+ok('...and an undated series reference keeps the ring axis on both',
+  rev.line.xLabel === 'Ring' && rev.heatmap.xLabel === 'Ring' && rev.stats.unit === 'ring' &&
+  rev.line.linkSeries.every(function (e) { return e.unit === 'ring'; }));
+// Naming the axis must not move the numbers: the same chronology stripped of
+// its years scores the edit identically, since a lag is a shift in rows.
+const compRings = {
+  names: compSmall.names,
+  cols: [compSmall.cols[0].map(function (v, i) { return i + 1; })].concat(compSmall.cols.slice(1))
+};
+const ringAxisRev = AppCore.ringTest({
+  undated: undated, series: 'sample_a',
+  reference: { kind: 'chron', frame: compRings, isDetrended: true },
+  detrend: detrendUI,
+  leadlag: { neg_lag: -20, pos_lag: 20, complete: true }
+}).review({ type: 'insert', ring: 40 });
+ok('a year axis and a ring axis score the same edit identically',
+  ringAxisRev.lag === chronRev.lag && ringAxisRev.stats.r === chronRev.stats.r &&
+  ringAxisRev.stats.overlap === chronRev.stats.overlap && ringAxisRev.stats.unit === 'ring',
+  'r ' + chronRev.stats.r.toFixed(6) + ' at lag ' + chronRev.lag + ' either way');
 // corrected-series export: the best edit applied to the raw values, as .rwl
 const corr = runner.corrected(best);
 ok('corrected() applies the edit to the raw series',
