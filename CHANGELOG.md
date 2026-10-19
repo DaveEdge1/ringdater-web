@@ -68,6 +68,22 @@ Then `git push --follow-tags`.
   its own ring index, neither aligned nor dated: crossdating has to reach its own answer without
   being handed yours, or the two agreeing would mean nothing.
 
+- **A zoomed plot keeps its window when the lag changes.** Every plot that zooms is rebuilt from
+  scratch whenever anything about it moves — a new lag, another candidate, one more approved series
+  — and the zoom lived in that render, so each of those threw the reader back out to the full
+  extent. That defeats the one thing the zoom is for here: changing the lag while zoomed in is HOW
+  you see whether two series sit together at that lag, and being unable to hold a decade on screen
+  while the red line slides is being unable to read the alignment at all.
+
+  A view now belongs to the plot rather than to the render. Each zoomable plot names what it is OF
+  — the pair in Explore, the candidate in the builder, the series under test in the ring test, the
+  built chronology — and its window is restored whenever that same plot is drawn again. A different
+  pair (or candidate, or series) is a different plot and opens at its full extent. Only a zoomed
+  view is kept: a plot sitting at home keeps no window, so after a double-click a new lag shows the
+  whole new extent instead of pinning the extent the old lag happened to have. Double-click still
+  resets, and loading data drops every remembered window, since a window over years that no longer
+  exist is not a view anyone asked for.
+
 - **The ring test's plots read in years when the reference is a dated chronology.** The review
   rebuilt both columns on a synthetic 1..n axis, so a chronology handed over its years and got ring
   counts back: the x axis counted rows, the hover cursor named a ring on the chronology as well as

@@ -11,6 +11,31 @@
   var active = null;     // drag context (module singleton; only one plot drags at a time)
   var rafPending = false;
 
+  // ---- remembered views ----------------------------------------------------
+  // A plot is rebuilt from scratch whenever anything about it changes — a new
+  // lag, a new candidate, another approved series — and the zoom used to live in
+  // the attach closure, so every one of those threw the reader back out to the
+  // full extent. That defeats the thing a zoom is for here: changing the lag
+  // while zoomed in is HOW you see whether two series sit together at that lag.
+  // So a view belongs to the plot, not to the render: callers pass a viewKey
+  // naming what the plot is OF (the pair, the candidate, the series under test),
+  // and the window is restored whenever that same plot is drawn again. A
+  // different key is a different plot and opens at home.
+  //
+  // Only a zoomed view is remembered. A plot sitting at its home extent keeps no
+  // entry, so it follows its data: after a double-click, a new lag widens the
+  // extent and the reader sees all of it, rather than being pinned to the extent
+  // the old lag happened to have.
+  var views = {};
+  function rememberView(key, xd, yd) {
+    if (key) views[key] = { xd: xd.slice(), yd: yd.slice() };
+  }
+  function forgetView(key) { if (key) delete views[key]; }
+  // Dropped wholesale when the data underneath every plot changes (a new pool,
+  // a restored session): a window over years that no longer exist is not a
+  // view the reader asked for.
+  function resetViews() { views = {}; }
+
   // ---- nearest-line hover tooltip (opt-in via opts.hoverLines) --------------
   // A shared, body-level tooltip. Lines are 0.5px wide, so a native <title> is
   // impossible to hover; instead we find the line closest to the cursor's y at
@@ -74,13 +99,16 @@
 
   function attachDataZoom(container, spec, renderSvg, opts) {
     var hoverLines = (opts && opts.hoverLines) || null;   // [{ name, x, y }] for the hover tooltip
+    var viewKey = (opts && opts.viewKey) || null;         // which plot this is, across re-renders
     // Only single-panel specs with numeric scales are data-zoomable; anything else
     // renders statically.
     if (!spec || !spec.scales || spec.panels) { container.innerHTML = renderSvg ? renderSvg(spec) : ''; return; }
     var W = spec.width, H = spec.height;
     var box = { left: M.left, right: W - M.right, top: M.top, bottom: H - M.bottom };
     var xHome = spec.scales.x.domain.slice(), yHome = spec.scales.y.domain.slice();
-    var xd = xHome.slice(), yd = yHome.slice();
+    var saved = viewKey ? views[viewKey] : null;
+    var xd = saved ? saved.xd.slice() : xHome.slice();
+    var yd = saved ? saved.yd.slice() : yHome.slice();
 
     function isHome() { return xd[0] === xHome[0] && xd[1] === xHome[1] && yd[0] === yHome[0] && yd[1] === yHome[1]; }
 
@@ -105,7 +133,9 @@
 
     function draw() {
       hideTip();
-      container.innerHTML = renderSvg(withView(spec, xd, yd, isHome()));
+      var home = isHome();
+      if (home) forgetView(viewKey); else rememberView(viewKey, xd, yd);
+      container.innerHTML = renderSvg(withView(spec, xd, yd, home));
       var svg = container.querySelector('svg');
       if (!svg) return;
       svg.style.cursor = active ? 'grabbing' : 'grab';
@@ -183,7 +213,10 @@
     document.addEventListener('mouseup', function () { active = null; });
   }
 
-  var API = { attachDataZoom: attachDataZoom, niceTicks: niceTicks };
+  var API = {
+    attachDataZoom: attachDataZoom, niceTicks: niceTicks,
+    resetViews: resetViews, forgetView: forgetView
+  };
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
   else window.PlotZoom = API;
 })();

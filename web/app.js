@@ -774,6 +774,9 @@
   $('setupExampleBtn').addEventListener('click', Actions.loadExample);
 
   function onDataChanged() {
+    // The pool just changed shape — series added, replaced, cleared — so any
+    // zoom held over the old data is stale. Plots reopen at their full extent.
+    PlotZoom.resetViews();
     refreshMeta();
     var names = state.undated ? AC.seriesNames(state.undated) : [];
     fillSelect($('target_select'), names, function (n) { return n; }, function (n) { return n; });
@@ -1629,7 +1632,11 @@
       area.appendChild(headerEl(plots.header, statsLine(plots.stats)));
       var zoomDiv = document.createElement('div');
       area.appendChild(zoomDiv);
-      PlotZoom.attachDataZoom(zoomDiv, plots.line, AC.RD.renderSvg);
+      // Keyed on the PAIR, not on the lag: changing the lag redraws this same
+      // plot, and a reader zoomed in on a decade changed the lag to watch that
+      // decade move. Switching pair (or view) is a different plot and opens at
+      // the full extent. Double-click still resets.
+      PlotZoom.attachDataZoom(zoomDiv, plots.line, AC.RD.renderSvg, { viewKey: 'explore:' + vs });
       plotSaveBar(area, 'line_' + vs);
       setMsg('plotMsg', 'Line plot for ' + vs + '.' + zoomHint, 'ok');
       return;
@@ -1638,7 +1645,7 @@
       area.appendChild(headerEl(plots.header, statsLine(plots.stats)));
       var lineDiv = document.createElement('div');
       area.appendChild(lineDiv);
-      if (plots.line) PlotZoom.attachDataZoom(lineDiv, plots.line, AC.RD.renderSvg);
+      if (plots.line) PlotZoom.attachDataZoom(lineDiv, plots.line, AC.RD.renderSvg, { viewKey: 'explore:' + vs });
       else lineDiv.innerHTML = '<p class="msg err">Line plot could not be built for ' + esc(vs) + '.</p>';
       var restSvg = AC.combinedPlot([plots.skeleton, plots.leadLagBar, plots.heatmap]);
       if (restSvg) { var restDiv = document.createElement('div'); restDiv.innerHTML = restSvg; area.appendChild(restDiv); }
@@ -1774,7 +1781,7 @@
     plotDiv.innerHTML = '';
     if (spec) {
       var d = document.createElement('div');
-      PlotZoom.attachDataZoom(d, spec, AC.RD.renderSvg);
+      PlotZoom.attachDataZoom(d, spec, AC.RD.renderSvg, { viewKey: 'composite_targets' });
       plotDiv.appendChild(d);
       plotSaveBar(plotDiv, 'composite_targets');
     } else {
@@ -2079,7 +2086,8 @@
     if (applyThis) applyThis.addEventListener('click', function () { applyAndRerun(exp); });
     var lineDiv = document.createElement('div');
     area.appendChild(lineDiv);
-    if (specs.line) PlotZoom.attachDataZoom(lineDiv, specs.line, AC.RD.renderSvg);
+    if (specs.line) PlotZoom.attachDataZoom(lineDiv, specs.line, AC.RD.renderSvg,
+      { viewKey: 'ringtest:' + (ringIter ? ringIter.base : '') });
     else lineDiv.innerHTML = '<p class="msg err">Line plot unavailable (thin overlap).</p>';
     var restDiv = document.createElement('div');
     var restSvg = AC.combinedPlot([specs.skeleton, specs.leadLagBar, specs.heatmap]);
@@ -2340,7 +2348,8 @@
     if (spec) {
       var bz = document.createElement('div');
       bc.appendChild(bz);
-      PlotZoom.attachDataZoom(bz, spec, AC.RD.renderSvg, { hoverLines: chronHoverLines(spec) });
+      PlotZoom.attachDataZoom(bz, spec, AC.RD.renderSvg,
+        { hoverLines: chronHoverLines(spec), viewKey: 'builder:chronology' });
       plotSaveBar(bc, 'built_chronology');
     } else {
       bc.innerHTML = '<p class="msg err">Not enough member series to plot yet.</p>';
@@ -2420,7 +2429,11 @@
     if (specs.line) {
       var zd = document.createElement('div');
       rl.appendChild(zd);
-      PlotZoom.attachDataZoom(zd, specs.line, AC.RD.renderSvg);
+      // Keyed on the candidate: the lag box redraws this plot on every
+      // keystroke, and previewing alternative alignments is the whole point of
+      // the control, so the window stays put while the red line moves.
+      PlotZoom.attachDataZoom(zd, specs.line, AC.RD.renderSvg,
+        { viewKey: 'builder:review:' + ($('candSel') ? $('candSel').value : '') });
     } else {
       rl.innerHTML = '<p class="msg err">Line overlay unavailable for this alignment (thin overlap).</p>';
     }
