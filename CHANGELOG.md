@@ -84,6 +84,20 @@ Then `git push --follow-tags`.
   resets, and loading data drops every remembered window, since a window over years that no longer
   exist is not a view anyone asked for.
 
+- **A correction can go back into the pool from the ring test.** Finding the missing ring was only
+  half of it: the pool still held the series as measured, so a run made straight after the test
+  crossdated the uncorrected copy, and the only way out was to download the .rwl and load it back.
+  The review now offers both honest readings of what a correction is. *Replace "X" in the pool* puts
+  the corrected widths back under the same name — it is the same tree, measured better — and *Add to
+  the pool as a new series* puts it in beside the original under the edit's own name
+  (`X+ring90`), for comparing the two. Adding says what it costs: two copies of one tree agree with
+  each other by construction, so one has to go before a run that is meant to mean anything.
+
+  An assigned dating moves with the correction rather than being left a year out: a ring inserted
+  (or merged away) inside a series shifts every ring OUTSIDE it, so the span is re-anchored on the
+  outermost ring — the one a collection date pins, and the one an inner correction cannot move —
+  and the first year moves instead. The message says so, and names the new first year.
+
 - **The ring test's plots read in years when the reference is a dated chronology.** The review
   rebuilt both columns on a synthetic 1..n axis, so a chronology handed over its years and got ring
   counts back: the x axis counted rows, the hover cursor named a ring on the chronology as well as

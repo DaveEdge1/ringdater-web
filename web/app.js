@@ -1967,6 +1967,50 @@
     step(true);
   };
 
+  // ---- taking a correction back into the pool -------------------------------
+  // A found ring is only half the job: the pool still holds the series as it was
+  // measured, so a run made right after the test crossdates the uncorrected
+  // copy. These put the corrected widths back where the series came from.
+  //
+  // The pool is a frame of raw widths on a ring axis — a dating never rides in
+  // its first column (see poolAdd) — so that is all a corrected series is.
+  function ringCorrectedFrame(name, values) {
+    var ring = [];
+    for (var i = 0; i < values.length; i++) ring.push(i + 1);
+    return { names: ['ring', name], cols: [ring, values.slice()] };
+  }
+  // An assigned dating cannot survive a changed ring count untouched: a ring
+  // inserted (or merged away) inside the series moves every ring OUTSIDE it by
+  // a year. The outermost ring is the one that keeps its year — it is what a
+  // collection date pins, and an inner ring is what the test just corrected —
+  // so the span is re-anchored there and the first year moves instead.
+  function ringCorrectedSpan(base, len) {
+    var m = state.meta && state.meta[base];
+    if (!m || m.firstYearInternal == null) return null;
+    if (m.lastYearInternal == null) return { firstYear: m.firstYearInternal, lastYear: null };
+    return { firstYear: m.lastYearInternal - (len - 1), lastYear: m.lastYearInternal };
+  }
+  function poolTakeCorrection(exp, asNew) {
+    if (!ringRunner || !ringIter) return;
+    var c, base = ringIter.base;
+    try { c = ringRunner.corrected(exp); }
+    catch (err) { setMsg('rt_msg', err.message, 'err'); return; }
+    var span = ringCorrectedSpan(base, c.values.length);
+    var res = asNew
+      ? Actions.addMeasuredSeries(ringCorrectedFrame(c.name, c.values), c.name, span ? [span] : null)
+      : Actions.updateMeasuredSeries(ringCorrectedFrame(base, c.values), base, span);
+    var note = res.message + ' Re-run the crossdate to use it.';
+    if (span) {
+      note += ' Its dating moved with it: the outermost ring keeps its year, so "' + res.id +
+        '" now starts in ' + span.firstYear + '.';
+    }
+    if (asNew) {
+      note += ' The pool now holds "' + base + '" and "' + res.id + '" both — two copies of one tree, which ' +
+        'agree with each other by construction, so drop one before a run you mean to trust.';
+    }
+    setMsg('rt_msg', note, 'ok');
+  }
+
   function num(v, dp) { return v == null ? '—' : String(Math.round(v * Math.pow(10, dp)) / Math.pow(10, dp)); }
   function editSentence(e) {
     return e.type === 'insert' ? 'a ring the tree never grew in front of ring ' + e.ring
@@ -2084,6 +2128,19 @@
     $('rt_dlBtn').addEventListener('click', function () { triggerDownload(ringRunner.correctedDownload(exp)); });
     var applyThis = $('rt_applyThisBtn');
     if (applyThis) applyThis.addEventListener('click', function () { applyAndRerun(exp); });
+    // Put the correction back in the pool. Replacing keeps the name, because it
+    // is the same tree measured better; adding keeps both, which is for
+    // comparing them rather than for running them. The baseline has nothing to
+    // carry unless earlier passes already corrected something.
+    if (exp || (ringIter && ringIter.edits.length)) {
+      var poolBar = document.createElement('p');
+      poolBar.innerHTML = '<button class="btn secondary" id="rt_poolReplaceBtn">Replace &quot;' +
+        esc(ringIter.base) + '&quot; in the pool</button> ' +
+        '<button class="btn ghost" id="rt_poolAddBtn">Add to the pool as a new series</button>';
+      area.appendChild(poolBar);
+      $('rt_poolReplaceBtn').addEventListener('click', function () { poolTakeCorrection(exp, false); });
+      $('rt_poolAddBtn').addEventListener('click', function () { poolTakeCorrection(exp, true); });
+    }
     var lineDiv = document.createElement('div');
     area.appendChild(lineDiv);
     if (specs.line) PlotZoom.attachDataZoom(lineDiv, specs.line, AC.RD.renderSvg,
