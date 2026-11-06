@@ -386,6 +386,18 @@ Then `git push --follow-tags`.
   option is offered only for the heatmap alone, since the combined view has no room for
   it. New `heatmapFull` / `heatmapSize` options on `AppCore.buildPlots`, a `heatmapSpan`
   and `scannedSpan` on its result, and `AppCore.scannedLagSpan(result, s1, s2)`.
+
+  Against a long chronology the full axis is thousands of lags squeezed into one plot
+  height, so it can also be read a window at a time: **Lag window** sets how many lags
+  are shown, and **▲ / ▼** step the window half its height along the scan, disabling at
+  either end. The window opens on the plotted lag and stays where it was moved when the
+  lag changes; a new pair reopens it on that pair's match. Its year axis zooms to the
+  cells in it — a short series overlaps only a strip of a long master at any one lag.
+  The running correlation over the whole scan (near a second for co662) is run once per
+  pair and kept, so a step only re-slices it: about 80 ms, and a 2 MB drawing instead
+  of 34 MB. New `heatmapWindow: {center, size}` option on `buildPlots`, with
+  `heatmapWindow` (where it landed, clamped) and `heatmapAvail` on the result, and a
+  `lagRange` option on `RD.heatmapPlot`.
 - **The app shell no longer scrolls away.** The header and the view rail (Home /
   Measure / Explore / Build) are pinned to the top and left of the viewport, and the
   Explore settings rail pins directly under the header. A results page runs to several

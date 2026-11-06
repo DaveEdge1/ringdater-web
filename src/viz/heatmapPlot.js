@@ -21,15 +21,30 @@ function heatmapPlot(plotData, opts = {}) {
   const selColPal = opts.sel_col_pal != null ? opts.sel_col_pal : 1;
   const colScale = colPal(selColPal);
 
-  const year = C.col(plotData, 0).map(Number);
-  const lag = C.col(plotData, 1).map(Number);
-  const rval = C.col(plotData, 2).map(v => (C.isNA(v) ? null : +v));
-  const colors = rval.map(v => valueToColor(v, colScale, [-1, 1]));
+  let year = C.col(plotData, 0).map(Number);
+  let lag = C.col(plotData, 1).map(Number);
+  let rval = C.col(plotData, 2).map(v => (C.isNA(v) ? null : +v));
+
+  // opts.lagRange [lo, hi]: draw only the lags in that window, on a lag axis
+  // that is exactly the window (not the lags in it that correlated). The year
+  // axis follows the cells that are left: it is a zoom, and against a long
+  // master a short series overlaps only a strip of the years at any one lag —
+  // on the whole analysis's year axis that strip is a sliver.
+  let lagLo = null, lagHi = null;
+  if (opts.lagRange) {
+    lagLo = Number(opts.lagRange[0]); lagHi = Number(opts.lagRange[1]);
+    const keep = [];
+    for (let i = 0; i < lag.length; i++) if (lag[i] >= lagLo && lag[i] <= lagHi) keep.push(i);
+    if (!keep.length) throw new Error('No lag in ' + lagLo + '…' + lagHi + ' has enough overlap to correlate');
+    year = keep.map(i => year[i]); lag = keep.map(i => lag[i]); rval = keep.map(i => rval[i]);
+  }
 
   // A loop, not Math.min(...xs): a long chronology scanned over every lag is
   // millions of cells, and spreading that many arguments overflows the stack.
   const [yMin, yMax] = extent(year);
-  const [lMin, lMax] = extent(lag);
+  let [lMin, lMax] = extent(lag);
+  if (lagLo != null) { lMin = lagLo; lMax = lagHi; }
+  const colors = rval.map(v => valueToColor(v, colScale, [-1, 1]));
 
   const spec = {
     type: 'heatmapPlot',

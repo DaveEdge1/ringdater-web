@@ -1710,6 +1710,30 @@
     if (!isFinite(lo) || !isFinite(hi)) return null;
     return flip ? { neg: -hi, pos: -lo } : { neg: lo, pos: hi };
   }
+  // The running correlation over a pair's whole lag scan — near a second for
+  // a long chronology — kept for the last pair asked about, so stepping the
+  // heatmap's lag window re-slices it instead of re-running it. Keyed on the
+  // result object itself: a new run is a new object, and the old one's entry
+  // goes with it.
+  var fullLagCache = typeof WeakMap === 'function' ? new WeakMap() : null;
+  function fullLagAnalysis(result, frame, s1, s2, span, win) {
+    var key = s1 + '\u0000' + s2 + '\u0000' + span.neg + '\u0000' + span.pos + '\u0000' + win;
+    var hit = fullLagCache && fullLagCache.get(result);
+    if (hit && hit.key === key && hit.frame === frame) return hit.value;
+    var rll = RD.heatmapAnalysis(frame, {
+      s1: s1, s2: s2, neg_lag: span.neg, pos_lag: span.pos, center: 0, win: win, complete: false
+    });
+    if (!rll) throw new Error('Insufficient overlap to perform running correlation analysis');
+    var lags = rll.cols[1], lo = Infinity, hi = -Infinity;
+    for (var i = 0; i < lags.length; i++) {
+      var v = Number(lags[i]);
+      if (v < lo) lo = v;
+      if (v > hi) hi = v;
+    }
+    var value = { frame: rll, lagMin: lo, lagMax: hi };
+    if (fullLagCache) fullLagCache.set(result, { key: key, frame: frame, value: value });
+    return value;
+  }
   function bestLagFor(result, s1, s2) {
     var cd = result && result.crossDatRes;
     if (!cd) return 0;
@@ -1946,13 +1970,39 @@
     // question a heatmap is for. Taller with more lag rows, so the rows stay
     // thick enough to read (capped, and the wrapper scrolls).
     var fullSpan = o.heatmapFull ? scannedLagSpan(result, s1, s2) : null;
-    var fullSize = fullSpan ? (o.heatmapSize || {
-      width: 1100,
-      height: Math.max(360, Math.min(820, Math.round((fullSpan.pos - fullSpan.neg) * 1.4) + 80))
-    }) : null;
+    // `heatmapWindow` {center, size}: of that full axis, show `size` lags
+    // around `center` — a zoom the host steps along the scan. The analysis
+    // behind it is the whole scan either way, run once per pair and kept (see
+    // fullLagAnalysis), so a step only re-slices it.
+    var fullHeat = null;
+    out.heatmapWindow = null; out.heatmapAvail = null;
+    if (fullSpan) {
+      fullHeat = safe(function () {
+        var rll = fullLagAnalysis(result, compFrame, s1, s2, fullSpan, corWin);
+        var avail = { neg: rll.lagMin, pos: rll.lagMax };
+        out.heatmapAvail = avail;
+        var w = o.heatmapWindow, range = null, rows = avail.pos - avail.neg + 1;
+        if (w && Number(w.size) >= 3 && Number(w.size) < rows) {
+          var size = Math.round(Number(w.size));
+          var c = w.center != null && isFinite(Number(w.center)) ? Number(w.center) : lag;
+          var lo = Math.round(c - (size - 1) / 2);
+          lo = Math.max(avail.neg, Math.min(avail.pos - size + 1, lo));
+          range = [lo, lo + size - 1];
+          out.heatmapWindow = { lo: range[0], hi: range[1], size: size, center: lo + (size - 1) / 2 };
+          rows = size;
+        }
+        // taller with more lag rows, so the rows stay thick enough to read
+        // (capped, and the wrapper scrolls)
+        var sz = o.heatmapSize || {
+          width: 1100, height: Math.max(360, Math.min(820, Math.round(rows * 1.4) + 80))
+        };
+        return RD.heatmapPlot(rll.frame, {
+          s1: s1, s2: s2, sel_col_pal: colScale, width: sz.width, height: sz.height, lagRange: range
+        });
+      });
+    }
     // a far-off best-lag center can leave too little overlap; fall back to the
     // chosen lag rather than rendering nothing
-    var fullHeat = fullSpan ? heatAt(fullSpan, fullSize) : null;
     out.heatmap = fullHeat ||
       heatAt(window20(hmCenter)) || (hmCenter !== lag ? heatAt(window20(lag)) : null);
     // whether the full axis is what got drawn, or the band stood in for it

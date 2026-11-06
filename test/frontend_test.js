@@ -109,6 +109,32 @@ ok('the full heatmap carries more cells and is taller',
 ok('the full heatmap renders', isSvg(AppCore.renderPlot(full.heatmap)));
 ok('the full heatmap says it is the full one, the band says it is not',
   full.heatmapIsFull === true && band.heatmapIsFull === false);
+// a lag window over the full axis: `size` lags around `center`, clamped to the
+// lags that correlated, its year axis zoomed to the cells it holds
+(function () {
+  const av = full.heatmapAvail;
+  ok('the full heatmap reports the lags that correlated', !!av && av.neg === full.heatmapSpan.neg && av.pos === full.heatmapSpan.pos,
+    av ? av.neg + ' … ' + av.pos : 'null');
+  const t0 = Date.now();
+  const w = AppCore.buildPlots(result, { pair: hmPair, lag: 0, heatmapFull: true, heatmapWindow: { center: 100, size: 41 } });
+  const dt = Date.now() - t0;
+  ok('a lag window shows exactly its 41 lags', !!w.heatmapWindow &&
+    w.heatmapWindow.lo === 80 && w.heatmapWindow.hi === 120 &&
+    w.heatmap.scales.y.domain[0] === 80 && w.heatmap.scales.y.domain[1] === 120,
+    JSON.stringify(w.heatmapWindow));
+  ok('every cell drawn lies inside the window',
+    w.heatmap.marks[0].y.every(function (l) { return l >= 80 && l <= 120; }) && w.heatmap.marks[0].y.length > 0);
+  ok('the window\'s year axis zooms to the cells in it',
+    w.heatmap.scales.x.domain[0] === Math.min.apply(null, w.heatmap.marks[0].x) &&
+    w.heatmap.scales.x.domain[1] === Math.max.apply(null, w.heatmap.marks[0].x));
+  ok('a window re-slices the kept analysis rather than re-running it', dt < 200, dt + ' ms');
+  const top = AppCore.buildPlots(result, { pair: hmPair, lag: 0, heatmapFull: true, heatmapWindow: { center: 10000, size: 41 } });
+  ok('a window past the end is clamped to the last lags that correlate',
+    top.heatmapWindow.hi === av.pos && top.heatmapWindow.lo === av.pos - 40, JSON.stringify(top.heatmapWindow));
+  const none = AppCore.buildPlots(result, { pair: hmPair, lag: 0, heatmapFull: true, heatmapWindow: { center: 0, size: 100000 } });
+  ok('a window wider than the scan shows all of it', none.heatmapWindow === null &&
+    none.heatmapSpan.neg === av.neg && none.heatmapSpan.pos === av.pos);
+})();
 // a long chronology over every lag is hundreds of thousands of cells — more
 // than Math.min(...xs) can spread onto the stack
 (function () {

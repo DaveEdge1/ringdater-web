@@ -1506,12 +1506,35 @@
   ['p_series1', 'p_series2'].forEach(function (id) {
     $(id).addEventListener('change', function () {
       if (state.result) $('p_lag').value = AC.bestLagFor(state.result, $('p_series1').value, $('p_series2').value);
+      hmCenter = null;          // a new pair opens its lag window on its own match
       renderPlots();
     });
   });
-  ['p_colscale', 'detrendSeriesSel', 'p_hmFull'].forEach(function (id) {
+  ['p_colscale', 'detrendSeriesSel', 'p_hmWin'].forEach(function (id) {
     $(id).addEventListener('change', renderPlots);
   });
+  $('p_hmFull').addEventListener('change', function () { syncPlotControls(); renderPlots(); });
+
+  // ---- heatmap lag window --------------------------------------------------
+  // The full lag axis of a long chronology is thousands of rows squeezed into
+  // one plot height, so it can be shown a window at a time: the box says how
+  // many lags, the arrows step it half a window up or down the scan. The
+  // window opens on the plotted lag and then stays where it was moved — the
+  // lag box changing is no reason to lose the stretch of scan being read
+  // (only a new pair is: hmCenter is reset there).
+  var hmCenter = null;
+  var hmLastWindow = null;      // what the last render actually showed (clamped)
+  function hmWindowSize() {
+    var n = Number($('p_hmWin').value);
+    return isFinite(n) && n >= 3 ? Math.round(n) : null;
+  }
+  function stepHeatmapWindow(dir) {
+    if (!hmLastWindow) return;
+    hmCenter = hmLastWindow.center + dir * Math.max(1, Math.floor(hmLastWindow.size / 2));
+    renderPlots();
+  }
+  $('p_hmUp').addEventListener('click', function () { stepHeatmapWindow(1); });
+  $('p_hmDown').addEventListener('click', function () { stepHeatmapWindow(-1); });
   $('p_which').addEventListener('change', function () { syncPlotControls(); renderPlots(); });
   $('p_lag').addEventListener('input', renderPlots);
 
@@ -1569,6 +1592,7 @@
     // the full lag axis is only offered where there is room for it: the
     // heatmap on its own, not the combined stack
     $('hmFullWrap').style.display = $('p_which').value === 'heatmap' ? '' : 'none';
+    $('hmWinWrap').style.display = $('p_which').value === 'heatmap' && $('p_hmFull').checked ? '' : 'none';
     syncFullSeriesBtn();
     syncDateAlign();          // ...after the blanket .pairCtl toggle above
   }
@@ -1659,10 +1683,13 @@
 
     var pair = [$('p_series1').value, $('p_series2').value];
     var hmFull = which === 'heatmap' && $('p_hmFull').checked;
+    var hmSize = hmFull ? hmWindowSize() : null;
     var plots = AC.buildPlots(state.result, {
       pair: pair, lag: Number($('p_lag').value) || 0, colorScale: $('p_colscale').value,
-      corWin: Number($('cor_win').value) || 21, heatmapFull: hmFull
+      corWin: Number($('cor_win').value) || 21, heatmapFull: hmFull,
+      heatmapWindow: hmSize ? { center: hmCenter, size: hmSize } : null
     });
+    syncHeatmapWindow(plots);
     area.innerHTML = '';
     var vs = pair[0] + ' vs ' + pair[1];
     var zoomHint = ' Scroll = zoom time (x); Shift+scroll = zoom width (y); Ctrl+scroll = both; drag = pan; double-click = reset.';
@@ -1712,9 +1739,20 @@
     var plotDiv = document.createElement('div');
     plotDiv.innerHTML = svg;
     area.appendChild(plotDiv);
-    plotSaveBar(area, (hmFull ? 'heatmap_fulllag' : which) + '_' + vs);
+    plotSaveBar(area, (hmFull ? 'heatmap_' + (plots.heatmapWindow
+      ? 'lags' + plots.heatmapWindow.lo + 'to' + plots.heatmapWindow.hi : 'fulllag') : which) + '_' + vs);
     setMsg('plotMsg', (which === 'heatmap' ? heatmapNote(plots, hmFull, vs)
       : 'Showing ' + which + ' for ' + vs + '.') + dateNote, 'ok');
+  }
+
+  // Remember where the window landed (buildPlots clamps it to the lags that
+  // correlated) and disable an arrow that has nowhere left to go.
+  function syncHeatmapWindow(plots) {
+    var w = plots && plots.heatmapWindow, av = plots && plots.heatmapAvail;
+    hmLastWindow = w || null;
+    if (w) hmCenter = w.center;
+    $('p_hmUp').disabled = !(w && av && w.hi < av.pos);
+    $('p_hmDown').disabled = !(w && av && w.lo > av.neg);
   }
 
   // What the heatmap's lag axis is covering, and what the other setting would
@@ -1725,6 +1763,12 @@
   }
   function heatmapNote(plots, full, vs) {
     var shown = 'Heatmap for ' + vs + ' — lag axis ' + lagSpanText(plots.heatmapSpan) + '. ';
+    if (full && plots.heatmapIsFull && plots.heatmapWindow) {
+      var w = plots.heatmapWindow;
+      return 'Heatmap for ' + vs + ' — lags ' + lagSpanText({ neg: w.lo, pos: w.hi }) + ' (' + w.size +
+        ' of ' + lagSpanText(plots.heatmapAvail) + ' that correlate). ▲ / ▼ move the window half its height; ' +
+        'clear the Lag window box to see them all.';
+    }
     if (full && plots.scannedSpan && plots.heatmapIsFull) {
       // Short series: lags out past the band leave fewer overlapping rings than
       // the correlation window, so the "full" axis can be no wider than the band.
@@ -1734,7 +1778,8 @@
           ($('cor_win').value || 21) + '-year correlation window, so they cannot be drawn.'
         : '';
       return shown + 'Every scanned lag with enough overlap to correlate (the scan ran ' +
-        lagSpanText(sc0) + '); each row is the running correlation at that lag.' + trimmed;
+        lagSpanText(sc0) + '); each row is the running correlation at that lag.' + trimmed +
+        ' Set a Lag window to zoom in and step along it.';
     }
     if (full && plots.scannedSpan) {
       return shown + 'The full lag range could not be drawn for this pair, so the band around the plotted lag is shown.';

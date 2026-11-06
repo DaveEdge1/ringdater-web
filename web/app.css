@@ -135,6 +135,10 @@ td.segchk { width: 24px; text-align: center !important; }
 .plot-header svg { display: block; max-width: 100%; height: auto; }
 .plot-controls { display: flex; flex-wrap: wrap; gap: 12px 18px; align-items: flex-end; margin-bottom: 12px; }
 .plot-controls > div { min-width: 150px; }
+/* heatmap lag window: a short number box with step arrows beside it */
+.hmWinCtl { display: flex; gap: 4px; align-items: center; }
+.hmWinCtl input { width: 80px; }
+.hmWinCtl .hmStep { padding: 4px 10px; line-height: 1; }
 
 .dl-list { list-style: none; padding: 0; margin: 8px 0 0; }
 .dl-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 6px; margin-bottom: 7px; background: #fff; }
