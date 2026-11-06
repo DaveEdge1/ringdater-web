@@ -1725,9 +1725,19 @@
   }
   function heatmapNote(plots, full, vs) {
     var shown = 'Heatmap for ' + vs + ' — lag axis ' + lagSpanText(plots.heatmapSpan) + '. ';
-    if (full && plots.scannedSpan) {
+    if (full && plots.scannedSpan && plots.heatmapIsFull) {
+      // Short series: lags out past the band leave fewer overlapping rings than
+      // the correlation window, so the "full" axis can be no wider than the band.
+      var hs = plots.heatmapSpan, sc0 = plots.scannedSpan;
+      var trimmed = hs && (hs.neg > sc0.neg || hs.pos < sc0.pos)
+        ? ' Lags outside ' + lagSpanText(hs) + ' overlap by fewer rings than the ' +
+          ($('cor_win').value || 21) + '-year correlation window, so they cannot be drawn.'
+        : '';
       return shown + 'Every scanned lag with enough overlap to correlate (the scan ran ' +
-        lagSpanText(plots.scannedSpan) + '); each row is the running correlation at that lag.';
+        lagSpanText(sc0) + '); each row is the running correlation at that lag.' + trimmed;
+    }
+    if (full && plots.scannedSpan) {
+      return shown + 'The full lag range could not be drawn for this pair, so the band around the plotted lag is shown.';
     }
     // no lead-lag block for this pair (a segment, say) — nothing to widen to
     if (full) return shown + 'The lag scan is not recorded for this pair, so the band around the plotted lag is shown.';

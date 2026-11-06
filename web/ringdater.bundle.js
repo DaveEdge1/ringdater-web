@@ -4599,6 +4599,12 @@ const C = require('../analysis/comb.js');
 const { xScaleBar, yScaleBar, colPal } = require('./chartUtils.js');
 const { toSVG, roundR, valueToColor } = require('./render.js');
 
+function extent(xs) {
+  let lo = Infinity, hi = -Infinity;
+  for (let i = 0; i < xs.length; i++) { if (xs[i] < lo) lo = xs[i]; if (xs[i] > hi) hi = xs[i]; }
+  return [lo, hi];
+}
+
 function heatmapPlot(plotData, opts = {}) {
   if (plotData == null) throw new Error('Insufficient overlap to perform running correlation analysis');
   const s1 = opts.s1, s2 = opts.s2;
@@ -4610,8 +4616,10 @@ function heatmapPlot(plotData, opts = {}) {
   const rval = C.col(plotData, 2).map(v => (C.isNA(v) ? null : +v));
   const colors = rval.map(v => valueToColor(v, colScale, [-1, 1]));
 
-  const yMin = Math.min(...year), yMax = Math.max(...year);
-  const lMin = Math.min(...lag), lMax = Math.max(...lag);
+  // A loop, not Math.min(...xs): a long chronology scanned over every lag is
+  // millions of cells, and spreading that many arguments overflows the stack.
+  const [yMin, yMax] = extent(year);
+  const [lMin, lMax] = extent(lag);
 
   const spec = {
     type: 'heatmapPlot',

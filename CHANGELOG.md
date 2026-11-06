@@ -344,6 +344,13 @@ Then `git push --follow-tags`.
   `rings`/`reference`/`lastPosition` so a saved state comes back exactly as it was.
 
 ### Fixed
+- **Full lag range did nothing against a long chronology.** The heatmap took its axis ends with
+  `Math.min(...cells)`, and a long master scanned over every lag is hundreds of thousands of cells
+  (co662, 1,802 years, against one remnant: 338,578) — more arguments than the stack holds. The
+  throw was caught and the ±20 band drawn in its place, so ticking the box changed nothing on
+  screen while the note claimed the full range. The ends are now found with a loop, `buildPlots`
+  reports `heatmapIsFull`, and the note says when the band is standing in for the full axis and
+  which lags were too thinly overlapped to draw.
 - **Tree grouping collapsed series that only looked like cores of one tree.** Inferring trees by
   stripping a trailing letter is only the ITRDB convention when what remains ends in a tree
   *number*; without that guard `sample_a`…`sample_j` became the single tree `sample_`, and EPS was

@@ -1952,8 +1952,11 @@
     }) : null;
     // a far-off best-lag center can leave too little overlap; fall back to the
     // chosen lag rather than rendering nothing
-    out.heatmap = (fullSpan && heatAt(fullSpan, fullSize)) ||
+    var fullHeat = fullSpan ? heatAt(fullSpan, fullSize) : null;
+    out.heatmap = fullHeat ||
       heatAt(window20(hmCenter)) || (hmCenter !== lag ? heatAt(window20(lag)) : null);
+    // whether the full axis is what got drawn, or the band stood in for it
+    out.heatmapIsFull = !!fullHeat;
     // What the lag axis ended up covering, so the host can say so. It is the
     // range that produced correlations, not the range asked for: lags far
     // enough out leave fewer than `win` overlapping rings and drop out.

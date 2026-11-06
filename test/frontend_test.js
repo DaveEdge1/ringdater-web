@@ -107,6 +107,19 @@ ok('the full heatmap carries more cells and is taller',
   full.heatmap.marks[0].x.length + ' cells at ' + full.heatmap.width + 'x' + full.heatmap.height +
   ' vs ' + band.heatmap.marks[0].x.length + ' at ' + band.heatmap.width + 'x' + band.heatmap.height);
 ok('the full heatmap renders', isSvg(AppCore.renderPlot(full.heatmap)));
+ok('the full heatmap says it is the full one, the band says it is not',
+  full.heatmapIsFull === true && band.heatmapIsFull === false);
+// a long chronology over every lag is hundreds of thousands of cells — more
+// than Math.min(...xs) can spread onto the stack
+(function () {
+  const n = 400000, yr = [], lg = [], rv = [];
+  for (let i = 0; i < n; i++) { yr.push(200 + (i % 1800)); lg.push(-188 + Math.floor(i / 1800)); rv.push(0.1); }
+  let spec = null, err = '';
+  try { spec = RD.heatmapPlot({ names: ['year', 'lag', 'R val'], cols: [yr, lg, rv] }, { s1: 'a', s2: 'b' }); }
+  catch (e) { err = e.message; }
+  ok('a heatmap of 400k cells builds without overflowing the stack',
+    !!spec && spec.scales.y.domain[0] === -188 && spec.scales.x.domain[1] === 1999, err);
+})();
 ok('an explicit size overrides the default',
   AppCore.buildPlots(result, { pair: hmPair, heatmapFull: true, heatmapSize: { width: 900, height: 500 } })
     .heatmap.width === 900);
