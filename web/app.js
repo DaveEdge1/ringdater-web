@@ -1515,6 +1515,46 @@
   $('p_which').addEventListener('change', function () { syncPlotControls(); renderPlots(); });
   $('p_lag').addEventListener('input', renderPlots);
 
+  // ---- aligning by date ----------------------------------------------------
+  // A lag is a shift in rings, which is the only thing an undated pair can be
+  // aligned by. Against a DATED chronology there are two more names for the
+  // same alignment — the year series 2's first ring falls on, and the year its
+  // last ring does — and they are usually the ones an operator actually holds:
+  // the year a core was collected (its outermost ring), or a pith date from an
+  // earlier dating. So the lag box is joined by a first-year and a last-year
+  // box; type into any one and the other two follow, because all three say one
+  // thing. They appear only in chronology mode: the undated pool's own first
+  // column is an increment axis whatever numbers the file put in it, so dating
+  // against another undated series would be dating against nothing.
+  function dateAlignFrame() { return state.result ? AC.comparisonFrame(state.result) : null; }
+  function dateAlignable() {
+    return !!(state.result && Number(state.result.mode) === 2 && $('p_which').value !== 'detrend' &&
+      AC.alignmentSpan(dateAlignFrame(), $('p_series2').value, 0));
+  }
+  // Both boxes read back out of the current lag, so they also serve as the
+  // answer to "where does this series now sit in time".
+  function syncDateAlign() {
+    var on = dateAlignable();
+    $('p_firstYearWrap').style.display = on ? '' : 'none';
+    $('p_lastYearWrap').style.display = on ? '' : 'none';
+    if (!on) return;
+    var span = AC.alignmentSpan(dateAlignFrame(), $('p_series2').value, Number($('p_lag').value) || 0);
+    if (!span) return;
+    $('p_firstYear').value = span.firstYear;
+    $('p_lastYear').value = span.lastYear;
+  }
+  // A year is taken on change (Enter or leaving the box), not on every
+  // keystroke: half a year typed is a wild alignment nobody asked to see.
+  [['p_firstYear', 'first'], ['p_lastYear', 'last']].forEach(function (box) {
+    $(box[0]).addEventListener('change', function () {
+      if (!dateAlignable()) return;
+      var lag = AC.lagForYear(dateAlignFrame(), $('p_series2').value, $(box[0]).value, box[1]);
+      if (lag == null) { syncDateAlign(); setMsg('plotMsg', 'That did not read as a year.', 'err'); return; }
+      $('p_lag').value = lag;
+      renderPlots();
+    });
+  });
+
   Actions.setPlotType = function (which) {
     $('p_which').value = which;
     syncPlotControls();
@@ -1530,6 +1570,7 @@
     // heatmap on its own, not the combined stack
     $('hmFullWrap').style.display = $('p_which').value === 'heatmap' ? '' : 'none';
     syncFullSeriesBtn();
+    syncDateAlign();          // ...after the blanket .pairCtl toggle above
   }
   // "Review full series at this lag": shown while a plotted series is a
   // segment — swaps in the complete series at the equivalent lag, so a
@@ -1602,6 +1643,7 @@
   function renderPlots() {
     if (!state.result) return;
     syncFullSeriesBtn();
+    syncDateAlign();
     var which = $('p_which').value;
     var area = $('plotArea');
 
@@ -1624,6 +1666,13 @@
     area.innerHTML = '';
     var vs = pair[0] + ' vs ' + pair[1];
     var zoomHint = ' Scroll = zoom time (x); Shift+scroll = zoom width (y); Ctrl+scroll = both; drag = pan; double-click = reset.';
+    // Against a dated chronology, say where this lag has actually put series 2.
+    // Its own span, pith to bark — not the window the pair was scored over,
+    // which the stats line above the plot already gives and which stops where
+    // the chronology's years stop.
+    var dspan = dateAlignable()
+      ? AC.alignmentSpan(dateAlignFrame(), pair[1], Number($('p_lag').value) || 0) : null;
+    var dateNote = dspan ? ' ' + pair[1] + ' is dated ' + dspan.firstYear + '–' + dspan.lastYear + ' here.' : '';
 
     // The line plot (first plot / crossdate overlay) is interactive: data-domain
     // zoom + pan with crisp, regenerating axes. Other plots stay static.
@@ -1638,7 +1687,7 @@
       // the full extent. Double-click still resets.
       PlotZoom.attachDataZoom(zoomDiv, plots.line, AC.RD.renderSvg, { viewKey: 'explore:' + vs });
       plotSaveBar(area, 'line_' + vs);
-      setMsg('plotMsg', 'Line plot for ' + vs + '.' + zoomHint, 'ok');
+      setMsg('plotMsg', 'Line plot for ' + vs + '.' + dateNote + zoomHint, 'ok');
       return;
     }
     if (which === 'combined') {
@@ -1654,7 +1703,7 @@
       // plot never cross-links.
       if (restSvg && plots.line) PlotLink.linkYearHover([lineDiv, restDiv]);
       plotSaveBar(area, 'combined_' + vs);
-      setMsg('plotMsg', 'Combined for ' + vs + '. The line plot zooms/pans —' + zoomHint, 'ok');
+      setMsg('plotMsg', 'Combined for ' + vs + '.' + dateNote + ' The line plot zooms/pans —' + zoomHint, 'ok');
       return;
     }
     var svg = AC.renderPlot(plots[which]);
@@ -1664,8 +1713,8 @@
     plotDiv.innerHTML = svg;
     area.appendChild(plotDiv);
     plotSaveBar(area, (hmFull ? 'heatmap_fulllag' : which) + '_' + vs);
-    setMsg('plotMsg', which === 'heatmap' ? heatmapNote(plots, hmFull, vs)
-      : 'Showing ' + which + ' for ' + vs + '.', 'ok');
+    setMsg('plotMsg', (which === 'heatmap' ? heatmapNote(plots, hmFull, vs)
+      : 'Showing ' + which + ' for ' + vs + '.') + dateNote, 'ok');
   }
 
   // What the heatmap's lag axis is covering, and what the other setting would

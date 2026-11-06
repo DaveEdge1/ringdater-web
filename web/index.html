@@ -324,6 +324,16 @@
               <div class="pairCtl"><label for="p_series1">Series 1</label><select id="p_series1"></select></div>
               <div class="pairCtl"><label for="p_series2">Series 2</label><select id="p_series2"></select></div>
               <div class="pairCtl"><label for="p_lag">Line-plot lag</label><input type="number" id="p_lag" value="0" step="1"></div>
+              <div class="pairCtl" id="p_firstYearWrap" style="display:none">
+                <label for="p_firstYear">First year</label>
+                <input type="number" id="p_firstYear" step="1"
+                  title="The year series 2's first ring falls on at this alignment. Type a year (then Enter) to align by date instead of by lag — the lag follows.">
+              </div>
+              <div class="pairCtl" id="p_lastYearWrap" style="display:none">
+                <label for="p_lastYear">Last year</label>
+                <input type="number" id="p_lastYear" step="1"
+                  title="The year series 2's last ring falls on at this alignment — a collection year, say. Type a year (then Enter) to align by date instead of by lag.">
+              </div>
               <div class="pairCtl" id="fullSeriesWrap" style="display:none">
                 <button class="btn secondary" id="fullSeriesBtn" title="Swap the segment for its complete series, keeping this alignment">Review full series at this lag</button>
               </div>

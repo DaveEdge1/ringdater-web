@@ -1805,6 +1805,81 @@
     return base ? base + ' ' + TARGET : s1;
   }
 
+  // ---- naming an alignment by date ------------------------------------------
+  // In chronology mode the comparison frame's axis IS the chronology's calendar
+  // years, and the series being dated sits on it at `lag` — linePlot draws it
+  // there, leadLag scored it there. So one alignment has three names that all
+  // say the same thing: the lag, the year the series' FIRST ring falls on, and
+  // the year its LAST ring falls on. An operator has whichever of the three
+  // they were given — a lag from a crossdate, a collection year off the bark, a
+  // pith date from an earlier dating — so these convert between them and the UI
+  // can take any one of them.
+  //
+  // Years are COUNTED FROM THE AXIS START rather than read out of the axis
+  // column, because that column runs out: the pool series are longer than the
+  // chronology, so the frame has rows the chronology has no year for and the
+  // axis column ends in nulls. A ring past the chronology's last year still
+  // falls on a year — dating a live-collected series against an older
+  // chronology is the ordinary case — and the calendar simply continues, so the
+  // year of a row is axis[0] + row. Only the DATED PREFIX has to be a
+  // contiguous run of whole years, which is checked: a gappy axis would
+  // mis-date every row after the gap.
+  //
+  // Whether the axis is a calendar at all is the caller's to know (chronology
+  // mode: yes, by construction; the undated pool's own first column: no, it is
+  // an increment axis whatever numbers a file put in it).
+  function axisYear0(frame) {
+    if (!frame || !frame.cols || !frame.cols.length) return null;
+    var axis = frame.cols[0];
+    if (!axis || axis.length < 2 || bad(axis[0])) return null;
+    var y0 = Number(axis[0]);
+    if (Math.round(y0) !== y0) return null;
+    for (var r = 1; r < axis.length; r++) {
+      if (bad(axis[r])) break;                       // the dated prefix ends here
+      if (Number(axis[r]) !== y0 + r) return null;   // a gap: not a calendar run
+    }
+    return y0;
+  }
+  // The rows one series actually occupies in a frame (first and last value).
+  function seriesRows(frame, series) {
+    var i = frame && frame.names ? frame.names.indexOf(series) : -1;
+    if (i < 1) return null;
+    var col = frame.cols[i], first = -1, last = -1;
+    for (var r = 0; r < col.length; r++) if (!bad(col[r])) { if (first < 0) first = r; last = r; }
+    return first < 0 ? null : { first: first, last: last };
+  }
+  // alignmentSpan(frame, series, lag) -> { firstYear, lastYear, rows, lag } | null
+  // Where `series` begins and ends in calendar time at this lag. This is the
+  // series' OWN span, which is not pairStats' First/Last ring: that pair is the
+  // window the two series were SCORED over, so it stops where the chronology's
+  // years stop. A series can stick out past the end of the master and still be
+  // dated — see above.
+  function alignmentSpan(frame, series, lag) {
+    var y0 = axisYear0(frame), rows = seriesRows(frame, series);
+    if (y0 == null || !rows) return null;
+    var L = Math.round(Number(lag) || 0);
+    return {
+      firstYear: y0 + rows.first + L, lastYear: y0 + rows.last + L,
+      rows: rows.last - rows.first + 1, lag: L
+    };
+  }
+  // lagForYear(frame, series, year, which) -> the lag that puts `series`' first
+  // ('first', the default) or last ('last') ring on `year`; null when the frame
+  // cannot be dated or the year will not read as a whole number.
+  function lagForYear(frame, series, year, which) {
+    var y0 = axisYear0(frame), rows = seriesRows(frame, series);
+    if (y0 == null || !rows) return null;
+    var y = Number(year);
+    if (year === '' || year == null || !isFinite(y)) return null;
+    return Math.round(y) - (y0 + (which === 'last' ? rows.last : rows.first));
+  }
+  // The frame the two-series plots (and every lag on them) are measured on, so
+  // a host can convert a lag to a date against the same rows buildPlots uses.
+  function comparisonFrame(result) {
+    if (!result) return null;
+    return Number(result.mode) === 2 ? result.chronNSeries : result.detrended;
+  }
+
   function buildPlots(result, o) {
     o = o || {};
     var mode = Number(result.mode) === 2 ? 2 : 1;
@@ -1821,7 +1896,7 @@
     // mean_chronology + undated series. The `lag` then shifts series 2 to the
     // crossdate alignment, so all four two-series plots share one lag convention.
     // (Using the pre-aligned `aligned` frame here double-shifts the line plot.)
-    var compFrame = mode === 2 ? result.chronNSeries : result.detrended;
+    var compFrame = comparisonFrame(result);
     var lineFrame = compFrame;
     var pn = compFrame && compFrame.names ? compFrame.names : [];
     var target = result.target || (mode === 2 ? 'mean_chronology' : pn[1]);
@@ -2460,6 +2535,7 @@
     fmtCell: fmtCell,
     buildPlots: buildPlots, renderPlot: renderPlot, combinedPlot: combinedPlot,
     bestLagFor: bestLagFor,
+    comparisonFrame: comparisonFrame, alignmentSpan: alignmentSpan, lagForYear: lagForYear,
     scannedLagSpan: scannedLagSpan,
     fmtP: fmtP,
     newBuilder: newBuilder, builderReview: builderReview, builderPlots: builderPlots,

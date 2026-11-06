@@ -117,6 +117,30 @@ Then `git push --follow-tags`.
   back to ring numbering.
 
 ### Added
+- **An alignment can be named by date, not only by lag, against a dated chronology.** A lag is a
+  shift in rings, which is the only thing an undated pair can be aligned by — but against a
+  chronology it is rarely the number anyone holds. What an operator has is a date: the year a core
+  was collected, which its outermost ring carries, or a pith date from an earlier dating. Explore's
+  plot controls now put **First year** and **Last year** beside the lag box in chronology mode.
+  Type into any one of the three and the other two follow, because all three say one thing: the lag
+  is where the series sits, and the two years are where its first and last rings land there. Both
+  boxes read back out of the current lag as well, so they answer "where is this series now in
+  time?" without being typed into, and the plot's note under the controls says the span in words.
+
+  The years are counted on from the axis start, not read out of the axis column, because that
+  column runs out: the pool series are longer than the chronology, so the comparison frame has rows
+  the chronology has no year for. A ring past the master's last year still falls on a year — dating
+  a live-collected core against an older chronology is the ordinary case — so the calendar simply
+  continues. Only the dated prefix has to be a contiguous run of whole years, which is checked: a
+  gappy axis would mis-date every row after the gap, so it is refused and the lag stands alone.
+  Note that this span is the series' own, pith to bark, and so is not the *First/Last ring* on the
+  stats line above the plot: that pair is the window the two were SCORED over, which stops where
+  the chronology's years stop.
+
+  The boxes appear in chronology mode only. The undated pool's first column is an increment axis
+  whatever numbers a file happened to put in it, so offering to date a series against another
+  undated one would be offering to date it against nothing.
+
 - **A way out of the whole sitting on the Measure page.** *Discard series* took only the series being
   measured, and the header's *Clear data* deliberately leaves the stage alone — a sitting is the one
   thing in the app that exists nowhere else until it is saved, so a button pressed to start a new

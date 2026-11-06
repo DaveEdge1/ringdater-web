@@ -417,6 +417,86 @@ ok('the skeleton plot counts the same rings',
   compPlots.skeleton.panels[0].linkSeries[0].unit === 'year',
   JSON.stringify(compPlots.skeleton.panels[0].linkSeries));
 
+// 9a2. an alignment named by date, not by lag ----------------------------------
+// Against a dated chronology the lag has two other names — the year series 2's
+// first ring falls on, and the year its last ring does — and the UI lets any of
+// the three be typed. All three have to mean exactly one alignment.
+const cmpFrame = AppCore.comparisonFrame(compResult);
+ok('comparisonFrame is the frame the plots and lags are measured on',
+  cmpFrame === compResult.chronNSeries && AppCore.comparisonFrame({ mode: 1, detrended: undated }) === undated);
+const span0 = AppCore.alignmentSpan(cmpFrame, names[0], 0);
+ok('alignmentSpan dates a series at lag 0 from the chronology axis',
+  span0 && span0.firstYear === cmpFrame.cols[0][0] &&
+  span0.lastYear === span0.firstYear + span0.rows - 1,
+  JSON.stringify(span0));
+ok('...and a lag slides the whole span by that many years',
+  (function () {
+    const s7 = AppCore.alignmentSpan(cmpFrame, names[0], 7);
+    const sNeg = AppCore.alignmentSpan(cmpFrame, names[0], -31);
+    return s7.firstYear === span0.firstYear + 7 && s7.lastYear === span0.lastYear + 7 &&
+      sNeg.firstYear === span0.firstYear - 31 && s7.rows === span0.rows;
+  })());
+// the round trip: a year in, the lag that puts it there, the same year back out
+ok('lagForYear and alignmentSpan are inverses, at either end',
+  (function () {
+    return [1312, 1000, 1987, -44].every(function (y) {
+      const lf = AppCore.lagForYear(cmpFrame, names[0], y, 'first');
+      const ll = AppCore.lagForYear(cmpFrame, names[0], y, 'last');
+      return AppCore.alignmentSpan(cmpFrame, names[0], lf).firstYear === y &&
+        AppCore.alignmentSpan(cmpFrame, names[0], ll).lastYear === y;
+    });
+  })());
+ok('a date and the lag it implies place the series identically',
+  (function () {
+    const lag = AppCore.lagForYear(cmpFrame, names[0], 1850, 'last');
+    const byLag = AppCore.buildPlots(compResult, { pair: ['mean_chronology', names[0]], lag: lag });
+    const st = byLag.stats;
+    const sp = AppCore.alignmentSpan(cmpFrame, names[0], lag);
+    // the series ends in 1850; the SCORED window stops where the chronology's
+    // years do, so pairStats' last ring is that year or earlier, never later
+    return sp.lastYear === 1850 && st.lastRing <= 1850 && st.firstRing >= sp.firstYear;
+  })());
+// A series can stick out past the end of the master and still be dated: the
+// axis column has no year for those rows, so the years are counted on from the
+// axis start rather than read out of it. (A live-collected core against an
+// older chronology is the ordinary case, so it is built here rather than waited
+// for: a column with a value on the frame's very last row.)
+ok('a ring past the end of the chronology still gets a year',
+  (function () {
+    const axis = cmpFrame.cols[0];
+    const dated = axis.filter(function (v) { return v != null; }).length;
+    if (dated >= axis.length) return false;        // no undated rows: the fixture is wrong
+    const tail = new Array(axis.length).fill(null);
+    tail[0] = 1; tail[axis.length - 1] = 1;
+    const withTail = { names: cmpFrame.names.concat(['sticks_out']), cols: cmpFrame.cols.concat([tail]) };
+    const sp = AppCore.alignmentSpan(withTail, 'sticks_out', 0);
+    // last row is undated on the axis, so its year is counted on from axis[0]
+    return axis[axis.length - 1] == null &&
+      sp.firstYear === axis[0] && sp.lastYear === axis[0] + axis.length - 1 &&
+      sp.lastYear > axis[dated - 1] &&
+      AppCore.lagForYear(withTail, 'sticks_out', 2024, 'last') ===
+        2024 - (axis[0] + axis.length - 1);
+  })(),
+  'axis has years to ' + cmpFrame.cols[0].filter(function (v) { return v != null; }).pop() +
+  ' and ' + (cmpFrame.cols[0].length - cmpFrame.cols[0].filter(function (v) { return v != null; }).length) +
+  ' rows past that');
+ok('an unreadable year, or a series that is not there, is refused rather than guessed',
+  AppCore.lagForYear(cmpFrame, names[0], '', 'first') === null &&
+  AppCore.lagForYear(cmpFrame, names[0], 'eighteen fifty', 'first') === null &&
+  AppCore.lagForYear(cmpFrame, 'no_such_series', 1850, 'first') === null &&
+  AppCore.alignmentSpan(cmpFrame, 'no_such_series', 0) === null &&
+  AppCore.alignmentSpan(null, names[0], 0) === null);
+// a gappy axis cannot be counted on, so it is not read as a calendar
+ok('a gappy year axis is refused (it would mis-date every row after the gap)',
+  (function () {
+    const gappy = {
+      names: cmpFrame.names,
+      cols: [cmpFrame.cols[0].map(function (v, i) { return v == null ? null : v + (i > 50 ? 9 : 0); })]
+        .concat(cmpFrame.cols.slice(1))
+    };
+    return AppCore.alignmentSpan(gappy, names[0], 0) === null;
+  })());
+
 // 9b. already-detrended data is not detrended twice -----------------------------
 // The engine detrends whatever it is handed. A run now looks first: series that
 // are already indices are carried through as they are (src/detrend/detect.js
